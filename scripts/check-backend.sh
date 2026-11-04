@@ -1737,8 +1737,173 @@ task_13() {
   stop_api
 }
 
+write_error_probes() { # write_error_probes <backend-src-folder>
+  mkdir -p "$1/Kanabol.Application/Features/Probe" "$1/Kanabol.Api/Controllers"
+  cat >"$1/Kanabol.Application/Features/Probe/ProbeCommand.cs" <<'CS'
+using FluentValidation;
+using Kanabol.Application.Abstractions.Messaging;
+using Kanabol.Application.Common;
+
+namespace Kanabol.Application.Features.Probe;
+
+public sealed record ProbeCommand(string UserName) : ICommand<Unit>;
+
+public sealed class ProbeCommandValidator : AbstractValidator<ProbeCommand>
+{
+    public ProbeCommandValidator() => RuleFor(c => c.UserName).NotEmpty();
+}
+
+public sealed class ProbeCommandHandler : ICommandHandler<ProbeCommand, Unit>
+{
+    public Task<Result<Unit>> Handle(ProbeCommand command, CancellationToken ct) =>
+        Task.FromResult<Result<Unit>>(Unit.Value);
+}
+CS
+  cat >"$1/Kanabol.Api/Controllers/ProbeController.cs" <<'CS'
+using Kanabol.Api.Errors;
+using Kanabol.Application.Abstractions.Messaging;
+using Kanabol.Application.Common;
+using Kanabol.Application.Features.Probe;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Kanabol.Api.Controllers;
+
+public sealed record ProbeValue(string Greeting);
+
+[ApiController]
+[Route("api/probe")]
+public sealed class ProbeController(ICommandHandler<ProbeCommand, Unit> handler) : ControllerBase
+{
+    [HttpGet("value")]
+    public IActionResult Value() => ((Result<ProbeValue>)new ProbeValue("hello")).ToActionResult();
+
+    [HttpGet("unit")]
+    public IActionResult UnitValue() => ((Result<Unit>)Unit.Value).ToActionResult();
+
+    [HttpGet("plain")]
+    public IActionResult Plain() => Result.Success().ToActionResult();
+
+    [HttpGet("created")]
+    public IActionResult MadeOne() => ((Result<ProbeValue>)new ProbeValue("made")).ToCreatedResult("/api/probe/1");
+
+    [HttpGet("not-found")]
+    public IActionResult Missing() => ((Result<string>)Error.NotFound("Probe.NotFound", "No such thing.")).ToActionResult();
+
+    [HttpGet("conflict")]
+    public IActionResult Clash() => Result.Failure(Error.Conflict("Probe.Conflict", "It clashed.")).ToActionResult();
+
+    [HttpGet("forbidden")]
+    public IActionResult Refused() => Result.Failure(Error.Forbidden("Probe.Forbidden", "Not yours.")).ToActionResult();
+
+    [HttpGet("unauthorized")]
+    public IActionResult NoUser() => Result.Failure(Error.Unauthorized("Probe.Unauthorized", "Sign in.")).ToActionResult();
+
+    [HttpGet("failure")]
+    public IActionResult Broken() => Result.Failure(Error.Failure("Probe.Failure", "It broke.")).ToActionResult();
+
+    [HttpGet("throw")]
+    public IActionResult Throws() => throw new InvalidOperationException("secret detail");
+
+    [HttpGet("bound")]
+    public IActionResult Bound([FromQuery] int number) => Ok(number);
+
+    [HttpPost("command")]
+    public async Task<IActionResult> Run([FromQuery] string? userName, CancellationToken ct) =>
+        (await handler.Handle(new ProbeCommand(userName ?? ""), ct)).ToActionResult();
+}
+CS
+}
+
+call_api() { # call_api <method> <path>: leaves the answer in the scratch folder
+  curl -s -X "$1" -H 'X-Correlation-Id: probe-call-1' -D "$scratch/headers" -o "$scratch/body" "$API_URL$2"
+  call_status=$(head -n 1 "$scratch/headers" | cut -d' ' -f2)
+}
+
+answers() { # answers <method> <path> <status> [text in the body...]
+  call_api "$1" "$2"
+  expected=$3
+  shift 3
+  [ "$call_status" = "$expected" ] || {
+    echo "got $call_status, expected $expected"
+    cat "$scratch/body"
+    return 1
+  }
+  for text in "$@"; do
+    grep -qF -- "$text" "$scratch/body" || {
+      echo "not in the body: $text"
+      cat "$scratch/body"
+      return 1
+    }
+  done
+}
+
+problem_is() { # problem_is <method> <path> <status> [text in the body...]
+  answers "$@" '"traceId":' '"correlationId":"probe-call-1"' || return 1
+  grep -qi '^content-type: application/problem+json' "$scratch/headers" || {
+    cat "$scratch/headers"
+    return 1
+  }
+}
+
+location_is() {
+  tr -d '\r' <"$scratch/headers" | grep -qi "^location: $1\$"
+}
+
+body_lacks() {
+  ! grep -qF -- "$1" "$scratch/body"
+}
+
+header_has_correlation_id() {
+  grep -qi '^x-correlation-id: probe-call-1' "$scratch/headers"
+}
+
+one_exception_logged() {
+  [ "$(grep -c '"@x":' "$api_log")" = 1 ] && grep '"@x":' "$api_log" | grep -qF '"CorrelationId":"probe-call-1"'
+}
+
+task_14() {
+  echo "2.14 Errors as ProblemDetails"
+  need_database
+  check "the exception handler exists" tracked "$api_dir/Errors/GlobalExceptionHandler.cs"
+  copy="$scratch/errors"
+  backend_copy "$copy"
+  write_error_probes "$copy/backend/src"
+  check "probes build in a copy of the API" dotnet build "$copy/$api_dir/Kanabol.Api.csproj" --nologo -v q -p:TreatWarningsAsErrors=false
+
+  ASPNETCORE_ENVIRONMENT=Production
+  export ASPNETCORE_ENVIRONMENT
+  check "the copy starts in Production" start_api "$copy/$api_dir"
+  check "a value is a 200 with the value" answers GET /api/probe/value 200 '{"greeting":"hello"}'
+  check "a Unit result is a 204" answers GET /api/probe/unit 204
+  check "a plain success is a 204" answers GET /api/probe/plain 204
+  check "a created result is a 201" answers GET /api/probe/created 201 '{"greeting":"made"}'
+  check "and has a Location" location_is /api/probe/1
+  check "NotFound is a 404 ProblemDetails" problem_is GET /api/probe/not-found 404 '"status":404' '"code":"Probe.NotFound"' '"detail":"No such thing."'
+  check "Conflict is a 409 ProblemDetails" problem_is GET /api/probe/conflict 409 '"code":"Probe.Conflict"'
+  check "Forbidden is a 403 ProblemDetails" problem_is GET /api/probe/forbidden 403 '"code":"Probe.Forbidden"'
+  check "Unauthorized is a 401 ProblemDetails" problem_is GET /api/probe/unauthorized 401 '"code":"Probe.Unauthorized"'
+  check "Failure is a 500 ProblemDetails" problem_is GET /api/probe/failure 500 '"code":"Probe.Failure"'
+  check "a valid command runs through its handler" answers POST '/api/probe/command?userName=ana' 204
+  check "an invalid command is a 400 listing its fields" problem_is POST /api/probe/command 400 '"errors":{"userName":['
+  check "a bad query value is a 400 ProblemDetails" problem_is GET '/api/probe/bound?number=abc' 400 '"errors":'
+  check "an unknown route is a 404 ProblemDetails" problem_is GET /api/nowhere 404
+  check "an exception is a 500 ProblemDetails" problem_is GET /api/probe/throw 500 '"status":500'
+  check "the exception's message stays out of the answer" body_lacks 'secret detail'
+  check "and so does its type" body_lacks 'InvalidOperationException'
+  check "a 500 still has the correlation header" header_has_correlation_id
+  sleep 1
+  check "the exception is logged once, with its correlation id" one_exception_logged
+  stop_api
+
+  ASPNETCORE_ENVIRONMENT=Development
+  check "the copy starts in Development" start_api "$copy/$api_dir"
+  check "Development shows the exception's message" problem_is GET /api/probe/throw 500 'secret detail'
+  stop_api
+  unset ASPNETCORE_ENVIRONMENT
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13
+  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13 14
 fi
 
 for task in "$@"; do

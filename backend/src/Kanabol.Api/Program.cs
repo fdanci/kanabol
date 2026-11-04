@@ -1,4 +1,5 @@
 using Kanabol.Api.Authentication;
+using Kanabol.Api.Errors;
 using Kanabol.Api.Logging;
 using Kanabol.Application;
 using Kanabol.Application.Abstractions;
@@ -17,6 +18,8 @@ builder.Host.UseSerilog((context, services, logger) => logger
     .ReadFrom.Services(services));
 
 builder.Services.AddControllers();
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDetailsEnrichment.AddTraceIds);
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddHealthChecks();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
@@ -28,6 +31,8 @@ var app = builder.Build();
 
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseSerilogRequestLogging();
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
