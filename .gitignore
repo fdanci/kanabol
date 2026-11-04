@@ -17,6 +17,7 @@ npm-debug.log*
 .env.*
 !.env.example
 *.pfx
+certs/
 
 # Claude Code
 .claude/settings.local.json

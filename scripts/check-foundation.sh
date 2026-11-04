@@ -243,7 +243,44 @@ EOF
   check "rules reach the backend and reject rule breakers" rejects_rule_breakers
 }
 
-[ $# -gt 0 ] || set -- 1 2 3 4 5
+is_ignored() {
+  git check-ignore -q --no-index -- "$1"
+}
+
+is_not_ignored() {
+  ! is_ignored "$1"
+}
+
+checks_out_as_lf() {
+  [ "$(git check-attr eol -- "$1" | sed 's/.*: //')" = lf ]
+}
+
+# Worktree files must be LF even with core.autocrlf=true, or .editorconfig rejects them.
+worktree_has_no_crlf() {
+  [ -z "$(git ls-files --eol | grep -E 'w/(crlf|mixed)')" ]
+}
+
+stays_binary() {
+  git ls-files --eol -- "$1" | grep -q 'i/-text'
+}
+
+backend_format_is_clean() {
+  dotnet format backend/Kanabol.sln --verify-no-changes
+}
+
+task_6() {
+  echo "0.6 .gitignore and .gitattributes"
+  check "certs/ is ignored" is_ignored certs/ca.key
+  check ".gitattributes is tracked" tracked .gitattributes
+  check "scripts/ checks out as LF" checks_out_as_lf scripts/any.sh
+  check ".husky/ checks out as LF" checks_out_as_lf .husky/pre-commit
+  check "source files check out as LF" checks_out_as_lf backend/Kanabol.Api/Program.cs
+  check "no tracked file is CRLF in the worktree" worktree_has_no_crlf
+  check "the favicon stays binary" stays_binary frontend/public/favicon.ico
+  check "dotnet format accepts the backend" backend_format_is_clean
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4 5 6
 for task in "$@"; do
   "task_$task"
 done
