@@ -12,6 +12,16 @@ Run from `frontend/`:
 - Lint: `npm run lint`
 - Check formatting: `npx prettier --check .`
 
+## UI
+
+`docs/UI_UX_SPEC.md` decides how everything looks and behaves. Read the section for what you're building.
+
+- Components only use `var(--kb-*)`, never hex values. Material takes its colors from the theme in `src/styles.scss`.
+- No `::ng-deep`. Material is styled through the `mat.*-overrides` mixins in `src/styles.scss`.
+- Buttons: `matButton="filled"` once per surface, `matButton="outlined"` with `kb-bezel`, plain `matButton` for text. No `elevated` or `tonal`.
+- Fonts and icons are self-hosted, because the app runs on the LAN. Nothing comes from Google Fonts or a CDN.
+- Text is in Romanian, in sentence case, and goes through `i18n`.
+
 ## Access rules
 
 - Hiding something in the UI is not access control: the backend enforces permissions.

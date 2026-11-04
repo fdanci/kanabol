@@ -13,6 +13,8 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 ## Spec
 `docs/SPEC.md` is the technical spec: architecture, patterns, conventions, logging, tests, lint, Docker and the commit pipeline. Before starting a task, read the section it points to. `docs/adr/` holds numbered copies of the vault's decision notes.
 
+`docs/UI_UX_SPEC.md` is the visual spec: theme, components, screens and text. It wins over `docs/SPEC.md` on anything visual, so read the section a frontend task points to. It's a copy of the vault's `Atasamente/UI_UX_SPEC.md`.
+
 ## After implementing a feature
 - Check the task off and move it to **Done** in `Tasks.md`.
 - Update `_Architecture.md` or `Decisions/` if the feature changed or settled something they cover.
