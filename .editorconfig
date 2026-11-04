@@ -31,6 +31,8 @@ dotnet_diagnostic.CA2254.severity = error
 dotnet_diagnostic.CA1848.severity = none
 # Null checks on arguments: Nullable covers them
 dotnet_diagnostic.CA1062.severity = none
+# Names that are keywords in other languages: only C# uses these assemblies, and the spec names a type Error
+dotnet_diagnostic.CA1716.severity = none
 
 [*.{ts,html,scss,json,yaml,yml,md}]
 indent_size = 2

@@ -285,8 +285,84 @@ task_3() {
   check "Domain still has no packages" no_packages Kanabol.Domain
 }
 
+results_behave() {
+  probe Kanabol.Application <<'CS'
+using Kanabol.Application.Abstractions.Messaging;
+using Kanabol.Application.Common;
+
+Result<int> success = 5;
+Check.That(success.IsSuccess && !success.IsFailure, "a value converts to a success");
+Check.That(success.Value == 5, "a success has its value");
+Check.Throws<InvalidOperationException>(() => _ = success.Error, "a success has no error");
+
+Result<int> failure = Error.NotFound("Task.NotFound", "No such task.");
+Check.That(failure.IsFailure && !failure.IsSuccess, "an error converts to a failure");
+Check.That(failure.Error.Code == "Task.NotFound", "a failure keeps the code");
+Check.That(failure.Error.Message == "No such task.", "a failure keeps the message");
+Check.That(failure.Error.Type == ErrorType.NotFound, "a failure keeps the type");
+Check.Throws<InvalidOperationException>(() => _ = failure.Value, "a failure has no value");
+
+Check.That(Result.Success().IsSuccess, "Result.Success succeeds");
+var plain = Result.Failure(Error.Forbidden("Project.Forbidden", "Not a member."));
+Check.That(plain.IsFailure && plain.Error.Type == ErrorType.Forbidden, "Result.Failure fails");
+
+Check.That(Error.Conflict("c", "m").Type == ErrorType.Conflict, "Conflict");
+Check.That(Error.Unauthorized("c", "m").Type == ErrorType.Unauthorized, "Unauthorized");
+Check.That(Error.Failure("c", "m").Type == ErrorType.Failure, "Failure");
+
+var fields = new Dictionary<string, string[]> { ["Title"] = ["Required."] };
+var invalid = Error.Validation(fields);
+Check.That(invalid.Type == ErrorType.Validation, "a validation error has the Validation type");
+Check.That(invalid.Errors["Title"].Single() == "Required.", "a validation error keeps its fields");
+
+string[] expected = ["Validation", "NotFound", "Conflict", "Forbidden", "Unauthorized", "Failure"];
+Check.That(Enum.GetNames<ErrorType>().Order().SequenceEqual(expected.Order()), "ErrorType has the spec's six values");
+
+Check.That(Unit.Value == default, "Unit has one value");
+
+// The shape of a handler in the spec has to compile and behave.
+var handler = new PingCommandHandler();
+var denied = await handler.Handle(new PingCommand(false), CancellationToken.None);
+Check.That(denied.Error.Type == ErrorType.Forbidden, "a handler can return a failed check's error");
+var allowed = await handler.Handle(new PingCommand(true), CancellationToken.None);
+Check.That(allowed.IsSuccess, "a handler can return Unit.Value");
+var answer = await new GetPingQueryHandler().Handle(new GetPingQuery(), CancellationToken.None);
+Check.That(answer.Value == "pong", "a query handler returns its value");
+
+internal sealed record PingCommand(bool Allowed) : ICommand<Unit>;
+
+internal sealed class PingCommandHandler : ICommandHandler<PingCommand, Unit>
+{
+    public async Task<Result<Unit>> Handle(PingCommand command, CancellationToken ct)
+    {
+        await Task.Yield();
+        var access = command.Allowed ? Result.Success() : Result.Failure(Error.Forbidden("c", "m"));
+        if (access.IsFailure)
+        {
+            return access.Error;
+        }
+
+        return Unit.Value;
+    }
+}
+
+internal sealed record GetPingQuery : IQuery<string>;
+
+internal sealed class GetPingQueryHandler : IQueryHandler<GetPingQuery, string>
+{
+    public Task<Result<string>> Handle(GetPingQuery query, CancellationToken ct) =>
+        Task.FromResult<Result<string>>("pong");
+}
+CS
+}
+
+task_4() {
+  echo "2.4 Application messaging and results"
+  check "Result, Error, ErrorType, Unit and the handler interfaces behave" results_behave
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do
