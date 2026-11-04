@@ -1,6 +1,13 @@
 # Frontend
 
-Angular 22 single page application. Not connected to the backend yet: add how it connects locally here once it does.
+Angular 22 single page application.
+
+## Connecting to the backend
+
+The frontend calls `/api` and `/hubs` on its own origin, in development and in production, so there is no CORS anywhere.
+
+- In development, `npm start` uses `proxy.conf.json` to send both to the API on http://localhost:5200, with WebSockets for `/hubs`. Start the API first: `backend/CLAUDE.md` says how.
+- In Docker and production, `nginx.conf` and `nginx.prod.conf` do the same, sending them to the `api` service.
 
 ## Commands
 

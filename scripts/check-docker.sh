@@ -23,12 +23,15 @@ web_image="kanabol-check-web:$$"
 secret=check-secret-with-at-least-32-characters-in-it
 
 compose_projects=
+host_pids=
+ng_port=
 web_url=
 seq_url=
 http_port=
 https_port=
 
 cleanup() {
+  stop_host_processes
   for project in $compose_projects; do
     docker compose -p "$project" --env-file "$(native "$scratch/check.env")" down -v --rmi local --remove-orphans >/dev/null 2>&1
   done
@@ -61,6 +64,14 @@ native() { # A path Docker understands, on Windows too.
 
 tracked() {
   [ -f "$1" ] && [ -n "$(git ls-files -- "$1")" ]
+}
+
+in_file() { # in_file <text> <file>
+  grep -qF -- "$1" "$2"
+}
+
+not_in_file() { # not_in_file <text> <file>
+  ! grep -qF -- "$1" "$2"
 }
 
 is() { # is <expected> <actual>
@@ -618,8 +629,117 @@ task_3() {
   check "prod reaches the API over HTTPS" https_reaches_the_api
 }
 
+stop_host_processes() {
+  for pid in $host_pids; do
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+  done
+  host_pids=
+  return 0
+}
+
+port_is_free() { # curl says 7 when nothing listens there, whatever speaks on that port otherwise
+  curl -s -o /dev/null --max-time 6 "http://127.0.0.1:$1/"
+  [ $? -eq 7 ] || {
+    echo "something already listens on port $1"
+    return 1
+  }
+}
+
+# A stand-in for the local API, on its port.
+start_host_stub() {
+  node -e '
+    const server = require("http").createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ stub: true, url: request.url }));
+    });
+    server.on("upgrade", (request, socket) => {
+      socket.end("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+    });
+    server.listen(5200);
+  ' >"$scratch/host-stub.log" 2>&1 &
+  host_pids="$host_pids $!"
+  attempts=0
+  until curl -s "http://localhost:5200/" | grep -q '"stub":true'; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -le 20 ] || return 1
+    sleep 0.5
+  done
+}
+
+start_ng_serve() { # start_ng_serve <port> [more arguments]
+  ng_port=$1
+  shift
+  (cd frontend && NG_CLI_ANALYTICS=false exec node node_modules/@angular/cli/bin/ng.js serve --port "$ng_port" "$@") \
+    >"$scratch/ng-$ng_port.log" 2>&1 &
+  ng_pid=$!
+  host_pids="$host_pids $ng_pid"
+  attempts=0
+  until curl -s "http://localhost:$ng_port/" | grep -q '<kb-root'; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 180 ] || ! kill -0 "$ng_pid" 2>/dev/null; then
+      tail -n 15 "$scratch/ng-$ng_port.log"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+proxy_config_sends_to_the_local_api() {
+  node -e "
+    const proxy = JSON.parse(require('fs').readFileSync('frontend/proxy.conf.json', 'utf8'));
+    const expected = {
+      '/api': { target: 'http://localhost:5200', secure: false },
+      '/hubs': { target: 'http://localhost:5200', secure: false, ws: true },
+    };
+    process.exit(JSON.stringify(proxy) === JSON.stringify(expected) ? 0 : 1);
+  "
+}
+
+serve_uses_the_proxy_config() {
+  node -e "
+    const serve = JSON.parse(require('fs').readFileSync('frontend/angular.json', 'utf8')).projects.kanabol.architect.serve;
+    process.exit(serve.options?.proxyConfig === 'proxy.conf.json' ? 0 : 1);
+  "
+}
+
+ng_serve_reaches_the_stub() {
+  curl -sS "http://localhost:$ng_port/api/orders?page=1" | grep -qF '"url":"/api/orders?page=1"'
+}
+
+ng_serve_upgrades_hubs() {
+  is 101 "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --http1.1 \
+    -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "http://localhost:$ng_port/hubs/board")"
+}
+
+ng_serve_without_the_proxy_misses_the_stub() {
+  stop_host_processes
+  start_host_stub || return 1
+  echo '{}' >"$scratch/no-proxy.json"
+  start_ng_serve 4298 --proxy-config "$(native "$scratch/no-proxy.json")" || return 1
+  ! ng_serve_reaches_the_stub
+}
+
+task_4() {
+  echo "4.4 proxy.conf.json for ng serve"
+  check "proxy.conf.json is tracked" tracked frontend/proxy.conf.json
+  check "it sends /api and /hubs to the local API" proxy_config_sends_to_the_local_api
+  check "ng serve uses it" serve_uses_the_proxy_config
+  check "port 5200 is free for a stand-in API" port_is_free 5200
+  check "the stand-in API is up" start_host_stub
+  check "ng serve starts" start_ng_serve 4299
+  check "/api reaches the local API" ng_serve_reaches_the_stub
+  check "/hubs upgrades to a WebSocket" ng_serve_upgrades_hubs
+  check "control: without the proxy, /api doesn't reach it" ng_serve_without_the_proxy_misses_the_stub
+  stop_host_processes
+  check "the frontend notes say how it connects" in_file 'proxy.conf.json' frontend/CLAUDE.md
+  check "they no longer say it isn't connected" not_in_file 'Not connected to the backend' frontend/CLAUDE.md
+  check "Prettier accepts the files" sh -c 'cd frontend && npx prettier --check proxy.conf.json angular.json'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do
