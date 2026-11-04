@@ -1,4 +1,5 @@
 using Kanabol.Application.Abstractions;
+using Kanabol.Infrastructure.Configuration;
 using Kanabol.Infrastructure.Persistence;
 using Kanabol.Infrastructure.Persistence.Interceptors;
 using Kanabol.Infrastructure.Time;
@@ -6,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Kanabol.Infrastructure;
 
@@ -13,6 +15,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddValidatedOptions<JwtOptions>(configuration, JwtOptions.SectionName);
+        services.AddValidatedOptions<StorageOptions>(configuration, StorageOptions.SectionName);
+        services.AddValidatedOptions<DatabaseOptions>(configuration, DatabaseOptions.SectionName)
+            .Configure(options => options.ConnectionString = configuration.GetConnectionString("Default"));
+
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<AuditingInterceptor>();
         services.AddScoped<DomainEventsInterceptor>();
@@ -29,7 +36,18 @@ public static class DependencyInjection
             .ConfigureWarnings(warnings => warnings.Ignore(
                 CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddHostedService<DatabaseInitializer>();
 
         return services;
     }
+
+    private static OptionsBuilder<TOptions> AddValidatedOptions<TOptions>(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string sectionName)
+        where TOptions : class =>
+        services.AddOptions<TOptions>()
+            .Bind(configuration.GetSection(sectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 }

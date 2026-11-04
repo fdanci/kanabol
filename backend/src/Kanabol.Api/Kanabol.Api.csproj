@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Swashbuckle.AspNetCore" />
   </ItemGroup>
 
 </Project>

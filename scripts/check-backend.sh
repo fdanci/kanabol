@@ -126,7 +126,10 @@ CS
 cleanup() {
   [ -n "$api_pid" ] && stop_api
   if [ -n "${KANABOL_CHECK_CONNECTION:-}" ]; then
-    sql "$admin_connection" "DROP DATABASE IF EXISTS $check_db WITH (FORCE)" >/dev/null
+    sql "$admin_connection" "SELECT datname FROM pg_database WHERE datname LIKE '$check_db%'" | tr -d '\r' |
+      while IFS= read -r database; do
+        sql "$admin_connection" "DROP DATABASE IF EXISTS $database WITH (FORCE)" >/dev/null
+      done
   fi
   rm -rf "$scratch"
 }
@@ -140,7 +143,19 @@ backend_copy() { # backend_copy <folder>
   git archive "$(git write-tree)" backend | tar -x -C "$1"
 }
 
+# What the API needs to start, none of it real. Later settings in the environment win.
+api_env() {
+  need_database
+  Jwt__Secret=${Jwt__Secret:-only-for-these-checks-and-long-enough-to-pass}
+  Jwt__Issuer=${Jwt__Issuer:-kanabol-checks}
+  Jwt__Audience=${Jwt__Audience:-kanabol-checks}
+  Storage__Root=${Storage__Root:-$scratch/attachments}
+  Database__MigrateOnStartup=${Database__MigrateOnStartup:-true}
+  export Jwt__Secret Jwt__Issuer Jwt__Audience Storage__Root Database__MigrateOnStartup
+}
+
 start_api() { # start_api [project-folder]; sets API_URL
+  api_env
   api_port=$((api_port + 1))
   API_URL="http://127.0.0.1:$api_port"
   api_log="$scratch/api-$api_port.log"
@@ -1185,8 +1200,112 @@ task_9() {
   check "the migration applies to a real PostgreSQL" migration_applies
 }
 
+fresh_database() { # fresh_database <suffix>: creates a database and prints its connection string
+  need_database
+  sql "$admin_connection" "CREATE DATABASE ${check_db}_$1" >/dev/null || return 1
+  printf '%s' "$base_connection" | sed "s/Database=[^;]*/Database=${check_db}_$1/"
+}
+
+table_count() { # table_count <connection>
+  sql "$1" "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"
+}
+
+# Starts the API with one setting removed, and passes if it refuses to run and says why.
+refuses_to_start_without() { # refuses_to_start_without <variable> <text in the error>
+  api_env
+  log="$scratch/refused-$1.log"
+  if (cd "$api_dir" && env -u "$1" timeout 60 dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls http://127.0.0.1:5289) >"$log" 2>&1; then
+    echo "the API ran without $1"
+    return 1
+  fi
+  grep -qF "$2" "$log" || {
+    tail -n 5 "$log"
+    return 1
+  }
+}
+
+refuses_a_short_secret() {
+  api_env
+  log="$scratch/refused-short.log"
+  if (cd "$api_dir" && Jwt__Secret=too-short timeout 60 dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls http://127.0.0.1:5289) >"$log" 2>&1; then
+    echo "the API ran with a short secret"
+    return 1
+  fi
+  grep -qF 'Secret' "$log"
+}
+
+migrate_off_leaves_database_empty() {
+  connection=$(fresh_database migrate_off) || return 1
+  ConnectionStrings__Default=$connection Database__MigrateOnStartup=false start_api
+  stop_api
+  [ "$(table_count "$connection")" = 0 ]
+}
+
+migrate_on_creates_the_schema() {
+  connection=$(fresh_database migrate_on) || return 1
+  ConnectionStrings__Default=$connection Database__MigrateOnStartup=true start_api || return 1
+  stop_api
+  [ "$(sql "$connection" "SELECT to_regclass('public.task_items') IS NOT NULL")" = True ] || return 1
+  # Starting again on a migrated database must work too.
+  ConnectionStrings__Default=$connection Database__MigrateOnStartup=true start_api || return 1
+  stop_api
+}
+
+current_user_reads_claims() {
+  probe Kanabol.Api <<'CS'
+using System.Security.Claims;
+using Kanabol.Api.Authentication;
+
+var id = Guid.CreateVersion7();
+var signedIn = new DefaultHttpContext
+{
+    User = new ClaimsPrincipal(new ClaimsIdentity(
+        [new Claim("sub", id.ToString()), new Claim("permission", "users.manage")],
+        authenticationType: "probe")),
+};
+var user = new HttpCurrentUser(new HttpContextAccessor { HttpContext = signedIn });
+Check.That(user.IsAuthenticated, "a signed-in request is authenticated");
+Check.That(user.Id == id, "the id comes from the sub claim");
+Check.That(user.HasPermission("users.manage"), "permissions come from the permission claims");
+Check.That(!user.HasPermission("roles.manage"), "other permissions are refused");
+
+var anonymous = new HttpCurrentUser(new HttpContextAccessor { HttpContext = new DefaultHttpContext() });
+Check.That(!anonymous.IsAuthenticated, "a request without a user isn't authenticated");
+Check.That(!anonymous.HasPermission("users.manage"), "a request without a user has no permissions");
+Check.Throws<InvalidOperationException>(() => _ = anonymous.Id, "a request without a user has no id");
+
+var outsideRequest = new HttpCurrentUser(new HttpContextAccessor());
+Check.That(!outsideRequest.IsAuthenticated, "outside a request nobody is authenticated");
+CS
+}
+
+task_10() {
+  echo "2.10 Program.cs: options, migration on startup, Swagger"
+  check "the backend builds" build_backend
+  check "it refuses to start without Jwt:Secret" refuses_to_start_without Jwt__Secret 'Secret'
+  check "it refuses to start with a short Jwt:Secret" refuses_a_short_secret
+  check "it refuses to start without Storage:Root" refuses_to_start_without Storage__Root 'Root'
+  check "it refuses to start without a connection string" refuses_to_start_without ConnectionStrings__Default 'ConnectionString'
+  check "Database:MigrateOnStartup=false leaves the database alone" migrate_off_leaves_database_empty
+  check "Database:MigrateOnStartup=true migrates, and restarts fine" migrate_on_creates_the_schema
+  ASPNETCORE_ENVIRONMENT=Production
+  export ASPNETCORE_ENVIRONMENT
+  check "the Production API starts" start_api
+  check "/health answers in Production" returns 200 /health
+  check "Swagger is off in Production" returns 404 /swagger/index.html
+  check "the OpenAPI document is off in Production" returns 404 /swagger/v1/swagger.json
+  stop_api
+  ASPNETCORE_ENVIRONMENT=Development
+  check "the Development API starts" start_api
+  check "Swagger is on in Development" returns 200 /swagger/index.html
+  check "the OpenAPI document is on in Development" returns 200 /swagger/v1/swagger.json
+  stop_api
+  unset ASPNETCORE_ENVIRONMENT
+  check "the current user comes from the request's claims" current_user_reads_claims
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9
+  set -- 1 2 3 4 5 6 7 8 9 10
 fi
 
 for task in "$@"; do
