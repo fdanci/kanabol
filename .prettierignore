@@ -1,0 +1,6 @@
+# Copies of vault notes, which scripts/check-foundation.sh compares with the originals byte for byte.
+docs/adr/
+docs/UI_UX_SPEC.md
+
+# Prettier would pad every table and reformat the code samples.
+docs/SPEC.md

@@ -3,6 +3,7 @@
 .NET 10 API with controllers, PostgreSQL 17 and EF Core.
 
 ## Commands
+
 Run from `backend/`:
 
 - Build: `dotnet build Kanabol.sln`
@@ -14,6 +15,7 @@ Run from `backend/`:
 - Run the structure checks, from the repo root: `scripts/check-backend.sh [task-number...]`. They need a PostgreSQL whose user may create databases, and each run works in its own databases and drops them. The connection string comes from `KANABOL_CHECK_DB`, or else from the `ConnectionStrings:Default` user secret.
 
 ## Migrations
+
 Run `dotnet tool restore` once after cloning, which installs the `dotnet-ef` version the repo pins. Then, from `backend/`:
 
 - Add one: `dotnet ef migrations add <Name> -p src/Kanabol.Infrastructure -s src/Kanabol.Api -o Persistence/Migrations`
@@ -23,6 +25,7 @@ Run `dotnet tool restore` once after cloning, which installs the `dotnet-ef` ver
 The API applies them itself on startup while `Database:MigrateOnStartup` is true, which is the default.
 
 ## Local database
+
 The API needs a PostgreSQL 17 on `localhost:5432`, with a `kanabol` user that may create databases: the first migration creates the `kanabol` database. Without Seq, the API still runs and drops its logs for Seq.
 
 `docker compose up postgres seq` from the repo root provides both PostgreSQL and Seq. Before the first time, copy `.env.example` to `.env` and fill it in, with the same database password as in the `ConnectionStrings:Default` secret below. Nothing else may hold port 5432.
@@ -38,6 +41,7 @@ Set these once per machine, from `backend/`:
 The first start creates the permissions, the `Admin` role and the admin user `admin@kanabol.local`, who has to change that password at first login. Later starts don't need the password, and they bring the permissions in line with `Permissions.All` in the code.
 
 ## Configuration
+
 - Shared values are in `appsettings.json`, and values for one environment in `appsettings.Development.json` and `appsettings.Production.json`.
 - Development secrets go in user secrets, never in a file.
 - Local overrides that aren't secret go in `src/Kanabol.Api/appsettings.Development.local.json`, which git ignores. It's only read in Development, and it wins over everything else.
@@ -45,17 +49,18 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 
 In Docker and production, settings come from environment variables:
 
-| Variable | Value |
-|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Production` unless set |
-| `ConnectionStrings__Default` | The PostgreSQL connection string |
-| `Jwt__Secret` | The key that signs JWTs |
-| `Admin__InitialPassword` | The first admin's password, needed on the first start only |
-| `Storage__Root` | The attachments folder, `/data/attachments` by default |
-| `Database__MigrateOnStartup` | `true` by default |
-| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default |
+| Variable                               | Value                                                      |
+| -------------------------------------- | ---------------------------------------------------------- |
+| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                    |
+| `ConnectionStrings__Default`           | The PostgreSQL connection string                           |
+| `Jwt__Secret`                          | The key that signs JWTs                                    |
+| `Admin__InitialPassword`               | The first admin's password, needed on the first start only |
+| `Storage__Root`                        | The attachments folder, `/data/attachments` by default     |
+| `Database__MigrateOnStartup`           | `true` by default                                          |
+| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                |
 
 ## Access rules
+
 - Code checks permissions, never role names.
 - Visibility across all projects comes from the global `projects.view_all` permission, not from a role.
 - Access is checked on every request. The frontend only hides what isn't available.

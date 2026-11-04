@@ -1,6 +1,7 @@
 # Kanabol
 
 ## Project notes
+
 The tasks and documentation live in an Obsidian vault, in `C:\Users\Florin\Documents\Obsidian Vault\Efforts\Projects\Kanban pe steroizi`:
 
 - `Tasks.md`: the tasks, under **Now**, **Next**, **Blocked** and **Done**. Read tasks from here.
@@ -11,18 +12,22 @@ The tasks and documentation live in an Obsidian vault, in `C:\Users\Florin\Docum
 Follow the vault's own `CLAUDE.md` when editing notes.
 
 ## Spec
+
 `docs/SPEC.md` is the technical spec: architecture, patterns, conventions, logging, tests, lint, Docker and the commit pipeline. Before starting a task, read the section it points to. `docs/adr/` holds numbered copies of the vault's decision notes.
 
 `docs/UI_UX_SPEC.md` is the visual spec: theme, components, screens and text. It wins over `docs/SPEC.md` on anything visual, so read the section a frontend task points to. It's a copy of the vault's `Atasamente/UI_UX_SPEC.md`.
 
 ## After implementing a feature
+
 - Check the task off and move it to **Done** in `Tasks.md`.
 - Update `_Architecture.md` or `Decisions/` if the feature changed or settled something they cover.
 
 ## Naming
+
 A summary of `docs/SPEC.md` §7, which has the full tables and examples.
 
 **C#**
+
 - Namespaces are file-scoped: `Kanabol.<Layer>.<Folder>`. One public type per file, named after the type.
 - PascalCase for types, methods, properties and constants. `I` prefix for interfaces, `_camelCase` for private fields, camelCase for parameters and locals.
 - Commands and queries: `<Verb><Noun>Command`, `Get<Noun>[By…]Query`. Their handlers and validators add `Handler` and `Validator`: `CreateTaskCommandHandler`.
@@ -31,24 +36,29 @@ A summary of `docs/SPEC.md` §7, which has the full tables and examples.
 - Tests: `<Method>_<Scenario>_<Result>`.
 
 **Database**
+
 - `snake_case` throughout, with plural table names: `task_items`. The primary key is `id` (UUID v7), foreign keys are `<entity>_id`.
 - Indexes are `ix_<table>_<columns>`, unique ones `ux_<table>_<columns>`.
 - Timestamps are `timestamptz` and end in `_at`. Booleans start with `is_` or `has_`. Enums are stored as `text`.
 
 **REST API**
+
 - Base path `/api`, with plural kebab-case resources: `/api/projects/{id}/board-columns`. JSON is camelCase.
 - Pages use `?page=1&pageSize=50` and return `Page<T>`.
 - 200 for reads and updates, 201 with `Location` for creates, 204 for deletes, ProblemDetails for 4xx.
 - SignalR hubs live under `/hubs`. The correlation header is `X-Correlation-Id`.
 
 **Angular**
+
 - No `.component` or `.service` file suffixes, and the selector prefix is `kb`: `task-card.ts` holds `TaskCard`, selector `kb-task-card`.
 - Pages are `board-page.ts` / `BoardPage`, stores `board-store.ts` / `BoardStore`, API services `tasks-api.ts` / `TasksApi`, guards and interceptors `auth-guard.ts` / `authGuard`.
 - Signals have no prefix or suffix, outputs have no `on` prefix, and global constants are `UPPER_SNAKE`.
 
 **Git**
+
 - Branches: `feature/<kebab>`, `fix/<kebab>`, `chore/<kebab>`, `docs/<kebab>`.
 - Conventional Commits in English: `feat(board): drag and drop between columns`. Scopes: `api`, `web`, `db`, `auth`, `board`, `tasks`, `infra`, `ci`, `docs`.
 
 ## Git
+
 Never mention Claude in commit messages or PRs, and never add a `Co-Authored-By` line or any other AI attribution.
