@@ -169,8 +169,58 @@ task_6() {
     'namespace Kanabol.Infrastructure.Probing { public sealed class Thing; } namespace Kanabol.Application { public sealed class Probe { public Kanabol.Infrastructure.Probing.Thing? Used { get; set; } } }'
 }
 
+docker_is_running() {
+  docker_cli=$(command -v docker || echo '/c/Program Files/Docker/Docker/resources/bin/docker.exe')
+  "$docker_cli" info --format '{{.ServerVersion}}'
+}
+
+tests_pass() { # tests_pass <project> <filter> <minimum passed>
+  log="$scratch/tests-$1.log"
+  dotnet test "backend/tests/$1/$1.csproj" --nologo --filter "$2" >"$log" 2>&1 || {
+    tail -n 25 "$log"
+    return 1
+  }
+  passed=$(sed -n 's/.*Passed: *\([0-9]*\),.*/\1/p' "$log" | tail -n 1)
+  [ "${passed:-0}" -ge "$3" ] || {
+    echo "only ${passed:-0} tests passed, expected at least $3"
+    return 1
+  }
+}
+
+# With the reset turned off, the tests that depend on it have to notice.
+tests_notice_a_broken_reset() {
+  copy="$scratch/broken-reset"
+  backend_copy "$copy"
+  sed -i 's/await _respawner!\.ResetAsync(connection);/await Task.CompletedTask;/' \
+    "$copy/backend/tests/Shared/Database/PostgresFixture.cs"
+  if grep -q '_respawner!.ResetAsync' "$copy/backend/tests/Shared/Database/PostgresFixture.cs"; then
+    echo "the reset wasn't turned off"
+    return 1
+  fi
+  if dotnet test "$copy/backend/tests/Kanabol.Application.Tests/Kanabol.Application.Tests.csproj" --nologo \
+    -p:TreatWarningsAsErrors=false --filter 'FullyQualifiedName~PostgresFixtureTests' >"$scratch/broken-reset.log" 2>&1; then
+    echo "the tests passed with the reset turned off"
+    return 1
+  fi
+  grep -qE 'Failed: +[1-9]' "$scratch/broken-reset.log" || {
+    tail -n 12 "$scratch/broken-reset.log"
+    return 1
+  }
+}
+
+task_2() {
+  echo "3.2 PostgreSQL with Testcontainers and Respawn"
+  check "Docker is running" docker_is_running
+  check "the fixture is tracked" tracked backend/tests/Shared/Database/PostgresFixture.cs
+  check "it uses the image compose uses" in_file 'postgres:17-alpine' backend/tests/Shared/Database/PostgresFixture.cs
+  check "the fixture's tests pass on a real PostgreSQL" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~PostgresFixtureTests' 5
+  check "they notice when the reset does nothing" tests_notice_a_broken_reset
+  check "the solution builds with warnings as errors" solution_builds
+  check "dotnet format is clean" formatting_is_clean
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 6
+  set -- 1 2 6
 fi
 
 for task in "$@"; do
