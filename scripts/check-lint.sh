@@ -340,7 +340,31 @@ task_6() {
   check "control: prettier rejects bad formatting" prettier_rejects_bad_formatting
 }
 
-[ $# -gt 0 ] || set -- 1 2 3 4 5 6
+documented_backend_format_works() {
+  (cd backend && dotnet format Kanabol.sln --verify-no-changes)
+}
+
+documented_backend_lint_works() {
+  (cd backend && dotnet build Kanabol.sln -warnaserror --no-incremental --nologo)
+}
+
+documented_frontend_lint_works() {
+  (cd frontend && NG_CLI_ANALYTICS=false npm run lint)
+}
+
+task_7() {
+  echo "1.7 lint commands in the CLAUDE.md files"
+  check "backend documents dotnet format" grep -qF 'dotnet format Kanabol.sln --verify-no-changes' backend/CLAUDE.md
+  check "backend documents the warnings-as-errors build" grep -qF 'dotnet build Kanabol.sln -warnaserror' backend/CLAUDE.md
+  check "frontend documents npm run lint" grep -qF 'npm run lint' frontend/CLAUDE.md
+  check "frontend documents prettier --check" grep -qF 'npx prettier --check .' frontend/CLAUDE.md
+  check "frontend no longer says there's no linter" not_in_file 'no linter is set up' frontend/CLAUDE.md
+  check "backend's documented format command works" documented_backend_format_works
+  check "backend's documented lint command works" documented_backend_lint_works
+  check "frontend's documented lint command works" documented_frontend_lint_works
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4 5 6 7
 for task in "$@"; do
   "task_$task"
 done
