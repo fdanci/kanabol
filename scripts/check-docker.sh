@@ -22,11 +22,22 @@ api_image="kanabol-check-api:$$"
 web_image="kanabol-check-web:$$"
 secret=check-secret-with-at-least-32-characters-in-it
 
+compose_projects=
+web_url=
+seq_url=
+http_port=
+https_port=
+
 cleanup() {
+  for project in $compose_projects; do
+    docker compose -p "$project" --env-file "$(native "$scratch/check.env")" down -v --rmi local --remove-orphans >/dev/null 2>&1
+  done
   containers=$(docker ps -aq --filter "label=$run_id")
-  [ -z "$containers" ] || docker rm -f $containers >/dev/null 2>&1
+  [ -z "$containers" ] || docker rm -f -v $containers >/dev/null 2>&1
   docker network rm "$network" >/dev/null 2>&1
   images=$(docker images -q --filter "reference=kanabol-check-*:$$")
+  [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
+  images=$(docker images -q --filter "reference=kanabol-*:check-$"; docker images -q --filter "reference=$run_id*")
   [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
   rm -rf "$scratch"
 }
@@ -267,7 +278,7 @@ start_web() { # start_web <name> [configuration file]
   start_api_stub || return 1
   if [ -n "${2:-}" ]; then
     docker run -d --label "$run_id" --name "$run_id-$1" --network "$network" -p 127.0.0.1::80 \
-      -v "$(native "$2"):/etc/nginx/conf.d/default.conf:ro" "$web_image" >/dev/null || return 1
+      -v "$(native "$2"):/etc/nginx/kanabol-app.conf:ro" "$web_image" >/dev/null || return 1
   else
     docker run -d --label "$run_id" --name "$run_id-$1" --network "$network" -p 127.0.0.1::80 \
       "$web_image" >/dev/null || return 1
@@ -321,7 +332,7 @@ web_upgrades_hubs() {
 
 # Without the upgrade lines the same request has to fail, or the check above proves nothing.
 upgrade_control() {
-  sed -e '/Upgrade $http_upgrade/d' -e '/Connection "upgrade"/d' frontend/nginx.conf >"$scratch/no-upgrade.conf"
+  sed -e '/Upgrade $http_upgrade/d' -e '/Connection "upgrade"/d' frontend/nginx-app.conf >"$scratch/no-upgrade.conf"
   grep -q 'proxy_pass' "$scratch/no-upgrade.conf" || return 1
   start_web no-upgrade "$scratch/no-upgrade.conf" || return 1
   [ "$(upgrade_status)" != 101 ]
@@ -338,6 +349,7 @@ task_2() {
   web_url=
   check "the Dockerfile is tracked" tracked frontend/Dockerfile
   check "nginx.conf is tracked" tracked frontend/nginx.conf
+  check "its shared part is tracked" tracked frontend/nginx-app.conf
   check ".dockerignore is tracked" tracked frontend/.dockerignore
   check "the build context has no node_modules, dist or caches" web_context_has_nothing_extra
   check "control: without .dockerignore they do get in" web_context_control
@@ -359,8 +371,255 @@ task_2() {
   check "control: without the upgrade lines /hubs doesn't upgrade" upgrade_control
 }
 
+# Values compose would otherwise read from .env, so the real .env and its volumes stay out of this.
+write_check_env() {
+  [ -f "$scratch/check.env" ] && return 0
+  seq_password=check-seq-password
+  seq_hash=$(echo "$seq_password" | docker run --rm -i datalust/seq config hash | tr -d '\r')
+  [ -n "$seq_hash" ] || return 1
+  cat >"$scratch/check.env" <<EOF
+POSTGRES_PASSWORD=check-database-password
+JWT_SECRET=$secret
+SEQ_ADMIN_HASH=$seq_hash
+ADMIN_INITIAL_PASSWORD=check-admin-password
+EOF
+}
+
+compose_as() { # compose_as <project> <arguments...>
+  project=$1
+  shift
+  case " $compose_projects " in
+    *" $project "*) ;;
+    *) compose_projects="$compose_projects $project" ;;
+  esac
+  docker compose -p "$project" --env-file "$(native "$scratch/check.env")" "$@"
+}
+
+# Judges what compose really makes of the files. "services" is what the expression gets to look at.
+config_satisfies() { # config_satisfies <-f arguments, or nothing for the default files> <JS expression>
+  # shellcheck disable=SC2086 # the file arguments are meant to split
+  compose_as "$run_id" $1 config --format json >"$scratch/config.json" || return 1
+  node -e "
+    const services = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).services;
+    const published = (name) => (services[name].ports ?? []).map((p) => (p.host_ip ?? '') + ':' + p.published + ':' + p.target).sort().join(' ');
+    const env = (name) => services[name].environment ?? {};
+    if (!($2)) {
+      console.log(JSON.stringify(services, null, 1).slice(0, 1800));
+      process.exit(1);
+    }
+  " "$(native "$scratch/config.json")"
+}
+
+base='-f compose.yaml'
+prod='-f compose.yaml -f compose.prod.yaml'
+
+# The whole stack as compose.yaml describes it. Only the ports are the check's own, to stay out of
+# the way of whatever already runs here.
+write_stack_ports() {
+  cat >"$scratch/stack-ports.yaml" <<'EOF'
+services:
+  web:
+    ports: ["127.0.0.1::80"]
+  seq:
+    ports: ["127.0.0.1::80"]
+EOF
+}
+
+stack() {
+  compose_as "$run_id" -f compose.yaml -f "$(native "$scratch/stack-ports.yaml")" "$@"
+}
+
+stack_comes_up() {
+  write_stack_ports
+  stack up -d --build --wait --wait-timeout 240 >"$scratch/stack.log" 2>&1 || {
+    tail -n 20 "$scratch/stack.log"
+    stack logs --tail 20 api 2>&1
+    return 1
+  }
+  web_url="http://$(stack port web 80 | tr -d '\r')"
+  seq_url="http://$(stack port seq 80 | tr -d '\r')"
+}
+
+api_through_web_is_real() { # 404 as the API's ProblemDetails, not nginx's page
+  is '404 application/problem+json' "$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$web_url/api/no-such-thing" | sed 's/;.*//')"
+}
+
+stack_sql_gives() { # stack_sql_gives <expected> <sql>
+  is "$1" "$(stack exec -T postgres psql -U kanabol -d kanabol -tAc "$2" | tr -d '\r')"
+}
+
+volume_survives_a_new_api_container() {
+  stack exec -T api sh -c 'touch /data/attachments/still-here' || return 1
+  stack rm -sf api >/dev/null 2>&1 || return 1
+  (
+    export ADMIN_INITIAL_PASSWORD=
+    stack up -d --no-build --wait --wait-timeout 120 api
+  ) >"$scratch/stack.log" 2>&1 || {
+    tail -n 10 "$scratch/stack.log"
+    return 1
+  }
+  stack exec -T api test -f /data/attachments/still-here
+}
+
+# Seq's API takes a session cookie, and a token on top of it for changes.
+seq_login() { # seq_login <url> <password>
+  seq_cookies="$scratch/seq-cookies-$$"
+  seq_session=$(curl -sS -c "$(native "$seq_cookies")" -H 'Content-Type: application/json' \
+    -d "{\"Username\":\"admin\",\"Password\":\"$2\"}" "$1/api/users/login")
+  case "$seq_session" in
+    *'"CsrfToken"'*) ;;
+    *)
+      echo "Seq refused the login: $seq_session"
+      return 1
+      ;;
+  esac
+}
+
+seq_has_event() { # seq_has_event <url> <password> <text in the message> <seconds to wait>
+  seq_login "$1" "$2" || return 1
+  waited=0
+  while [ "$waited" -lt "$4" ]; do
+    curl -sS -b "$(native "$seq_cookies")" -G --data-urlencode "filter=@Message like '%$3%'" \
+      "$1/api/events?count=1&render=true" | grep -qF -- "$3" && return 0
+    sleep 2
+    waited=$((waited + 2))
+  done
+  echo "no event with '$3' in Seq after $4 seconds"
+  return 1
+}
+
+logs_reach_seq() {
+  curl -sS -o /dev/null "$web_url/api/seen-by-seq"
+  seq_has_event "$seq_url" check-seq-password /api/seen-by-seq 30
+}
+
+new_database_needs_the_admin_password() {
+  project="$run_id-noadmin"
+  compose_projects="$compose_projects $project"
+  (
+    export ADMIN_INITIAL_PASSWORD=
+    docker tag "$(stack images -q api | head -n 1)" "$project-api"
+    compose_as "$project" -f compose.yaml up -d --no-build postgres api
+  ) >"$scratch/noadmin.log" 2>&1
+  waited=0
+  while [ "$waited" -lt 90 ]; do
+    state=$(compose_as "$project" -f compose.yaml ps -a --format '{{.State}}' api | tr -d '\r')
+    [ "$state" = exited ] && break
+    sleep 2
+    waited=$((waited + 2))
+  done
+  is exited "$state" || return 1
+  compose_as "$project" -f compose.yaml logs api 2>&1 | grep -q 'Admin:InitialPassword'
+}
+
+# The production stack, on the check's ports and with the certificates given.
+prod_stack() {
+  KANABOL_VERSION="check-$$" compose_as "$run_id-prod" -f compose.yaml -f compose.prod.yaml \
+    -f "$(native "$scratch/prod-ports.yaml")" "$@"
+}
+
+prod_stack_comes_up() { # prod_stack_comes_up <certificates folder>
+  cat >"$scratch/prod-ports.yaml" <<EOF
+services:
+  web:
+    ports: !override
+      - "127.0.0.1::80"
+      - "127.0.0.1::443"
+    volumes: !override
+      - "$(native "$1"):/etc/nginx/certs:ro"
+      - "./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro"
+EOF
+  docker image inspect "kanabol-api:check-$$" >/dev/null 2>&1 || docker tag "$(stack images -q api | head -n 1)" "kanabol-api:check-$$" || return 1
+  docker image inspect "kanabol-web:check-$$" >/dev/null 2>&1 || docker tag "$(stack images -q web | head -n 1)" "kanabol-web:check-$$" || return 1
+  prod_stack up -d --no-build --wait --wait-timeout 180 >"$scratch/prod.log" 2>&1 || {
+    tail -n 15 "$scratch/prod.log"
+    prod_stack logs --tail 15 web api 2>&1
+    return 1
+  }
+  http_port=$(prod_stack port web 80 | tr -d '\r' | sed 's/.*://')
+  https_port=$(prod_stack port web 443 | tr -d '\r' | sed 's/.*://')
+}
+
+throwaway_certificate() {
+  mkdir -p "$scratch/throwaway-certs"
+  MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=kanabol.example' \
+    -keyout "$(native "$scratch/throwaway-certs/server.key")" -out "$(native "$scratch/throwaway-certs/server.crt")"
+}
+
+http_redirects_to_https() {
+  is '301 https://kanabol.example/projects?page=2' \
+    "$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' -H 'Host: kanabol.example' "http://127.0.0.1:$http_port/projects?page=2")"
+}
+
+https_serves_the_app() {
+  web_url="https://127.0.0.1:$https_port"
+  curl -sSk "$web_url/projects/KAN/board" | grep -q '<kb-root'
+}
+
+https_reaches_the_api() {
+  is '404 application/problem+json' "$(curl -sSk -o /dev/null -w '%{http_code} %{content_type}' "https://127.0.0.1:$https_port/api/no-such-thing" | sed 's/;.*//')"
+}
+
+task_3() {
+  echo "4.3 compose"
+  check "compose.yaml is tracked" tracked compose.yaml
+  check "compose.override.yaml is tracked" tracked compose.override.yaml
+  check "compose.prod.yaml is tracked" tracked compose.prod.yaml
+  check "nginx.prod.conf is tracked" tracked frontend/nginx.prod.conf
+  check "the values for the checks are ready" write_check_env
+
+  check "compose.yaml has the four services" config_satisfies "$base" \
+    "Object.keys(services).sort().join() === 'api,postgres,seq,web'"
+  check "compose.yaml alone publishes nothing" config_satisfies "$base" \
+    "Object.values(services).every((s) => !s.ports)"
+  check "it uses PostgreSQL 17 and Seq" config_satisfies "$base" \
+    "services.postgres.image === 'postgres:17-alpine' && services.seq.image === 'datalust/seq:latest'"
+  check "the API gets its settings" config_satisfies "$base" \
+    "env('api').ConnectionStrings__Default === 'Host=postgres;Database=kanabol;Username=kanabol;Password=check-database-password'
+     && env('api').Jwt__Secret === '$secret'
+     && env('api').Serilog__WriteTo__1__Args__serverUrl === 'http://seq:5341'
+     && env('api').Storage__Root === '/data/attachments'
+     && env('api').Database__MigrateOnStartup === 'true'
+     && env('api').ASPNETCORE_ENVIRONMENT === 'Production'"
+  check "the API gets the first admin's password" config_satisfies "$base" \
+    "env('api').Admin__InitialPassword === 'check-admin-password'"
+  check "the API waits for a healthy database" config_satisfies "$base" \
+    "services.api.depends_on.postgres.condition === 'service_healthy'"
+  check "data lives in named volumes" config_satisfies "$base" \
+    "['postgres', 'seq', 'api'].every((name) => services[name].volumes.some((v) => v.type === 'volume'))"
+
+  check "dev publishes PostgreSQL on 5432" config_satisfies '' "published('postgres') === '127.0.0.1:5432:5432'"
+  check "dev publishes Seq's UI and ingestion on 5341" config_satisfies '' "published('seq') === '127.0.0.1:5341:80'"
+  check "dev publishes the API on 8080" config_satisfies '' "published('api') === '127.0.0.1:8080:8080'"
+  check "dev publishes nginx on 4200" config_satisfies '' "published('web') === '127.0.0.1:4200:80'"
+
+  check "prod builds nothing" config_satisfies "$prod" "!services.api.build && !services.web.build"
+  check "prod uses the tagged images" config_satisfies "$prod" \
+    "services.api.image === 'kanabol-api:v0.1.0' && services.web.image === 'kanabol-web:v0.1.0'"
+  check "prod restarts everything" config_satisfies "$prod" \
+    "Object.values(services).every((s) => s.restart === 'unless-stopped')"
+  check "prod publishes only 80 and 443 on nginx" config_satisfies "$prod" \
+    "!services.postgres.ports && !services.seq.ports && !services.api.ports && published('web') === ':443:443 :80:80'"
+  check "prod mounts the certificates read-only" config_satisfies "$prod" \
+    "services.web.volumes.some((v) => v.target === '/etc/nginx/certs' && v.read_only === true && v.source.endsWith('certs'))"
+
+  check "the whole stack comes up, with a healthy API" stack_comes_up
+  check "nginx serves the app" web_serves_the_app /
+  check "nginx reaches the real API" api_through_web_is_real
+  check "the API migrated and seeded the database" stack_sql_gives 1 "select count(*) from users where email = 'admin@kanabol.local'"
+  check "attachments survive a new API container, started without that password" volume_survives_a_new_api_container
+  check "the API's logs reach Seq" logs_reach_seq
+  check "control: a new database without that password stops the API" new_database_needs_the_admin_password
+
+  check "a throwaway certificate is ready" throwaway_certificate
+  check "the production stack comes up" prod_stack_comes_up "$scratch/throwaway-certs"
+  check "prod sends port 80 to HTTPS" http_redirects_to_https
+  check "prod serves the app over HTTPS" https_serves_the_app
+  check "prod reaches the API over HTTPS" https_reaches_the_api
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do
