@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kanabol.Application\Kanabol.Application.csproj" />
+    <ProjectReference Include="..\..\src\Kanabol.Infrastructure\Kanabol.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

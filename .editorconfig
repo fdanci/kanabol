@@ -38,6 +38,10 @@ dotnet_diagnostic.CA1716.severity = none
 # The spec names IDomainEventHandler and RolePermission
 dotnet_code_quality.CA1711.allowed_suffixes = EventHandler|Permission
 
+# Test names are Method_Scenario_Result
+[**/tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+
 # EF writes these, and writing a new migration would undo any cleanup
 [**/Migrations/*.cs]
 generated_code = true
