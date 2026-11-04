@@ -10,13 +10,16 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 # Shells opened before Docker Desktop was installed don't have it on the PATH.
 command -v docker >/dev/null 2>&1 || PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 # Git Bash would otherwise rewrite container paths like /data/attachments into Windows paths.
-export MSYS_NO_PATHCONV=1
+docker() {
+  MSYS_NO_PATHCONV=1 command docker "$@"
+}
 
 failures=0
 scratch=$(mktemp -d)
 run_id="kanabol-check-$$"
 network="$run_id-net"
 api_image="kanabol-check-api:$$"
+web_image="kanabol-check-web:$$"
 secret=check-secret-with-at-least-32-characters-in-it
 
 cleanup() {
@@ -201,8 +204,163 @@ task_1() {
   check "the healthcheck goes unhealthy when nothing answers" healthcheck_notices_a_dead_api
 }
 
+# A stand-in for the API, under the name nginx looks for. It reports what reached it, and accepts
+# WebSocket upgrades.
+start_api_stub() {
+  on_network || return 1
+  docker ps -q --filter "name=^$run_id-stub$" | grep -q . && return 0
+  docker run -d --label "$run_id" --name "$run_id-stub" --network "$network" --network-alias api node:22-alpine node -e '
+    const server = require("http").createServer((request, response) => {
+      let size = 0;
+      request.on("data", (chunk) => (size += chunk.length));
+      request.on("end", () => {
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ url: request.url, headers: request.headers, size }));
+      });
+    });
+    server.on("upgrade", (request, socket) => {
+      socket.end("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+    });
+    server.listen(8080);
+  ' >/dev/null
+}
+
+# The frontend as it's staged, with what a developer's folder has and an image must not get.
+frontend_copy() { # frontend_copy <folder>
+  mkdir -p "$1"
+  git archive "$(git write-tree)" frontend | tar -x -C "$1"
+  for folder in node_modules dist .angular coverage; do
+    mkdir -p "$1/frontend/$folder"
+    echo leak >"$1/frontend/$folder/leak.js"
+  done
+}
+
+web_context_has_nothing_extra() {
+  copy="$scratch/web-context"
+  frontend_copy "$copy"
+  context_listing "$copy/frontend" >"$scratch/web-context.txt" || return 1
+  grep -q 'src/main.ts' "$scratch/web-context.txt" || {
+    echo "the context has no source"
+    return 1
+  }
+  if grep -F 'leak.js' "$scratch/web-context.txt"; then
+    return 1
+  fi
+}
+
+web_context_control() {
+  copy="$scratch/web-context-control"
+  frontend_copy "$copy"
+  rm -f "$copy/frontend/.dockerignore"
+  context_listing "$copy/frontend" | grep -q 'leak.js'
+}
+
+build_web_image() {
+  docker build -t "$web_image" frontend >"$scratch/web-build.log" 2>&1 || {
+    tail -n 25 "$scratch/web-build.log"
+    return 1
+  }
+}
+
+# Starts nginx on a free port, with the image's configuration or the one given. Sets web_url.
+start_web() { # start_web <name> [configuration file]
+  start_api_stub || return 1
+  if [ -n "${2:-}" ]; then
+    docker run -d --label "$run_id" --name "$run_id-$1" --network "$network" -p 127.0.0.1::80 \
+      -v "$(native "$2"):/etc/nginx/conf.d/default.conf:ro" "$web_image" >/dev/null || return 1
+  else
+    docker run -d --label "$run_id" --name "$run_id-$1" --network "$network" -p 127.0.0.1::80 \
+      "$web_image" >/dev/null || return 1
+  fi
+  sleep 2
+  web_url="http://$(docker port "$run_id-$1" 80/tcp | head -n 1)"
+  curl -sS -o /dev/null --retry 10 --retry-connrefused --retry-delay 1 "$web_url/"
+}
+
+web_serves_the_app() { # web_serves_the_app <path>
+  body=$(curl -sS -w '%{http_code}' "$web_url$1")
+  case "$body" in
+    *'<kb-root'*200) ;;
+    *)
+      echo "$1 didn't serve the app: $(printf '%s' "$body" | tail -c 200)"
+      return 1
+      ;;
+  esac
+}
+
+web_asset_is() { # web_asset_is <path> <content type>
+  is "200 $2" "$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$web_url$1")"
+}
+
+web_compresses_scripts() {
+  script=$(curl -sS "$web_url/" | sed -n 's/.*src="\(main-[^"]*\.js\)".*/\1/p' | head -n 1)
+  [ -n "$script" ] || {
+    echo "no main script in index.html"
+    return 1
+  }
+  curl -sSI -H 'Accept-Encoding: gzip' "$web_url/$script" | tr -d '\r' | grep -qi '^content-encoding: gzip$'
+}
+
+web_sends_header() { # web_sends_header <header line>
+  curl -sSI "$web_url/" | tr -d '\r' | grep -qi "^$1\$"
+}
+
+api_stub_saw() { # api_stub_saw <text>: looks in what reached the stub for /api/orders?page=1
+  curl -sS -H 'Host: kanabol.example' "$web_url/api/orders?page=1" | grep -qF -- "$1"
+}
+
+upgrade_status() {
+  curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --http1.1 \
+    -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$web_url/hubs/board"
+}
+
+web_upgrades_hubs() {
+  is 101 "$(upgrade_status)"
+}
+
+# Without the upgrade lines the same request has to fail, or the check above proves nothing.
+upgrade_control() {
+  sed -e '/Upgrade $http_upgrade/d' -e '/Connection "upgrade"/d' frontend/nginx.conf >"$scratch/no-upgrade.conf"
+  grep -q 'proxy_pass' "$scratch/no-upgrade.conf" || return 1
+  start_web no-upgrade "$scratch/no-upgrade.conf" || return 1
+  [ "$(upgrade_status)" != 101 ]
+}
+
+upload_status_is() { # upload_status_is <megabytes> <status>
+  dd if=/dev/zero of="$scratch/body.bin" bs=1048576 count="$1" 2>/dev/null
+  is "$2" "$(curl -sS -o /dev/null -w '%{http_code}' --data-binary @"$(native "$scratch/body.bin")" \
+    -H 'Content-Type: application/octet-stream' -H 'Expect:' "$web_url/api/attachments")"
+}
+
+task_2() {
+  echo "4.2 frontend/Dockerfile and nginx.conf"
+  web_url=
+  check "the Dockerfile is tracked" tracked frontend/Dockerfile
+  check "nginx.conf is tracked" tracked frontend/nginx.conf
+  check ".dockerignore is tracked" tracked frontend/.dockerignore
+  check "the build context has no node_modules, dist or caches" web_context_has_nothing_extra
+  check "control: without .dockerignore they do get in" web_context_control
+  check "the image builds" build_web_image
+  start_web web >"$scratch/start-web.log" 2>&1 || cat "$scratch/start-web.log"
+  check "nginx serves the app at /" web_serves_the_app /
+  check "a deep link falls back to the app" web_serves_the_app /projects/KAN/board
+  check "it serves the brand files" web_asset_is /brand/favicon-32.png image/png
+  check "it serves the manifest with its own type" web_asset_is /manifest.webmanifest application/manifest+json
+  check "it compresses scripts" web_compresses_scripts
+  check "it sends X-Content-Type-Options" web_sends_header 'X-Content-Type-Options: nosniff'
+  check "it sends X-Frame-Options" web_sends_header 'X-Frame-Options: DENY'
+  check "/api goes to the API, path and query intact" api_stub_saw '"url":"/api/orders?page=1"'
+  check "the API gets the client's address" api_stub_saw '"x-forwarded-for"'
+  check "the API gets the host the client asked for" api_stub_saw '"host":"kanabol.example"'
+  check "/hubs upgrades to a WebSocket" web_upgrades_hubs
+  check "a 26 MB upload gets through, for the API to judge" upload_status_is 26 200
+  check "a 31 MB upload stops at nginx" upload_status_is 31 413
+  check "control: without the upgrade lines /hubs doesn't upgrade" upgrade_control
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 
 for task in "$@"; do

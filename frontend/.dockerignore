@@ -1,0 +1,10 @@
+# What the build doesn't need: npm ci and ng build make their own.
+node_modules/
+dist/
+.angular/
+coverage/
+.vscode/
+CLAUDE.md
+README.md
+Dockerfile
+.dockerignore
