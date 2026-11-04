@@ -1,0 +1,10 @@
+# What the image doesn't need. Only src/ and the solution-level files are copied in.
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+**/appsettings.*.local.json
+tests/
+CLAUDE.md
+Dockerfile
+.dockerignore
