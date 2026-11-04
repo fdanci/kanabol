@@ -113,7 +113,67 @@ task_2() {
   check "control: the build rejects an analyzer warning" build_rejects_an_analyzer_warning
 }
 
-[ $# -gt 0 ] || set -- 1 2
+absent() {
+  [ ! -e "$1" ]
+}
+
+ng() {
+  (cd frontend && NG_CLI_ANALYTICS=false npx ng "$@")
+}
+
+# Generate a real component, look at what the schematics produced, and remove it.
+# Angular 22 defaults to OnPush, and the schematic only writes the line for any other strategy.
+schematics_generate_kb_onpush_scss() {
+  probe=frontend/src/app/schematics-probe
+  [ ! -e "$probe" ] || return 1
+  ng generate component schematics-probe --skip-tests || return 1
+  result=0
+  [ -f "$probe/schematics-probe.scss" ] || result=1
+  grep -q "selector: 'kb-schematics-probe'" "$probe/schematics-probe.ts" || result=1
+  grep -q 'changeDetection' "$probe/schematics-probe.ts" && result=1
+  rm -rf "$probe"
+  return "$result"
+}
+
+schematics_ask_for_onpush_and_scss() {
+  (cd frontend && node -e "
+    const c = require('./angular.json').projects.kanabol.schematics['@schematics/angular:component'];
+    process.exit(c.changeDetection === 'OnPush' && c.style === 'scss' ? 0 : 1);
+  ")
+}
+
+no_app_root_left() {
+  ! grep -rq 'app-root' frontend/src
+}
+
+build_renders_kb_root() {
+  ng build || return 1
+  grep -q '<kb-root>' frontend/dist/kanabol/browser/index.html
+}
+
+frontend_tests_pass() {
+  ng test --no-watch
+}
+
+task_3() {
+  echo "1.3 kb prefix, schematics and SCSS"
+  check "angular.json uses the kb prefix" grep -q '"prefix": "kb"' frontend/angular.json
+  check "angular.json builds styles.scss" grep -q '"styles": \["src/styles.scss"\]' frontend/angular.json
+  check "styles.css is now styles.scss" tracked frontend/src/styles.scss
+  check "styles.css is gone" absent frontend/src/styles.css
+  check "app.css is now app.scss" tracked frontend/src/app/app.scss
+  check "app.css is gone" absent frontend/src/app/app.css
+  check "app.ts uses kb-root" grep -q "selector: 'kb-root'" frontend/src/app/app.ts
+  check "app.ts uses app.scss" grep -q "styleUrl: './app.scss'" frontend/src/app/app.ts
+  check "index.html uses kb-root" grep -q '<kb-root></kb-root>' frontend/src/index.html
+  check "no app-root is left" no_app_root_left
+  check "angular.json asks for OnPush and SCSS" schematics_ask_for_onpush_and_scss
+  check "ng generate gives kb, OnPush and SCSS" schematics_generate_kb_onpush_scss
+  check "the production build renders kb-root" build_renders_kb_root
+  check "the frontend tests pass" frontend_tests_pass
+}
+
+[ $# -gt 0 ] || set -- 1 2 3
 for task in "$@"; do
   "task_$task"
 done
