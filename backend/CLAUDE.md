@@ -23,7 +23,11 @@ Run `dotnet tool restore` once after cloning, which installs the `dotnet-ef` ver
 The API applies them itself on startup while `Database:MigrateOnStartup` is true, which is the default.
 
 ## Local database
-The API needs a PostgreSQL 17 on `localhost:5432`, with a `kanabol` user that may create databases: the first migration creates the `kanabol` database. Once `compose.yaml` exists, `docker compose up postgres seq` from the repo root provides both PostgreSQL and Seq. Without Seq, the API still runs and drops its logs for Seq.
+The API needs a PostgreSQL 17 on `localhost:5432`, with a `kanabol` user that may create databases: the first migration creates the `kanabol` database. Without Seq, the API still runs and drops its logs for Seq.
+
+`docker compose up postgres seq` from the repo root provides both PostgreSQL and Seq. Before the first time, copy `.env.example` to `.env` and fill it in, with the same database password as in the `ConnectionStrings:Default` secret below. Nothing else may hold port 5432.
+
+Seq's UI is on http://localhost:5341. Each new Seq volume needs its retention set once: `SEQ_ADMIN_PASSWORD=<password> scripts/seq-retention.sh`, which makes Seq delete logs after 30 days. The password is the one you hashed for `SEQ_ADMIN_HASH`.
 
 Set these once per machine, from `backend/`:
 

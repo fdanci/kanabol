@@ -738,8 +738,155 @@ task_4() {
   check "Prettier accepts the files" sh -c 'cd frontend && npx prettier --check proxy.conf.json angular.json'
 }
 
+dev_compose() { # The default files, as docker compose up uses them. Only the values are the check's.
+  compose_as "$run_id-dev" "$@"
+}
+
+dev_services_come_up() {
+  write_check_env || return 1
+  dev_compose up -d --wait --wait-timeout 120 postgres seq >"$scratch/dev.log" 2>&1 || {
+    tail -n 15 "$scratch/dev.log"
+    return 1
+  }
+  seq_is_up
+}
+
+seq_is_up() {
+  attempts=0
+  until curl -s http://localhost:5341/api | grep -q '"Version"'; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 60 ]; then
+      echo "Seq didn't answer on localhost:5341"
+      dev_compose logs --tail 15 seq 2>&1
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+only_postgres_and_seq_run() {
+  is 'postgres seq' "$(dev_compose ps --format '{{.Service}}' | tr -d '\r' | sort | paste -sd' ' -)"
+}
+
+seq_ui_answers() {
+  is '200 text/html' "$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' http://localhost:5341/ | sed 's/;.*//')"
+}
+
+# Like dotnet watch --launch-profile http, but with a process that stops when told to, and with the
+# check's values instead of the user secrets.
+start_local_api() {
+  dotnet build backend/src/Kanabol.Api --nologo -v q >"$scratch/local-api-build.log" 2>&1 || {
+    tail -n 15 "$scratch/local-api-build.log"
+    return 1
+  }
+  (
+    cd backend/src/Kanabol.Api || exit 1
+    export ASPNETCORE_ENVIRONMENT=Development
+    export ConnectionStrings__Default='Host=localhost;Database=kanabol;Username=kanabol;Password=check-database-password'
+    export Jwt__Secret="$secret"
+    export Admin__InitialPassword=check-admin-password
+    exec dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls http://localhost:5200
+  ) >"$scratch/local-api.log" 2>&1 &
+  local_api_pid=$!
+  host_pids="$host_pids $local_api_pid"
+  attempts=0
+  until curl -s -o /dev/null http://localhost:5200/health; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 60 ] || ! kill -0 "$local_api_pid" 2>/dev/null; then
+      tail -n 20 "$scratch/local-api.log"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+dev_sql_gives_at_least() { # dev_sql_gives_at_least <minimum> <sql>
+  actual=$(dev_compose exec -T postgres psql -U kanabol -d kanabol -tAc "$2" | tr -d '\r')
+  [ "${actual:-0}" -ge "$1" ] || {
+    echo "'$2' gave '$actual', expected at least $1"
+    return 1
+  }
+}
+
+# Finding a request by the code an error message shows is why the logs are in Seq.
+request_is_found_by_its_correlation_id() {
+  code="check-$-correlation"
+  curl -sS -o /dev/null -H "X-Correlation-Id: $code" http://localhost:5200/api/no-such-thing
+  seq_login http://localhost:5341 check-seq-password || return 1
+  waited=0
+  while [ "$waited" -lt 30 ]; do
+    curl -sS -b "$(native "$seq_cookies")" -G --data-urlencode "filter=CorrelationId = '$code'" \
+      'http://localhost:5341/api/events?count=1' | grep -qF "$code" && return 0
+    sleep 2
+    waited=$((waited + 2))
+  done
+  echo "no event with CorrelationId $code in Seq"
+  return 1
+}
+
+retention_policies() {
+  seq_login http://localhost:5341 check-seq-password || return 1
+  curl -sS -b "$(native "$seq_cookies")" http://localhost:5341/api/retentionpolicies
+}
+
+seq_starts_without_retention() {
+  is '[]' "$(retention_policies)"
+}
+
+retention_script_runs() { # retention_script_runs <password>
+  SEQ_ADMIN_PASSWORD=$1 sh scripts/seq-retention.sh http://localhost:5341
+}
+
+retention_is_30_days() {
+  policies=$(retention_policies)
+  is 1 "$(printf '%s' "$policies" | grep -o '"RetentionTime"' | wc -l | tr -d ' ')" || return 1
+  printf '%s' "$policies" | grep -qF '"RetentionTime":"30.00:00:00"' || {
+    echo "$policies"
+    return 1
+  }
+  printf '%s' "$policies" | grep -qF '"RemovedSignalExpression":null' || {
+    echo "the policy only covers some events: $policies"
+    return 1
+  }
+}
+
+retention_survives_a_restart() {
+  dev_compose restart seq >/dev/null 2>&1 || return 1
+  seq_is_up || return 1
+  retention_is_30_days
+}
+
+task_5() {
+  echo "4.5 PostgreSQL and Seq in compose, the API on the host"
+  check "scripts/seq-retention.sh is tracked" tracked scripts/seq-retention.sh
+  check "it's executable" sh -c 'git ls-files -s scripts/seq-retention.sh | grep -q "^100755"'
+  check "port 5432 is free (stop any other PostgreSQL first)" port_is_free 5432
+  check "port 5341 is free" port_is_free 5341
+  check "port 5200 is free" port_is_free 5200
+  check "docker compose up postgres seq works" dev_services_come_up
+  check "it starts only those two" only_postgres_and_seq_run
+  check "Seq's UI is on localhost:5341" seq_ui_answers
+  check "the local API starts" start_local_api
+  check "it migrated the compose database" dev_sql_gives_at_least 1 'select count(*) from "__EFMigrationsHistory"'
+  check "it created the permissions" dev_sql_gives_at_least 1 'select count(*) from permissions'
+  check "it created the admin user" dev_sql_gives_at_least 1 "select count(*) from users where email = 'admin@kanabol.local'"
+  check "a request shows up in Seq by its correlation id" request_is_found_by_its_correlation_id
+  check "Seq starts with no retention" seq_starts_without_retention
+  check "control: a wrong password changes nothing" sh -c '! SEQ_ADMIN_PASSWORD=wrong sh scripts/seq-retention.sh http://localhost:5341'
+  check "Seq still has no retention" seq_starts_without_retention
+  check "the script sets the retention" retention_script_runs check-seq-password
+  check "Seq deletes all logs after 30 days" retention_is_30_days
+  check "running it again changes nothing" retention_script_runs check-seq-password
+  check "there's still one policy" retention_is_30_days
+  check "the retention survives a restart" retention_survives_a_restart
+  stop_host_processes
+  check "the backend notes explain .env" in_file '.env.example' backend/CLAUDE.md
+  check "they say how to set the retention" in_file 'seq-retention.sh' backend/CLAUDE.md
+  check "they no longer wait for compose.yaml" not_in_file 'Once `compose.yaml` exists' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 
 for task in "$@"; do
