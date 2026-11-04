@@ -280,7 +280,33 @@ task_6() {
   check "dotnet format accepts the backend" backend_format_is_clean
 }
 
-[ $# -gt 0 ] || set -- 1 2 3 4 5 6
+has_empty_variable() { # has_empty_variable <name>
+  grep -qx "$1=" .env.example
+}
+
+# Every assignment must be empty: a filled-in value would be a secret, or a default that
+# someone forgets to change.
+has_no_values() {
+  ! grep -E '^[A-Za-z_][A-Za-z0-9_]*=.+' .env.example
+}
+
+# A copy of the example, once filled in, is what compose reads: it must stay out of git.
+real_env_is_ignored() {
+  is_ignored .env
+}
+
+task_7() {
+  echo "0.7 .env.example"
+  check ".env.example is tracked" tracked .env.example
+  check ".env.example isn't ignored" is_not_ignored .env.example
+  check ".env is ignored" real_env_is_ignored
+  for variable in POSTGRES_PASSWORD JWT_SECRET SEQ_ADMIN_HASH ADMIN_INITIAL_PASSWORD; do
+    check "declares $variable" has_empty_variable "$variable"
+  done
+  check "holds no values" has_no_values
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4 5 6 7
 for task in "$@"; do
   "task_$task"
 done
