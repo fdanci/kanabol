@@ -1,4 +1,5 @@
 using Kanabol.Application.Abstractions;
+using Kanabol.Infrastructure.Authentication;
 using Kanabol.Infrastructure.Configuration;
 using Kanabol.Infrastructure.Persistence;
 using Kanabol.Infrastructure.Persistence.Interceptors;
@@ -17,10 +18,16 @@ public static class DependencyInjection
     {
         services.AddValidatedOptions<JwtOptions>(configuration, JwtOptions.SectionName);
         services.AddValidatedOptions<StorageOptions>(configuration, StorageOptions.SectionName);
+        services.AddValidatedOptions<AdminOptions>(configuration, AdminOptions.SectionName)
+            .Validate(
+                admin => string.IsNullOrEmpty(admin.InitialPassword)
+                    || admin.InitialPassword.Length >= AdminOptions.MinimumPasswordLength,
+                $"Admin:InitialPassword must have at least {AdminOptions.MinimumPasswordLength} characters.");
         services.AddValidatedOptions<DatabaseOptions>(configuration, DatabaseOptions.SectionName)
             .Configure(options => options.ConnectionString = configuration.GetConnectionString("Default"));
 
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddScoped<AuditingInterceptor>();
         services.AddScoped<DomainEventsInterceptor>();
 
@@ -36,6 +43,7 @@ public static class DependencyInjection
             .ConfigureWarnings(warnings => warnings.Ignore(
                 CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<DatabaseSeeder>();
         services.AddHostedService<DatabaseInitializer>();
 
         return services;

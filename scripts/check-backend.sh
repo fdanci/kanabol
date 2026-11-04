@@ -151,7 +151,8 @@ api_env() {
   Jwt__Audience=${Jwt__Audience:-kanabol-checks}
   Storage__Root=${Storage__Root:-$scratch/attachments}
   Database__MigrateOnStartup=${Database__MigrateOnStartup:-true}
-  export Jwt__Secret Jwt__Issuer Jwt__Audience Storage__Root Database__MigrateOnStartup
+  Admin__InitialPassword=${Admin__InitialPassword-only-for-these-checks}
+  export Jwt__Secret Jwt__Issuer Jwt__Audience Storage__Root Database__MigrateOnStartup Admin__InitialPassword
 }
 
 start_api() { # start_api [project-folder]; sets API_URL
@@ -1236,19 +1237,25 @@ refuses_a_short_secret() {
 
 migrate_off_leaves_database_empty() {
   connection=$(fresh_database migrate_off) || return 1
-  ConnectionStrings__Default=$connection Database__MigrateOnStartup=false start_api
-  stop_api
+  (
+    export ConnectionStrings__Default="$connection" Database__MigrateOnStartup=false
+    start_api
+    stop_api
+  )
   [ "$(table_count "$connection")" = 0 ]
 }
 
 migrate_on_creates_the_schema() {
   connection=$(fresh_database migrate_on) || return 1
-  ConnectionStrings__Default=$connection Database__MigrateOnStartup=true start_api || return 1
-  stop_api
-  [ "$(sql "$connection" "SELECT to_regclass('public.task_items') IS NOT NULL")" = True ] || return 1
-  # Starting again on a migrated database must work too.
-  ConnectionStrings__Default=$connection Database__MigrateOnStartup=true start_api || return 1
-  stop_api
+  (
+    export ConnectionStrings__Default="$connection" Database__MigrateOnStartup=true
+    start_api || exit 1
+    stop_api
+    [ "$(sql "$connection" "SELECT to_regclass('public.task_items') IS NOT NULL")" = True ] || exit 1
+    # Starting again on a migrated database must work too.
+    start_api || exit 1
+    stop_api
+  )
 }
 
 current_user_reads_claims() {
@@ -1324,8 +1331,8 @@ has_user_secret() { # has_user_secret <key>
 # The JWT secret and the storage root aren't in the environment here, so they have to come from
 # the user secrets and from appsettings.Development.json.
 development_starts_from_its_own_settings() {
-  if ! has_user_secret Jwt:Secret; then
-    echo "skipped: no Jwt:Secret user secret on this machine"
+  if ! has_user_secret Jwt:Secret || ! has_user_secret Admin:InitialPassword; then
+    echo "skipped: no Jwt:Secret or Admin:InitialPassword user secret on this machine"
     return 0
   fi
   connection=$(fresh_database development) || return 1
@@ -1337,7 +1344,7 @@ development_starts_from_its_own_settings() {
     Jwt__Audience=
     Storage__Root=
     Database__MigrateOnStartup=
-    unset Jwt__Secret Jwt__Issuer Jwt__Audience Storage__Root Database__MigrateOnStartup
+    unset Jwt__Secret Jwt__Issuer Jwt__Audience Storage__Root Database__MigrateOnStartup Admin__InitialPassword
     export ASPNETCORE_ENVIRONMENT ConnectionStrings__Default
     log="$scratch/development.log"
     (cd "$api_dir" && exec dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls http://127.0.0.1:5288) >"$log" 2>&1 &
@@ -1366,16 +1373,22 @@ local_settings_override_development_only() {
   printf '{ "Database": { "MigrateOnStartup": false } }\n' >"$copy/$api_dir/appsettings.Development.local.json"
 
   in_development=$(fresh_database local_development) || return 1
-  ConnectionStrings__Default=$in_development ASPNETCORE_ENVIRONMENT=Development start_api "$copy/$api_dir"
-  stop_api
+  (
+    export ConnectionStrings__Default="$in_development" ASPNETCORE_ENVIRONMENT=Development
+    start_api "$copy/$api_dir"
+    stop_api
+  )
   [ "$(table_count "$in_development")" = 0 ] || {
     echo "the local file was ignored in Development"
     return 1
   }
 
   in_production=$(fresh_database local_production) || return 1
-  ConnectionStrings__Default=$in_production ASPNETCORE_ENVIRONMENT=Production start_api "$copy/$api_dir"
-  stop_api
+  (
+    export ConnectionStrings__Default="$in_production" ASPNETCORE_ENVIRONMENT=Production
+    start_api "$copy/$api_dir"
+    stop_api
+  )
   [ "$(table_count "$in_production")" != 0 ] || {
     echo "the local file was used outside Development"
     return 1
@@ -1902,8 +1915,124 @@ task_14() {
   unset ASPNETCORE_ENVIRONMENT
 }
 
+password_hasher_works() {
+  probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Application.Abstractions;
+
+await using var database = await ProbeDatabase.Create("hasher");
+using var scope = database.Services.CreateScope();
+var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+var hash = hasher.Hash("correct horse");
+Check.That(!hash.Contains("correct horse", StringComparison.Ordinal), "the hash doesn't contain the password");
+Check.That(hash != hasher.Hash("correct horse"), "the hash is salted");
+Check.That(hasher.Verify(hash, "correct horse"), "the right password verifies");
+Check.That(!hasher.Verify(hash, "wrong horse"), "a wrong password doesn't");
+CS
+}
+
+query_is() { # query_is <connection> <statement> <expected>
+  actual=$(sql "$1" "$2" | tr -d '\r' | paste -sd, -)
+  [ "$actual" = "$3" ] || {
+    echo "$2"
+    echo "got: $actual"
+    echo "expected: $3"
+    return 1
+  }
+}
+
+refuses_a_fresh_database_without_a_password() {
+  connection=$(fresh_database no_password) || return 1
+  (
+    export ConnectionStrings__Default="$connection"
+    refuses_to_start_without Admin__InitialPassword 'InitialPassword'
+  )
+}
+
+refuses_a_short_password() {
+  connection=$(fresh_database short_password) || return 1
+  (
+    api_env
+    export ConnectionStrings__Default="$connection" Admin__InitialPassword=short
+    log="$scratch/refused-short-password.log"
+    if (cd "$api_dir" && timeout 60 dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls http://127.0.0.1:5289) >"$log" 2>&1; then
+      echo "the API ran with a short password"
+      exit 1
+    fi
+    grep -qF 'InitialPassword' "$log"
+  )
+}
+
+seed_once() { # seed_once <connection> [admin-password]: starts the API once and stops it
+  (
+    export ConnectionStrings__Default="$1"
+    if [ -n "${2:-}" ]; then
+      export Admin__InitialPassword="$2"
+    else
+      unset Admin__InitialPassword
+      export Admin__InitialPassword=
+    fi
+    start_api
+    start_status=$?
+    cp "$api_log" "$scratch/seed.log"
+    stop_api
+    exit "$start_status"
+  )
+}
+
+hash_verifies_stored_password() { # hash_verifies_stored_password <hash> <password>
+  KANABOL_PROBE_HASH=$1 KANABOL_PROBE_PASSWORD=$2 probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Application.Abstractions;
+
+await using var database = await ProbeDatabase.Create("stored_hash");
+using var scope = database.Services.CreateScope();
+var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+var hash = Environment.GetEnvironmentVariable("KANABOL_PROBE_HASH")!;
+var password = Environment.GetEnvironmentVariable("KANABOL_PROBE_PASSWORD")!;
+Check.That(hasher.Verify(hash, password), "the seeded hash matches the configured password");
+CS
+}
+
+task_15() {
+  echo "2.15 Seed on startup"
+  need_database
+  check "the backend builds" build_backend
+  check "IPasswordHasher hashes and verifies" password_hasher_works
+  check "a new database refuses to start without an admin password" refuses_a_fresh_database_without_a_password
+  check "a short admin password is refused" refuses_a_short_password
+
+  seeded=$(fresh_database seeded)
+  password=only-for-these-checks-1
+  permissions='projects.create,projects.manage,projects.view_all,reports.view,roles.manage,tasks.archive,users.manage'
+  check "the first start seeds a new database" seed_once "$seeded" "$password"
+  check "the permissions come from the constants" query_is "$seeded" 'SELECT name FROM permissions ORDER BY name' "$permissions"
+  check "there's one role, Admin, and it's a system role" query_is "$seeded" 'SELECT name, is_system FROM roles' 'Admin|True'
+  check "Admin has every permission" query_is "$seeded" 'SELECT count(*) FROM role_permissions' 7
+  check "there's one user" query_is "$seeded" 'SELECT count(*) FROM users' 1
+  check "the user has the Admin role" query_is "$seeded" 'SELECT r.name FROM users u JOIN roles r ON r.id = u.role_id' Admin
+  check "the user has to change the password" query_is "$seeded" 'SELECT must_change_password, is_active FROM users' 'True|True'
+  check "the user has the configured email" query_is "$seeded" 'SELECT email FROM users' 'admin@kanabol.local'
+  check "the role and the user get audit stamps" query_is "$seeded" "SELECT count(*) FROM users WHERE created_at > now() - interval '1 hour'" 1
+  check "the log doesn't have the password" not_in_file "$password" "$scratch/seed.log"
+  stored_hash=$(sql "$seeded" 'SELECT password_hash FROM users' | tr -d '\r')
+  check "the password isn't stored as text" query_is "$seeded" "SELECT count(*) FROM users WHERE password_hash LIKE '%$password%'" 0
+  check "the stored hash verifies against the password" hash_verifies_stored_password "$stored_hash" "$password"
+
+  check "the next start needs no admin password" seed_once "$seeded"
+  check "it adds no permission" query_is "$seeded" 'SELECT count(*) FROM permissions' 7
+  check "it adds no role" query_is "$seeded" 'SELECT count(*) FROM roles' 1
+  check "it adds no user" query_is "$seeded" 'SELECT count(*) FROM users' 1
+  check "it leaves the password alone" query_is "$seeded" 'SELECT password_hash FROM users' "$stored_hash"
+
+  sql "$seeded" "DELETE FROM permissions WHERE name = 'reports.view'" >/dev/null
+  sql "$seeded" "INSERT INTO permissions (id, name) VALUES (gen_random_uuid(), 'old.permission')" >/dev/null
+  sql "$seeded" "INSERT INTO role_permissions (role_id, permission_id) SELECT r.id, p.id FROM roles r, permissions p WHERE p.name = 'old.permission'" >/dev/null
+  check "a start after the constants changed still works" seed_once "$seeded"
+  check "a permission new in the code appears, and one gone from it leaves" query_is "$seeded" 'SELECT name FROM permissions ORDER BY name' "$permissions"
+  check "Admin ends up with exactly the permissions in the code" query_is "$seeded" 'SELECT p.name FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id ORDER BY 1' "$permissions"
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 fi
 
 for task in "$@"; do

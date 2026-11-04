@@ -19,13 +19,15 @@ public sealed class DatabaseInitializer(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         if (options.Value.MigrateOnStartup)
         {
             logger.LogInformation("Applying database migrations");
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await db.Database.MigrateAsync(cancellationToken);
         }
+
+        await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().Seed(cancellationToken);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

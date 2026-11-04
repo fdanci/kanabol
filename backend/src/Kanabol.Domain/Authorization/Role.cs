@@ -4,6 +4,8 @@ namespace Kanabol.Domain.Authorization;
 
 public sealed class Role : AuditableEntity
 {
+    public const string AdminName = "Admin";
+
     private readonly List<RolePermission> _rolePermissions = [];
 
     public Role(string name, bool isSystem)
