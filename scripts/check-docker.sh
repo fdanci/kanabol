@@ -164,16 +164,32 @@ source_change_keeps_the_restore_layer() {
   backend_copy "$copy"
   tag="kanabol-check-cache:$$"
   docker build -q -t "$tag" "$(native "$copy/backend")" >/dev/null || return 1
-  printf '\n// a change in the source\n' >>"$copy/backend/src/Kanabol.Api/Program.cs"
-  docker build --progress=plain -t "$tag" "$(native "$copy/backend")" >"$scratch/api-cache.log" 2>&1 || {
-    tail -n 25 "$scratch/api-cache.log"
+  # Different on every run: Docker keeps its cache between runs, so a fixed comment would come from it.
+  printf '\n// a change in the source: run %s at %s\n' "$$" "$(date +%s)" >>"$copy/backend/src/Kanabol.Api/Program.cs"
+  log="$scratch/api-cache.log"
+  docker build --progress=plain -t "$tag" "$(native "$copy/backend")" >"$log" 2>&1 || {
+    tail -n 25 "$log"
     return 1
   }
-  grep -A1 -E 'RUN dotnet restore' "$scratch/api-cache.log" | grep -q 'CACHED' || {
+  restore=$(build_step_id "$log" 'RUN dotnet restore')
+  publish=$(build_step_id "$log" 'RUN dotnet publish')
+  if [ -z "$restore" ] || [ -z "$publish" ]; then
+    echo "the build log has no restore or publish step"
+    return 1
+  fi
+  grep -q "^$restore CACHED" "$log" || {
     echo "restore ran again"
     return 1
   }
-  ! grep -A1 -E 'RUN dotnet publish' "$scratch/api-cache.log" | grep -q 'CACHED'
+  if grep -q "^$publish CACHED" "$log"; then
+    echo "publish came from the cache, so it didn't see the change"
+    return 1
+  fi
+}
+
+# Docker numbers each step and can print other steps between its lines, so its result is found by number.
+build_step_id() { # build_step_id <log> <text in the step's line>
+  grep -E "^#[0-9]+ \[.*$2" "$1" | head -n 1 | cut -d' ' -f1
 }
 
 api_config_is() { # api_config_is <format> <expected>
