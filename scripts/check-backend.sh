@@ -2031,8 +2031,39 @@ task_15() {
   check "Admin ends up with exactly the permissions in the code" query_is "$seeded" 'SELECT p.name FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id ORDER BY 1' "$permissions"
 }
 
+notes_have() { # notes_have <text>
+  grep -qF -- "$1" backend/CLAUDE.md
+}
+
+task_16() {
+  echo "2.16 The backend notes"
+  check "the notes no longer say there's no database" not_in_file 'No database' backend/CLAUDE.md
+  check "they say how to restore dotnet-ef" notes_have 'dotnet tool restore'
+  check "they say how to add a migration" notes_have 'dotnet ef migrations add <Name> -p src/Kanabol.Infrastructure -s src/Kanabol.Api -o Persistence/Migrations'
+  check "they say how to read a migration's SQL" notes_have 'dotnet ef migrations script -p src/Kanabol.Infrastructure -s src/Kanabol.Api'
+  check "they say how to apply migrations by hand" notes_have 'dotnet ef database update -p src/Kanabol.Infrastructure -s src/Kanabol.Api'
+  check "they mention migrating on startup" notes_have 'Database:MigrateOnStartup'
+  check "they say which PostgreSQL to run" notes_have 'PostgreSQL 17'
+  check "they say how Docker fits in" notes_have 'docker compose up postgres seq'
+  for variable in ASPNETCORE_ENVIRONMENT ConnectionStrings__Default Jwt__Secret Admin__InitialPassword Storage__Root Database__MigrateOnStartup Serilog__WriteTo__1__Args__serverUrl; do
+    check "they list $variable" notes_have "$variable"
+  done
+  for secret in 'ConnectionStrings:Default' 'Jwt:Secret' 'Admin:InitialPassword'; do
+    check "they show how to set the $secret secret" notes_have "dotnet user-secrets set \"$secret\""
+  done
+  check "they point to the backend checks" notes_have 'scripts/check-backend.sh'
+  check "they explain the checks' database" notes_have 'KANABOL_CHECK_DB'
+  check "the documented SQL command runs from backend/" dotnet_ef_script_runs
+}
+
+dotnet_ef_script_runs() {
+  build_backend || return 1
+  (cd backend && dotnet ef migrations script -p src/Kanabol.Infrastructure -s src/Kanabol.Api --no-build -o "$scratch/documented.sql") &&
+    grep -q 'CREATE TABLE task_items' "$scratch/documented.sql"
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 fi
 
 for task in "$@"; do
