@@ -155,7 +155,95 @@ task_4() {
   done
 }
 
-[ $# -gt 0 ] || set -- 1 2 3 4
+has_setting() {
+  grep -qxF -- "$1" .editorconfig
+}
+
+# The official format has no inline comments: a trailing "# ..." would become part of the value.
+has_no_inline_comments() {
+  ! grep -qE '^[^#]*=.*[#;]' .editorconfig
+}
+
+# Prove the rules reach the backend, on a throwaway copy of it. Clean code must pass; a file
+# breaking the rules must be rejected by both dotnet format and the build.
+rejects_rule_breakers() {
+  [ -f .editorconfig ] || return 1
+  work=$(mktemp -d)
+  cp .editorconfig "$work/"
+  git archive HEAD backend | tar -x -C "$work"
+  (
+    cd "$work/backend" || exit 1
+    dotnet restore Kanabol.sln --nologo -v q || exit 1
+    dotnet format style Kanabol.sln --no-restore --verify-no-changes || exit 1
+    cat >Kanabol.Api/RuleBreaker.cs <<'CS'
+using Microsoft.Extensions.Logging;
+
+namespace Kanabol.Api
+{
+    internal sealed class RuleBreaker(ILogger logger)
+    {
+        private readonly ILogger badlyNamedField = logger;
+
+        public void Log(int value) => badlyNamedField.LogInformation($"value {value}");
+    }
+}
+CS
+    style=$(dotnet format style Kanabol.sln --no-restore --verify-no-changes 2>&1)
+    build=$(dotnet build Kanabol.sln --no-restore --nologo 2>&1)
+    printf '%s\n' "$style" | grep -q IDE0161 || exit 1 # file-scoped namespaces
+    printf '%s\n' "$style" | grep -q IDE1006 || exit 1 # _camelCase private fields
+    printf '%s\n' "$build" | grep -q 'error CA2254' || exit 1 # log templates
+  )
+  status=$?
+  rm -rf "$work"
+  return "$status"
+}
+
+task_5() {
+  echo "0.5 single .editorconfig in the root"
+  check ".editorconfig is tracked in the root" tracked .editorconfig
+  check "frontend/.editorconfig is gone" absent frontend/.editorconfig
+  check "values carry no inline comments" has_no_inline_comments
+  while IFS= read -r setting; do
+    check "has: $setting" has_setting "$setting"
+  done <<'EOF'
+root = true
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+[*.cs]
+indent_size = 4
+csharp_style_namespace_declarations = file_scoped:error
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+csharp_prefer_braces = true:error
+csharp_using_directive_placement = outside_namespace:error
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false:error
+dotnet_naming_rule.private_fields_underscore.severity = error
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.required_prefix = _
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_diagnostic.CA2254.severity = error
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1062.severity = none
+[*.{ts,html,scss,json,yaml,yml,md}]
+[*.ts]
+quote_type = single
+[*.md]
+trim_trailing_whitespace = false
+EOF
+  check "rules reach the backend and reject rule breakers" rejects_rule_breakers
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4 5
 for task in "$@"; do
   "task_$task"
 done
