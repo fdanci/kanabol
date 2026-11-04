@@ -244,8 +244,24 @@ task_3() {
   check "dotnet format is clean" formatting_is_clean
 }
 
+task_4() {
+  echo "3.4 Test data builders"
+  for builder in UserBuilder ProjectBuilder TaskItemBuilder; do
+    check "$builder is tracked" tracked "backend/tests/Shared/Builders/$builder.cs"
+  done
+  check "the builders work in the domain tests" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~TestDataBuilderTests' 6
+  check "what they build fits the real schema" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TestDataPersistenceTests' 1
+  check "the API tests can use them too" builders_compile_in_the_api_tests
+  check "the solution builds with warnings as errors" solution_builds
+  check "dotnet format is clean" formatting_is_clean
+}
+
+builders_compile_in_the_api_tests() {
+  dotnet msbuild backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj -getItem:Compile | grep -q 'UserBuilder.cs'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 6
+  set -- 1 2 3 4 6
 fi
 
 for task in "$@"; do

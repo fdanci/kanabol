@@ -8,7 +8,15 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     private readonly List<Attachment> _attachments = [];
     private readonly List<TaskHistoryEntry> _history = [];
 
-    public TaskItem(Guid projectId, Guid columnId, string title, string? description, TaskPriority priority, int position)
+    public TaskItem(
+        Guid projectId,
+        Guid columnId,
+        string title,
+        string? description,
+        TaskPriority priority,
+        int position,
+        Guid? assigneeId = null,
+        DateTimeOffset? dueDate = null)
     {
         ProjectId = projectId;
         ColumnId = columnId;
@@ -16,6 +24,8 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Description = description;
         Priority = priority;
         Position = position;
+        AssigneeId = assigneeId;
+        DueDate = dueDate;
     }
 
     private TaskItem()

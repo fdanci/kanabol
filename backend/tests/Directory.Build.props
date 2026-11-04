@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Shared by every test project, as source: it isn't a project the spec lists. -->
+    <Compile Include="..\Shared\Builders\*.cs" LinkBase="Shared\Builders" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="FluentAssertions" />
     <Using Include="NSubstitute" />
     <Using Include="Xunit" />
