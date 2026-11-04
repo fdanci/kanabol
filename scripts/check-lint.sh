@@ -29,7 +29,7 @@ not_in_file() { # not_in_file <text> <file>
 
 # What MSBuild really evaluates, wherever the value comes from.
 api_property_is() { # api_property_is <property> <value>
-  [ "$(dotnet msbuild backend/Kanabol.Api/Kanabol.Api.csproj -getProperty:"$1" | tr -d '\r')" = "$2" ]
+  [ "$(dotnet msbuild backend/src/Kanabol.Api/Kanabol.Api.csproj -getProperty:"$1" | tr -d '\r')" = "$2" ]
 }
 
 # Run a shell snippet in a throwaway copy of the backend as it's staged.
@@ -45,14 +45,14 @@ in_backend_copy() { # in_backend_copy <snippet>
 
 nullable_warning_breaks_the_build() {
   in_backend_copy '
-    printf "namespace Kanabol.Api;\n\ninternal static class Probe\n{\n    internal static string Value { get; } = null;\n}\n" >Kanabol.Api/Probe.cs
+    printf "namespace Kanabol.Api;\n\ninternal static class Probe\n{\n    internal static string Value { get; } = null;\n}\n" >src/Kanabol.Api/Probe.cs
     dotnet build Kanabol.sln --nologo 2>&1 | grep -q "error CS8625"
   '
 }
 
 inline_package_version_is_refused() {
   in_backend_copy '
-    sed -i "s#</Project>#<ItemGroup><PackageReference Include=\"Serilog\" Version=\"4.0.0\" /></ItemGroup></Project>#" Kanabol.Api/Kanabol.Api.csproj
+    sed -i "s#</Project>#<ItemGroup><PackageReference Include=\"Serilog\" Version=\"4.0.0\" /></ItemGroup></Project>#" src/Kanabol.Api/Kanabol.Api.csproj
     dotnet restore Kanabol.sln --nologo 2>&1 | grep -q "NU1008"
   '
 }
@@ -62,7 +62,7 @@ task_1() {
   check "Directory.Build.props is tracked" tracked backend/Directory.Build.props
   check "Directory.Packages.props is tracked" tracked backend/Directory.Packages.props
   for setting in TargetFramework Nullable ImplicitUsings; do
-    check "the Api project no longer sets $setting" not_in_file "<$setting>" backend/Kanabol.Api/Kanabol.Api.csproj
+    check "the Api project no longer sets $setting" not_in_file "<$setting>" backend/src/Kanabol.Api/Kanabol.Api.csproj
   done
   while IFS='=' read -r property value; do
     check "the Api project evaluates $property=$value" api_property_is "$property" "$value"
@@ -93,14 +93,14 @@ backend_builds_without_warnings() {
 # Negative controls: the two commands above must be able to fail.
 format_rejects_bad_whitespace() {
   in_backend_copy '
-    printf "namespace Kanabol.Api;\n\ninternal static class Probe\n{\n  internal static int Value => 1;\n}\n" >Kanabol.Api/Probe.cs
+    printf "namespace Kanabol.Api;\n\ninternal static class Probe\n{\n  internal static int Value => 1;\n}\n" >src/Kanabol.Api/Probe.cs
     ! dotnet format Kanabol.sln --verify-no-changes
   '
 }
 
 build_rejects_an_analyzer_warning() {
   in_backend_copy '
-    printf "namespace Kanabol.Api;\n\ninternal sealed class Probe\n{\n    public int One() => 1;\n}\n" >Kanabol.Api/Probe.cs
+    printf "namespace Kanabol.Api;\n\ninternal sealed class Probe\n{\n    public int One() => 1;\n}\n" >src/Kanabol.Api/Probe.cs
     dotnet build Kanabol.sln -warnaserror --no-incremental --nologo 2>&1 | grep -q "error CA1822"
   '
 }

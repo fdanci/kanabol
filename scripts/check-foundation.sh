@@ -170,12 +170,12 @@ rejects_rule_breakers() {
   [ -f .editorconfig ] || return 1
   work=$(mktemp -d)
   cp .editorconfig "$work/"
-  git archive HEAD backend | tar -x -C "$work"
+  git archive "$(git write-tree)" backend | tar -x -C "$work"
   (
     cd "$work/backend" || exit 1
     dotnet restore Kanabol.sln --nologo -v q || exit 1
     dotnet format style Kanabol.sln --no-restore --verify-no-changes || exit 1
-    cat >Kanabol.Api/RuleBreaker.cs <<'CS'
+    cat >src/Kanabol.Api/RuleBreaker.cs <<'CS'
 using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Api
@@ -274,7 +274,7 @@ task_6() {
   check ".gitattributes is tracked" tracked .gitattributes
   check "scripts/ checks out as LF" checks_out_as_lf scripts/any.sh
   check ".husky/ checks out as LF" checks_out_as_lf .husky/pre-commit
-  check "source files check out as LF" checks_out_as_lf backend/Kanabol.Api/Program.cs
+  check "source files check out as LF" checks_out_as_lf backend/src/Kanabol.Api/Program.cs
   check "no tracked file is CRLF in the worktree" worktree_has_no_crlf
   check "the favicon stays binary" stays_binary frontend/public/favicon.ico
   check "dotnet format accepts the backend" backend_format_is_clean

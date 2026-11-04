@@ -6,7 +6,7 @@
 Run from `backend/`:
 
 - Build: `dotnet build Kanabol.sln`
-- Run: `dotnet run --project Kanabol.Api --launch-profile http` (serves on http://localhost:5200)
+- Run: `dotnet run --project src/Kanabol.Api --launch-profile http` (serves on http://localhost:5200)
 - Lint: `dotnet build Kanabol.sln -warnaserror` (analyzers; add `--no-incremental` if nothing changed since the last build)
 - Check formatting: `dotnet format Kanabol.sln --verify-no-changes`
 
