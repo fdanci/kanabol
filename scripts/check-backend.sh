@@ -1410,8 +1410,180 @@ task_11() {
   check "the backend notes explain the local settings file" grep -qF 'appsettings.Development.local.json' backend/CLAUDE.md
 }
 
+correlation_header() { # correlation_header [curl-arguments...]: the id the API answers with
+  curl -s -D - -o /dev/null "$@" "$API_URL/health" | tr -d '\r' | sed -n 's/^[Xx]-[Cc]orrelation-[Ii]d: //p'
+}
+
+echoes_correlation_id() {
+  [ "$(correlation_header -H 'X-Correlation-Id: from-the-browser-1')" = from-the-browser-1 ]
+}
+
+is_guid() {
+  printf '%s' "$1" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || {
+    echo "not a GUID: '$1'"
+    return 1
+  }
+}
+
+generates_correlation_id() {
+  is_guid "$(correlation_header)"
+}
+
+replaces_unsafe_correlation_id() {
+  is_guid "$(correlation_header -H 'X-Correlation-Id: bad id {with} spaces')" &&
+    is_guid "$(correlation_header -H "X-Correlation-Id: $(printf 'a%.0s' $(seq 1 65))")"
+}
+
+log_has() { # log_has <text>
+  grep -qF -- "$1" "$api_log" || {
+    echo "not in the log: $1"
+    tail -n 5 "$api_log"
+    return 1
+  }
+}
+
+log_lacks() { # log_lacks <text>
+  ! grep -qF -- "$1" "$api_log"
+}
+
+# Stands in for Seq until Docker runs the real one: records what the sink posts.
+start_fake_seq() { # start_fake_seq <port> <file>
+  node -e "
+    const http = require('http');
+    const fs = require('fs');
+    http.createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk) => (body += chunk));
+      request.on('end', () => {
+        fs.appendFileSync(process.argv[2], request.url + ' ' + body + '\n');
+        response.statusCode = 201;
+        response.end('{}');
+      });
+    }).listen(Number(process.argv[1]), '127.0.0.1');
+  " "$1" "$2" &
+  fake_seq_pid=$!
+}
+
+seq_received() { # seq_received <file> <text>
+  attempts=0
+  until grep -qF -- "$2" "$1" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -gt 40 ] && return 1
+    sleep 0.5
+  done
+}
+
+user_id_reaches_the_logs() {
+  probe Kanabol.Api <<'CS'
+using Kanabol.Api.Logging;
+using Kanabol.Application.Abstractions;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
+using Serilog.Extensions.Hosting;
+
+var sink = new Collecting();
+using var logger = new LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(sink).CreateLogger();
+var id = Guid.CreateVersion7();
+
+var middleware = new UserIdLogContextMiddleware(_ =>
+{
+    logger.Information("inside the request");
+    return Task.CompletedTask;
+});
+var diagnostics = new DiagnosticContext(logger);
+await middleware.InvokeAsync(new DefaultHttpContext(), new SignedIn(id), diagnostics);
+Check.That(sink.Events.Single().Properties["UserId"].ToString().Contains(id.ToString(), StringComparison.Ordinal), "logs inside a request carry the user's id");
+
+sink.Events.Clear();
+await middleware.InvokeAsync(new DefaultHttpContext(), new Visitor(), diagnostics);
+Check.That(!sink.Events.Single().Properties.ContainsKey("UserId"), "logs without a user carry no id");
+
+internal sealed class Collecting : ILogEventSink
+{
+    public List<LogEvent> Events { get; } = [];
+
+    public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+}
+
+internal sealed class SignedIn(Guid id) : ICurrentUser
+{
+    public bool IsAuthenticated => true;
+
+    public Guid Id => id;
+
+    public bool HasPermission(string permission) => false;
+}
+
+internal sealed class Visitor : ICurrentUser
+{
+    public bool IsAuthenticated => false;
+
+    public Guid Id => throw new InvalidOperationException();
+
+    public bool HasPermission(string permission) => false;
+}
+CS
+}
+
+connection_password() {
+  printf '%s' "$base_connection" | sed -n 's/.*Password=\([^;]*\).*/\1/p'
+}
+
+task_12() {
+  echo "2.12 Serilog and correlation ids"
+  need_database
+  settings="$api_dir/appsettings.json"
+  development="$api_dir/appsettings.Development.json"
+  check "the default Logging section is gone from appsettings.json" not_in_file '"Logging"' "$settings"
+  check "the default Logging section is gone from Development" not_in_file '"Logging"' "$development"
+  check "Development logs Kanabol at Debug" grep -qF '"Kanabol": "Debug"' "$development"
+  check "the backend builds" build_backend
+
+  seq_file="$scratch/seq.log"
+  start_fake_seq 5287 "$seq_file"
+  Serilog__WriteTo__1__Args__serverUrl=http://127.0.0.1:5287
+  ASPNETCORE_ENVIRONMENT=Production
+  export ASPNETCORE_ENVIRONMENT Serilog__WriteTo__1__Args__serverUrl
+  check "the Production API starts" start_api
+  check "a correlation id from the request comes back" echoes_correlation_id
+  check "without one the API generates a GUID" generates_correlation_id
+  check "an unsafe correlation id is replaced" replaces_unsafe_correlation_id
+  sleep 1
+  check "Production logs compact JSON" log_has '{"@t":'
+  check "the request log has the correlation id" log_has '"CorrelationId":"from-the-browser-1"'
+  check "the request log has the path" log_has '"RequestPath":"/health"'
+  check "the request log has the status" log_has '"StatusCode":200'
+  check "the request log has the duration" log_has '"Elapsed":'
+  check "logs carry the environment" log_has '"EnvironmentName":"Production"'
+  check "logs carry the machine" log_has '"MachineName":'
+  check "Production hides ASP.NET's per-request logs" log_lacks 'Request starting'
+  check "Production hides the SQL" log_lacks 'Executed DbCommand'
+  check "the logs reach Seq" seq_received "$seq_file" 'from-the-browser-1'
+  check "Production logs don't have the JWT secret" log_lacks "$Jwt__Secret"
+  check "Production logs don't have the database password" log_lacks "$(connection_password)"
+  stop_api
+  kill "$fake_seq_pid" 2>/dev/null
+  wait "$fake_seq_pid" 2>/dev/null
+
+  ASPNETCORE_ENVIRONMENT=Development
+  unset Serilog__WriteTo__1__Args__serverUrl
+  check "the Development API starts" start_api
+  check "a request in Development answers" returns 200 /health
+  sleep 1
+  check "Development logs are readable, not JSON" log_lacks '{"@t":'
+  check "Development shows ASP.NET's per-request logs" log_has 'Request starting'
+  check "Development shows the SQL" log_has 'Executed DbCommand'
+  check "Development logs don't have the JWT secret" log_lacks "$Jwt__Secret"
+  check "Development logs don't have the database password" log_lacks "$(connection_password)"
+  stop_api
+  unset ASPNETCORE_ENVIRONMENT
+
+  check "the user's id reaches the logs" user_id_reaches_the_logs
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9 10 11
+  set -- 1 2 3 4 5 6 7 8 9 10 11 12
 fi
 
 for task in "$@"; do
