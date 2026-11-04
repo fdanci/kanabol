@@ -130,8 +130,47 @@ task_1() {
   done
 }
 
+architecture_tests_pass() {
+  dotnet test backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj --nologo --filter 'FullyQualifiedName~ArchitectureTests' >"$scratch/architecture.log" 2>&1 || {
+    tail -n 15 "$scratch/architecture.log"
+    return 1
+  }
+  grep -qE 'Passed: +[1-9]' "$scratch/architecture.log"
+}
+
+# Breaks a rule in a copy of the backend. The architecture tests have to catch it.
+architecture_tests_catch() { # architecture_tests_catch <name> <file in src> <C# source> [package for Domain]
+  copy="$scratch/architecture-$1"
+  backend_copy "$copy"
+  mkdir -p "$(dirname "$copy/backend/src/$2")"
+  printf '%s\n' "$3" >"$copy/backend/src/$2"
+  if [ -n "${4:-}" ]; then
+    sed -i "s#</Project>#<ItemGroup><PackageReference Include=\"$4\" /></ItemGroup></Project>#" \
+      "$copy/backend/src/Kanabol.Domain/Kanabol.Domain.csproj"
+  fi
+  if dotnet test "$copy/backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj" --nologo -p:TreatWarningsAsErrors=false \
+    --filter 'FullyQualifiedName~ArchitectureTests' >"$scratch/caught-$1.log" 2>&1; then
+    echo "the tests passed with the rule broken"
+    return 1
+  fi
+  grep -qE 'Failed: +[1-9]' "$scratch/caught-$1.log" || {
+    tail -n 12 "$scratch/caught-$1.log"
+    return 1
+  }
+}
+
+task_6() {
+  echo "3.6 Architecture tests"
+  check "the architecture tests pass" architecture_tests_pass
+  check "EF in Domain is caught" architecture_tests_catch domain-ef Kanabol.Domain/Probe.cs \
+    'namespace Kanabol.Domain; public sealed class Probe(Microsoft.EntityFrameworkCore.DbContext context) { public object Context { get; } = context; }' \
+    Microsoft.EntityFrameworkCore
+  check "Infrastructure in Application is caught" architecture_tests_catch application-infrastructure Kanabol.Application/Probe.cs \
+    'namespace Kanabol.Infrastructure.Probing { public sealed class Thing; } namespace Kanabol.Application { public sealed class Probe { public Kanabol.Infrastructure.Probing.Thing? Used { get; set; } } }'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 6
 fi
 
 for task in "$@"; do

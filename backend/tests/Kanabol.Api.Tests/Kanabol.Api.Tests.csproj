@@ -4,4 +4,8 @@
     <ProjectReference Include="..\..\src\Kanabol.Api\Kanabol.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
 </Project>
