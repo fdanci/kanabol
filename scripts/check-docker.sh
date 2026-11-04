@@ -40,7 +40,7 @@ cleanup() {
   docker network rm "$network" >/dev/null 2>&1
   images=$(docker images -q --filter "reference=kanabol-check-*:$$")
   [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
-  images=$(docker images -q --filter "reference=kanabol-*:check-$"; docker images -q --filter "reference=$run_id*")
+  images=$(docker images -q --filter "reference=kanabol-*:check-$$"; docker images -q --filter "reference=$run_id*")
   [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
   rm -rf "$scratch"
 }
@@ -540,8 +540,8 @@ services:
       - "$(native "$1"):/etc/nginx/certs:ro"
       - "./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro"
 EOF
-  docker image inspect "kanabol-api:check-$$" >/dev/null 2>&1 || docker tag "$(stack images -q api | head -n 1)" "kanabol-api:check-$$" || return 1
-  docker image inspect "kanabol-web:check-$$" >/dev/null 2>&1 || docker tag "$(stack images -q web | head -n 1)" "kanabol-web:check-$$" || return 1
+  docker image inspect "kanabol-api:check-$$" >/dev/null 2>&1 || docker build -q -t "kanabol-api:check-$$" backend || return 1
+  docker image inspect "kanabol-web:check-$$" >/dev/null 2>&1 || docker build -q -t "kanabol-web:check-$$" frontend || return 1
   prod_stack up -d --no-build --wait --wait-timeout 180 >"$scratch/prod.log" 2>&1 || {
     tail -n 15 "$scratch/prod.log"
     prod_stack logs --tail 15 web api 2>&1
@@ -810,7 +810,7 @@ dev_sql_gives_at_least() { # dev_sql_gives_at_least <minimum> <sql>
 
 # Finding a request by the code an error message shows is why the logs are in Seq.
 request_is_found_by_its_correlation_id() {
-  code="check-$-correlation"
+  code="check-$$-correlation"
   curl -sS -o /dev/null -H "X-Correlation-Id: $code" http://localhost:5200/api/no-such-thing
   seq_login http://localhost:5341 check-seq-password || return 1
   waited=0
@@ -885,8 +885,142 @@ task_5() {
   check "they no longer wait for compose.yaml" not_in_file 'Once `compose.yaml` exists' backend/CLAUDE.md
 }
 
+# The script, in a folder of its own, so the real certs/ stays out of this.
+certs_home="$scratch/certs-home"
+
+make_certs() { # make_certs <names...>
+  mkdir -p "$certs_home/scripts"
+  cp scripts/make-certs.sh "$certs_home/scripts/"
+  sh "$certs_home/scripts/make-certs.sh" "$@"
+}
+
+ssl() {
+  MSYS_NO_PATHCONV=1 openssl "$@"
+}
+
+cert_path() {
+  native "$certs_home/certs/$1"
+}
+
+asks_for_a_name() {
+  ! make_certs >"$scratch/no-names.log" 2>&1 || return 1
+  grep -q 'Usage' "$scratch/no-names.log" && [ ! -e "$certs_home/certs/ca.key" ]
+}
+
+creates_the_certificates() {
+  make_certs kanabol.local kanabol 10.0.0.10 || return 1
+  for file in ca.key ca.crt server.key server.crt; do
+    [ -f "$certs_home/certs/$file" ] || {
+      echo "$file is missing"
+      return 1
+    }
+  done
+}
+
+ca_subject_is_internal() {
+  ssl x509 -in "$(cert_path ca.crt)" -noout -subject | tr -d '\r' | grep -q 'Kanabol Internal CA'
+}
+
+server_cert_is_signed_by_the_ca() {
+  ssl verify -CAfile "$(cert_path ca.crt)" "$(cert_path server.crt)"
+}
+
+server_cert_lists() { # server_cert_lists <text>
+  ssl x509 -in "$(cert_path server.crt)" -noout -ext subjectAltName | tr -d '\r' | grep -qF -- "$1"
+}
+
+days_left_at_least() { # days_left_at_least <file> <days>
+  ssl x509 -in "$(cert_path "$1")" -noout -checkend $(($2 * 86400))
+}
+
+server_cert_lasts_825_days() {
+  days_left_at_least server.crt 824 && ! days_left_at_least server.crt 826
+}
+
+no_leftovers() {
+  is 'ca.crt ca.key ca.srl server.crt server.key' "$(ls "$certs_home/certs" | sort | paste -sd' ' -)"
+}
+
+second_run_keeps_the_ca() {
+  ca_before=$(ssl x509 -in "$(cert_path ca.crt)" -noout -fingerprint -sha256 | tr -d '\r')
+  key_before=$(cksum <"$certs_home/certs/ca.key")
+  server_before=$(ssl x509 -in "$(cert_path server.crt)" -noout -serial | tr -d '\r')
+  make_certs kanabol.local kanabol 10.0.0.20 || return 1
+  is "$ca_before" "$(ssl x509 -in "$(cert_path ca.crt)" -noout -fingerprint -sha256 | tr -d '\r')" || return 1
+  is "$key_before" "$(cksum <"$certs_home/certs/ca.key")" || return 1
+  [ "$server_before" != "$(ssl x509 -in "$(cert_path server.crt)" -noout -serial | tr -d '\r')" ] || {
+    echo "the server certificate wasn't renewed"
+    return 1
+  }
+  server_cert_lists 10.0.0.20 && server_cert_is_signed_by_the_ca
+}
+
+tls_result() { # tls_result <CA file> <name>: what a client trusting that CA sees for that name
+  ssl s_client -connect "127.0.0.1:$https_port" -servername "$2" -CAfile "$(native "$1")" \
+    -verify_hostname "$2" -verify_return_error </dev/null 2>&1 | tr -d '\r' | grep -E '^Verif(y return code|ication)' | head -n 1
+}
+
+browser_trusting_the_ca_accepts_it() {
+  tls_result "$certs_home/certs/ca.crt" kanabol.local | grep -qE 'Verification: OK|return code: 0 ' || {
+    tls_result "$certs_home/certs/ca.crt" kanabol.local
+    return 1
+  }
+}
+
+tls_refuses() { # tls_refuses <CA file> <name>: the handshake has to happen, and fail verification
+  result=$(tls_result "$1" "$2")
+  [ -n "$result" ] || {
+    echo "the server didn't answer"
+    return 1
+  }
+  ! printf '%s' "$result" | grep -qE 'Verification: OK|return code: 0 '
+}
+
+other_name_is_refused() {
+  tls_refuses "$certs_home/certs/ca.crt" other.example
+}
+
+other_ca_is_refused() {
+  mkdir -p "$scratch/other-ca"
+  ssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=Another CA' \
+    -keyout "$(native "$scratch/other-ca/ca.key")" -out "$(native "$scratch/other-ca/ca.crt")" 2>/dev/null || return 1
+  tls_refuses "$scratch/other-ca/ca.crt" kanabol.local
+}
+
+docs_explain() { # docs_explain <text>
+  grep -qF -- "$1" docs/tls.md
+}
+
+task_6() {
+  echo "4.6 make-certs.sh and importing the CA"
+  check "scripts/make-certs.sh is tracked" tracked scripts/make-certs.sh
+  check "it's executable" sh -c 'git ls-files -s scripts/make-certs.sh | grep -q "^100755"'
+  check "certs/ stays out of git" git check-ignore -q --no-index certs/ca.key
+  check "it asks for the server's names, and creates nothing without them" asks_for_a_name
+  check "it creates the CA and the server certificate" creates_the_certificates
+  check "the CA is the internal one" ca_subject_is_internal
+  check "the CA lasts years" days_left_at_least ca.crt 3600
+  check "the server certificate is signed by the CA" server_cert_is_signed_by_the_ca
+  check "it lists the server's hostname" server_cert_lists 'DNS:kanabol.local'
+  check "it lists the short name" server_cert_lists 'DNS:kanabol'
+  check "it lists the IP" server_cert_lists 'IP Address:10.0.0.10'
+  check "it lasts 825 days" server_cert_lasts_825_days
+  check "it leaves no temporary files" no_leftovers
+  check "a second run keeps the CA and renews the certificate" second_run_keeps_the_ca
+  check "the values for the checks are ready" write_check_env
+  check "the production stack comes up with these certificates" prod_stack_comes_up "$certs_home/certs"
+  check "a client that trusts the CA accepts the server" browser_trusting_the_ca_accepts_it
+  check "control: it refuses another name" other_name_is_refused
+  check "control: a client trusting another CA refuses it" other_ca_is_refused
+  check "the docs are tracked" tracked docs/tls.md
+  check "they show how to run the script" docs_explain 'scripts/make-certs.sh'
+  check "they explain the import on Windows" docs_explain 'Trusted Root Certification Authorities'
+  check "they explain Firefox" docs_explain 'security.enterprise_roots.enabled'
+  check "they say ca.key stays on the server" docs_explain 'ca.key'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do
