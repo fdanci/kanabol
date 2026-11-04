@@ -134,7 +134,28 @@ EOF
   rm -rf "$TMPDIR_CHECK"
 }
 
-[ $# -gt 0 ] || set -- 1 2 3
+# No line of the file as it was before this task has been lost.
+keeps_original_claude_md() {
+  git show 13ec739:CLAUDE.md | tr -d '\r' | while IFS= read -r line; do
+    [ -z "$line" ] || grep -qxF -- "$line" CLAUDE.md || exit 1
+  done
+}
+
+task_4() {
+  echo "0.4 root CLAUDE.md"
+  check "keeps every original line (vault, git rules)" keeps_original_claude_md
+  check "still forbids AI attribution" grep -q 'Never mention Claude' CLAUDE.md
+  check "points to docs/SPEC.md" grep -q 'docs/SPEC.md' CLAUDE.md
+  check "has a naming section" grep -q '^## Naming' CLAUDE.md
+  for convention in _camelCase 'Command`' 'Handler' 'Validator' 'Dto' 'Request' 'Event' 'Errors' \
+    'Configuration' '_<Scenario>_' snake_case 'ix_' 'ux_' timestamptz '/api' 'kebab-case' \
+    'kb-task-card' 'board-store.ts' 'tasks-api.ts' 'auth-guard.ts' \
+    'Conventional Commits' 'feature/<kebab>' '`infra`'; do
+    check "naming covers $convention" grep -qF -- "$convention" CLAUDE.md
+  done
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4
 for task in "$@"; do
   "task_$task"
 done
