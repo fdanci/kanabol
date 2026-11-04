@@ -18,6 +18,8 @@ failures=0
 scratch=$(mktemp -d)
 check_db="kanabol_check_$$"
 api_dir=backend/src/Kanabol.Api
+api_port=5290
+api_pid=
 
 check() { # check <description> <command...>
   description=$1
@@ -68,6 +70,56 @@ formatting_is_clean() {
   dotnet format backend/Kanabol.sln --verify-no-changes
 }
 
+# The whole backend as it's staged, in a throwaway folder, to add a probe to.
+backend_copy() { # backend_copy <folder>
+  mkdir -p "$1"
+  cp .editorconfig "$1/"
+  git archive "$(git write-tree)" backend | tar -x -C "$1"
+}
+
+start_api() { # start_api [project-folder]; sets API_URL
+  api_port=$((api_port + 1))
+  API_URL="http://127.0.0.1:$api_port"
+  api_log="$scratch/api-$api_port.log"
+  (cd "${1:-$api_dir}" && exec dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls "$API_URL") >"$api_log" 2>&1 &
+  api_pid=$!
+  attempts=0
+  until curl -s -o /dev/null "$API_URL/health"; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 120 ] || ! kill -0 "$api_pid" 2>/dev/null; then
+      cat "$api_log"
+      return 1
+    fi
+    sleep 0.5
+  done
+}
+
+stop_api() {
+  kill "$api_pid" 2>/dev/null
+  wait "$api_pid" 2>/dev/null
+  api_pid=
+  return 0
+}
+
+returns() { # returns <status> <path>
+  actual=$(curl -s -o /dev/null -w '%{http_code}' "$API_URL$2")
+  [ "$actual" = "$1" ] || {
+    echo "GET $2 returned $actual, expected $1"
+    return 1
+  }
+}
+
+body_has() { # body_has <text> <path>
+  curl -s "$API_URL$2" | grep -qF -- "$1"
+}
+
+build_backend() {
+  dotnet build backend/Kanabol.sln --nologo -v q >"$scratch/build.log" 2>&1 || {
+    cat "$scratch/build.log"
+    return 1
+  }
+}
+
 task_1() {
   echo "2.1 Four projects under backend/src"
   for project in Kanabol.Api Kanabol.Domain Kanabol.Application Kanabol.Infrastructure; do
@@ -96,8 +148,43 @@ task_1() {
   check "the foundation checks follow the move" not_in_file 'backend/Kanabol.Api' scripts/check-foundation.sh
 }
 
+write_probe_controller() { # write_probe_controller <api-project-folder>
+  mkdir -p "$1/Controllers"
+  cat >"$1/Controllers/ProbeController.cs" <<'CS'
+using Microsoft.AspNetCore.Mvc;
+
+namespace Kanabol.Api.Controllers;
+
+[ApiController]
+[Route("api/probe")]
+public sealed class ProbeController : ControllerBase
+{
+    [HttpGet]
+    public IActionResult Get() => Ok(new { DueDate = "soon" });
+}
+CS
+}
+
+task_2() {
+  echo "2.2 Controllers and /health instead of Hello World"
+  check "Hello World is gone from Program.cs" not_in_file 'Hello World' "$api_dir/Program.cs"
+  check "the backend builds" build_backend
+  check "the API starts" start_api
+  check "/health returns 200" returns 200 /health
+  check "/ no longer answers" returns 404 /
+  stop_api
+  copy="$scratch/controllers"
+  backend_copy "$copy"
+  write_probe_controller "$copy/$api_dir"
+  check "a controller builds in a copy of the API" dotnet build "$copy/$api_dir/Kanabol.Api.csproj" --nologo -v q
+  check "the copy starts" start_api "$copy/$api_dir"
+  check "controllers are routed" returns 200 /api/probe
+  check "JSON comes back in camelCase" body_has '"dueDate"' /api/probe
+  stop_api
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 
 for task in "$@"; do
