@@ -77,7 +77,64 @@ task_2() {
   fi
 }
 
-[ $# -gt 0 ] || set -- 1 2
+has_decision_sections() {
+  [ "$(grep '^## ' "$1" | tr -d '\r' | tr '\n' ' ')" = "## Decizie ## Motiv ## Alternative ## Legate " ]
+}
+
+# Every [[Kanban pe steroizi/...]] wikilink in the file points at a note that exists.
+links_resolve() {
+  grep -o '\[\[Kanban pe steroizi/[^]|]*' "$1" | sed 's/^\[\[Kanban pe steroizi\///' >"$TMPDIR_CHECK/links"
+  [ -s "$TMPDIR_CHECK/links" ] || return 1
+  while IFS= read -r target; do
+    [ -f "$VAULT/$target.md" ] || return 1
+  done <"$TMPDIR_CHECK/links"
+}
+
+links_note() { # links_note <note name>
+  grep -qF "[[Kanban pe steroizi/Decisions/$1|$1]]" "$VAULT/_Architecture.md"
+}
+
+record_count_is() {
+  [ "$(find docs/adr -name '*.md' | wc -l)" -eq "$1" ]
+}
+
+task_3() {
+  echo "0.3 the 14 decision notes from SPEC section 17"
+  TMPDIR_CHECK=$(mktemp -d)
+  check "docs/adr holds 16 records" record_count_is 16
+  while IFS='|' read -r number slug name; do
+    record="docs/adr/$number-$slug.md"
+    check "$number is tracked" tracked "$record"
+    check "$number has the four sections" has_decision_sections "$record"
+    if [ -d "$VAULT" ]; then
+      check "$number note: $name" has_decision_sections "$VAULT/Decisions/$name.md"
+      check "$number note's links resolve" links_resolve "$VAULT/Decisions/$name.md"
+      check "$number matches its vault note" same_as_note "$record" "$name"
+      check "$number is linked from _Architecture.md" links_note "$name"
+    fi
+  done <<'EOF'
+0003|clean-architecture-si-cqrs-light|Clean Architecture și CQRS light
+0004|utilizatori-proprii-si-jwt-cu-refresh-rotit|Utilizatori proprii și JWT cu refresh rotit
+0005|angular-signals-si-material-fara-ngrx|Angular Signals și Material, fără NgRx
+0006|serilog-si-seq-pentru-loguri|Serilog și Seq pentru loguri
+0007|postgres-real-in-teste|Postgres real în teste
+0008|husky-si-lint-staged-la-commit|Husky și lint-staged la commit
+0009|signalr-din-v1-prin-domain-events|SignalR din v1 prin domain events
+0010|atasamente-pe-disc-in-spatele-ifilestorage|Atașamente pe disc în spatele IFileStorage
+0011|fara-mediatr-automapper-moq-si-karma|Fără MediatR, AutoMapper, Moq și Karma
+0012|un-singur-rol-per-utilizator|Un singur rol per utilizator
+0013|arhivare-in-loc-de-stergere|Arhivare în loc de ștergere
+0014|alerte-doar-in-app|Alerte doar in-app
+0015|tls-cu-ca-proprie|TLS cu CA proprie
+0016|productivitate-fara-story-points|Productivitate fără story points
+EOF
+  if has_vault; then
+    check "_Architecture.md's links resolve" links_resolve "$VAULT/_Architecture.md"
+  fi
+  rm -rf "$TMPDIR_CHECK"
+}
+
+[ $# -gt 0 ] || set -- 1 2 3
 for task in "$@"; do
   "task_$task"
 done
