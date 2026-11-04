@@ -29,6 +29,8 @@ dotnet_naming_style.underscore_camel.capitalization = camel_case
 dotnet_diagnostic.CA2254.severity = error
 # LoggerMessage delegates: too much noise
 dotnet_diagnostic.CA1848.severity = none
+# IsEnabled guards around log calls: the same noise as CA1848
+dotnet_diagnostic.CA1873.severity = none
 # Null checks on arguments: Nullable covers them
 dotnet_diagnostic.CA1062.severity = none
 # Names that are keywords in other languages: only C# uses these assemblies, and the spec names a type Error

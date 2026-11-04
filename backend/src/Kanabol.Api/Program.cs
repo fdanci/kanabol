@@ -1,5 +1,6 @@
 using Kanabol.Api.Authentication;
 using Kanabol.Api.Logging;
+using Kanabol.Application;
 using Kanabol.Application.Abstractions;
 using Kanabol.Infrastructure;
 using Serilog;
@@ -20,6 +21,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();

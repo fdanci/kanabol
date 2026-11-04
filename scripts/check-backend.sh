@@ -1582,8 +1582,163 @@ task_12() {
   check "the user's id reaches the logs" user_id_reaches_the_logs
 }
 
+handlers_are_scanned_and_decorated() {
+  probe Kanabol.Application <<'CS'
+using FluentValidation;
+using Kanabol.Application;
+using Kanabol.Application.Abstractions.Messaging;
+using Kanabol.Application.Common;
+using Kanabol.Domain.Common;
+
+var logs = new Collected();
+var services = new ServiceCollection();
+services.AddSingleton(logs);
+services.AddLogging(logging => logging.AddProvider(new CollectingProvider(logs)));
+services.AddHandlersFrom(typeof(SaveCommand).Assembly);
+await using var provider = services.BuildServiceProvider(validateScopes: true);
+await using var scope = provider.CreateAsyncScope();
+var scoped = scope.ServiceProvider;
+
+// Internal classes are found by the scan, and resolving the interface gives the decorated chain.
+var save = scoped.GetRequiredService<ICommandHandler<SaveCommand, string>>();
+Check.That(save is not SaveCommandHandler, "command handlers are decorated");
+
+var saved = await save.Handle(new SaveCommand("ok", "hunter2"), CancellationToken.None);
+Check.That(saved.Value == "saved ok", "a valid command reaches its handler");
+Check.That(logs.Calls == 1, "the handler ran once");
+var success = logs.Lines.Single();
+Check.That(success.Level == LogLevel.Information, "a success is logged at Information");
+Check.That(success.Text.Contains("SaveCommand", StringComparison.Ordinal), $"the log names the command: {success.Text}");
+Check.That(success.Text.Contains(" ms", StringComparison.Ordinal), $"the log has the duration: {success.Text}");
+Check.That(!success.Text.Contains("hunter2", StringComparison.Ordinal), "the log leaves out the command's contents");
+
+logs.Lines.Clear();
+var invalid = await save.Handle(new SaveCommand("", "hunter2"), CancellationToken.None);
+Check.That(invalid.IsFailure && invalid.Error.Type == ErrorType.Validation, "an invalid command fails validation");
+var fields = ((ValidationError)invalid.Error).Errors;
+Check.That(fields.ContainsKey("Name"), "the failure names the field");
+Check.That(fields["Name"].Length == 2, "every validator's message is kept, from all validators");
+Check.That(logs.Calls == 1, "an invalid command doesn't reach its handler");
+Check.That(logs.Lines.Single().Level == LogLevel.Warning, "a validation failure is logged too, as a failure");
+
+logs.Lines.Clear();
+var refused = await save.Handle(new SaveCommand("refuse", "hunter2"), CancellationToken.None);
+Check.That(refused.Error.Code == "Save.Refused", "a handler's failure comes back");
+var failure = logs.Lines.Single();
+Check.That(failure.Level == LogLevel.Warning, "a failure is logged at Warning");
+Check.That(failure.Text.Contains("Save.Refused", StringComparison.Ordinal), $"the log has the error code: {failure.Text}");
+
+var plain = scoped.GetRequiredService<ICommandHandler<PlainCommand, Unit>>();
+Check.That((await plain.Handle(new PlainCommand(), CancellationToken.None)).IsSuccess, "a command without a validator still runs");
+
+var find = scoped.GetRequiredService<IQueryHandler<FindQuery, int>>();
+Check.That((await find.Handle(new FindQuery(3), CancellationToken.None)).Value == 3, "a valid query reaches its handler");
+Check.That((await find.Handle(new FindQuery(-1), CancellationToken.None)).Error.Type == ErrorType.Validation, "queries are validated too");
+
+var listen = scoped.GetServices<IDomainEventHandler<Saved>>();
+Check.That(listen.Count() == 1, "domain event handlers are found by the scan");
+
+Check.That(scoped.GetServices<IValidator<SaveCommand>>().Count() == 2, "validators are found by the scan");
+Check.That(scoped.GetServices<IValidator<PlainCommand>>().Count() == 0, "a command can have no validators");
+
+internal sealed record SaveCommand(string Name, string Password) : ICommand<string>;
+
+internal sealed class SaveCommandHandler(Collected logs) : ICommandHandler<SaveCommand, string>
+{
+    public Task<Result<string>> Handle(SaveCommand command, CancellationToken ct)
+    {
+        logs.Calls++;
+        Result<string> result = command.Name == "refuse"
+            ? Error.Conflict("Save.Refused", "Refused.")
+            : $"saved {command.Name}";
+        return Task.FromResult(result);
+    }
+}
+
+internal sealed class SaveCommandValidator : AbstractValidator<SaveCommand>
+{
+    public SaveCommandValidator() => RuleFor(c => c.Name).NotEmpty();
+}
+
+internal sealed class SaveCommandLengthValidator : AbstractValidator<SaveCommand>
+{
+    public SaveCommandLengthValidator() => RuleFor(c => c.Name).MinimumLength(2);
+}
+
+internal sealed record PlainCommand : ICommand<Unit>;
+
+internal sealed class PlainCommandHandler : ICommandHandler<PlainCommand, Unit>
+{
+    public Task<Result<Unit>> Handle(PlainCommand command, CancellationToken ct) =>
+        Task.FromResult<Result<Unit>>(Unit.Value);
+}
+
+internal sealed record FindQuery(int Id) : IQuery<int>;
+
+internal sealed class FindQueryHandler : IQueryHandler<FindQuery, int>
+{
+    public Task<Result<int>> Handle(FindQuery query, CancellationToken ct) =>
+        Task.FromResult<Result<int>>(query.Id);
+}
+
+internal sealed class FindQueryValidator : AbstractValidator<FindQuery>
+{
+    public FindQueryValidator() => RuleFor(q => q.Id).GreaterThan(0);
+}
+
+internal sealed record Saved : IDomainEvent;
+
+internal sealed class SavedHandler : IDomainEventHandler<Saved>
+{
+    public Task Handle(Saved domainEvent, CancellationToken ct) => Task.CompletedTask;
+}
+
+internal sealed class Collected
+{
+    public int Calls { get; set; }
+
+    public List<(LogLevel Level, string Text)> Lines { get; } = [];
+}
+
+internal sealed class CollectingProvider(Collected logs) : ILoggerProvider
+{
+    public ILogger CreateLogger(string categoryName) => new CollectingLogger(logs, categoryName);
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class CollectingLogger(Collected logs, string category) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => category.StartsWith("Kanabol.", StringComparison.Ordinal);
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel))
+            {
+                logs.Lines.Add((logLevel, formatter(state, exception)));
+            }
+        }
+    }
+}
+CS
+}
+
+task_13() {
+  echo "2.13 Handler registration and decorators"
+  check "handlers and validators are scanned, and decorated" handlers_are_scanned_and_decorated
+  check "the API registers the Application layer" grep -qF 'AddApplication()' "$api_dir/Program.cs"
+  check "the backend builds" build_backend
+  check "the API starts with no handlers yet" start_api
+  check "and answers" returns 200 /health
+  stop_api
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9 10 11 12
+  set -- 1 2 3 4 5 6 7 8 9 10 11 12 13
 fi
 
 for task in "$@"; do
