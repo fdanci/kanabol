@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <UserSecretsId>kanabol-api</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Kanabol.Application\Kanabol.Application.csproj" />
     <ProjectReference Include="..\Kanabol.Infrastructure\Kanabol.Infrastructure.csproj" />

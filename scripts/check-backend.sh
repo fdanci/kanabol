@@ -1281,6 +1281,7 @@ CS
 
 task_10() {
   echo "2.10 Program.cs: options, migration on startup, Swagger"
+  need_database
   check "the backend builds" build_backend
   check "it refuses to start without Jwt:Secret" refuses_to_start_without Jwt__Secret 'Secret'
   check "it refuses to start with a short Jwt:Secret" refuses_a_short_secret
@@ -1304,8 +1305,113 @@ task_10() {
   check "the current user comes from the request's claims" current_user_reads_claims
 }
 
+is_ignored() {
+  git check-ignore -q "$1"
+}
+
+no_cors_anywhere() {
+  ! grep -rniE '\bcors\b' backend/src --include='*.cs' --include='*.json' --exclude-dir=bin --exclude-dir=obj
+}
+
+json_is_valid() { # json_is_valid <file>
+  node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$1"
+}
+
+has_user_secret() { # has_user_secret <key>
+  dotnet user-secrets list --id kanabol-api 2>/dev/null | grep -q "^$1 = "
+}
+
+# The JWT secret and the storage root aren't in the environment here, so they have to come from
+# the user secrets and from appsettings.Development.json.
+development_starts_from_its_own_settings() {
+  if ! has_user_secret Jwt:Secret; then
+    echo "skipped: no Jwt:Secret user secret on this machine"
+    return 0
+  fi
+  connection=$(fresh_database development) || return 1
+  (
+    ASPNETCORE_ENVIRONMENT=Development
+    ConnectionStrings__Default=$connection
+    Jwt__Secret=
+    Jwt__Issuer=
+    Jwt__Audience=
+    Storage__Root=
+    Database__MigrateOnStartup=
+    unset Jwt__Secret Jwt__Issuer Jwt__Audience Storage__Root Database__MigrateOnStartup
+    export ASPNETCORE_ENVIRONMENT ConnectionStrings__Default
+    log="$scratch/development.log"
+    (cd "$api_dir" && exec dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls http://127.0.0.1:5288) >"$log" 2>&1 &
+    pid=$!
+    attempts=0
+    until curl -s -o /dev/null http://127.0.0.1:5288/health; do
+      attempts=$((attempts + 1))
+      if [ "$attempts" -gt 120 ] || ! kill -0 "$pid" 2>/dev/null; then
+        tail -n 8 "$log"
+        exit 1
+      fi
+      sleep 0.5
+    done
+    kill "$pid"
+    wait "$pid" 2>/dev/null
+    exit 0
+  ) || return 1
+  [ "$(sql "$connection" "SELECT to_regclass('public.users') IS NOT NULL")" = True ]
+}
+
+# A throwaway copy holds the local file, which must not be left in the working tree.
+local_settings_override_development_only() {
+  copy="$scratch/local-settings"
+  backend_copy "$copy"
+  dotnet build "$copy/$api_dir/Kanabol.Api.csproj" --nologo -v q || return 1
+  printf '{ "Database": { "MigrateOnStartup": false } }\n' >"$copy/$api_dir/appsettings.Development.local.json"
+
+  in_development=$(fresh_database local_development) || return 1
+  ConnectionStrings__Default=$in_development ASPNETCORE_ENVIRONMENT=Development start_api "$copy/$api_dir"
+  stop_api
+  [ "$(table_count "$in_development")" = 0 ] || {
+    echo "the local file was ignored in Development"
+    return 1
+  }
+
+  in_production=$(fresh_database local_production) || return 1
+  ConnectionStrings__Default=$in_production ASPNETCORE_ENVIRONMENT=Production start_api "$copy/$api_dir"
+  stop_api
+  [ "$(table_count "$in_production")" != 0 ] || {
+    echo "the local file was used outside Development"
+    return 1
+  }
+}
+
+task_11() {
+  echo "2.11 Settings and secrets"
+  need_database
+  settings="$api_dir/appsettings.json"
+  development="$api_dir/appsettings.Development.json"
+  check "appsettings.json is valid JSON" json_is_valid "$settings"
+  check "appsettings.Development.json is valid JSON" json_is_valid "$development"
+  check "appsettings.json turns migrations on" grep -qE '"MigrateOnStartup": true' "$settings"
+  check "appsettings.json has the JWT issuer" grep -qE '"Issuer": "kanabol"' "$settings"
+  check "appsettings.json has the JWT audience" grep -qE '"Audience": "kanabol"' "$settings"
+  check "appsettings.json keeps attachments in the Docker volume" grep -qF '"Root": "/data/attachments"' "$settings"
+  check "Development keeps attachments in an ignored folder" grep -qF '.data/attachments' "$development"
+  check "that folder is ignored" is_ignored .data/attachments/file.txt
+  for file in "$settings" "$development"; do
+    check "$file has no JWT secret" not_in_file '"Secret"' "$file"
+    check "$file has no connection string" not_in_file 'ConnectionStrings' "$file"
+    check "$file has no password" not_in_file 'assword' "$file"
+  done
+  check "there's no CORS anywhere" no_cors_anywhere
+  check "the API has a user secrets id" property_is Kanabol.Api UserSecretsId kanabol-api
+  check "the local settings file is ignored" is_ignored "$api_dir/appsettings.Development.local.json"
+  check "the backend builds" build_backend
+  check "Development starts from user secrets and its settings file" development_starts_from_its_own_settings
+  check "the local settings file overrides, in Development only" local_settings_override_development_only
+  check "the backend notes explain user secrets" grep -qF 'dotnet user-secrets' backend/CLAUDE.md
+  check "the backend notes explain the local settings file" grep -qF 'appsettings.Development.local.json' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8 9 10
+  set -- 1 2 3 4 5 6 7 8 9 10 11
 fi
 
 for task in "$@"; do

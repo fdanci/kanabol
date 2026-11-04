@@ -4,6 +4,7 @@ obj/
 *.user
 TestResults/
 appsettings.*.local.json
+.data/
 
 # Angular / Node
 node_modules/
