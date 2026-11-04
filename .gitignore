@@ -1,0 +1,33 @@
+# .NET
+bin/
+obj/
+*.user
+TestResults/
+appsettings.*.local.json
+
+# Angular / Node
+node_modules/
+dist/
+.angular/
+coverage/
+npm-debug.log*
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pfx
+
+# Claude Code
+.claude/settings.local.json
+CLAUDE.local.md
+
+# IDE and OS
+.idea/
+.vs/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+Thumbs.db
+.DS_Store
