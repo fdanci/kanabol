@@ -1,6 +1,8 @@
 @use '@angular/material' as mat;
 @use './styles/theme/theme-colors' as kb;
 @use './styles/tokens';
+@use './styles/typography';
+@use './styles/utilities';
 @use '@fontsource-variable/inter';
 @use 'material-symbols/outlined.css';
 
@@ -57,6 +59,7 @@ html {
       outlined-outline-color: var(--kb-border-300),
       outlined-label-text-color: var(--kb-text-900),
       text-container-shape: var(--kb-radius-sm),
+      text-container-height: 32px,
       text-label-text-color: var(--kb-accent-600),
     )
   );

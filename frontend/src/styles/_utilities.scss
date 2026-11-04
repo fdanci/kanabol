@@ -1,0 +1,100 @@
+// Shape classes from docs/UI_UX_SPEC.md, section 6.0.2, and the layout helpers from section 13.
+//
+// Material's button rules are as specific as two classes and load after this file, so one class
+// would lose to them on a matButton. html:root keeps the button classes on top in every state.
+html:root .kb-bezel {
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-300);
+  border-radius: var(--kb-radius-sm);
+  box-shadow: var(--kb-shadow-bezel), var(--kb-inner-highlight);
+  color: var(--kb-text-900);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--kb-navy-900) 4%, var(--kb-surface-0));
+  }
+
+  &:active:not(:disabled) {
+    background: color-mix(in srgb, var(--kb-navy-900) 10%, var(--kb-surface-0));
+    transform: translateY(0.5px);
+    box-shadow: var(--kb-shadow-bezel);
+  }
+}
+
+// Hover and press start from --_base, not from the accent, so kb-danger stays red in both.
+html:root .kb-default {
+  --_base: var(--kb-accent-600);
+  --_c: var(--_base);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--_c) 92%, white) 0%, var(--_c) 100%);
+  border: 1px solid color-mix(in srgb, var(--_c) 80%, var(--kb-navy-900));
+  border-radius: var(--kb-radius-sm);
+  box-shadow: var(--kb-shadow-bezel), var(--kb-inner-highlight-on-accent);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    --_c: color-mix(in srgb, var(--_base) 90%, var(--kb-navy-900));
+  }
+
+  &:active:not(:disabled) {
+    --_c: color-mix(in srgb, var(--_base) 80%, var(--kb-navy-900));
+    transform: translateY(0.5px);
+  }
+}
+
+html:root .kb-danger {
+  @extend .kb-default;
+  --_base: var(--kb-danger-600);
+}
+
+// A disabled control only fades, without changing color (section 6.0.1).
+html:root .kb-bezel:disabled,
+html:root .kb-default:disabled,
+html:root .kb-danger:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.kb-glass {
+  background: var(--kb-glass-bg);
+  -webkit-backdrop-filter: var(--kb-glass-blur);
+  backdrop-filter: var(--kb-glass-blur);
+
+  @supports not (backdrop-filter: blur(1px)) {
+    background: var(--kb-surface-0);
+  }
+}
+
+.kb-floating {
+  border-radius: var(--kb-radius-lg);
+  box-shadow: var(--kb-shadow-popover);
+  background: var(--kb-surface-0);
+}
+
+.kb-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kb-space-2);
+}
+
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+}
+
+.kb-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

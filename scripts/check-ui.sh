@@ -250,7 +250,7 @@ tokens_match_the_spec() {
 }
 
 # WCAG AA for normal text, computed from the tokens themselves, for the pairs the UI uses.
-# Two pairs from the spec fall short. They stay as the spec has them until it changes, and
+# Three pairs from the spec fall short. They stay as the spec has them until it changes, and
 # this fails as soon as one of them passes, so the list can't outlive the problem.
 contrast_is_aa() {
   node -e "
@@ -291,12 +291,13 @@ contrast_is_aa() {
       ['dark', 'accent on cards', dark['accent-600'], dark['surface-0']],
       ['dark', 'accent on tint', dark['accent-600'], dark['tint-100']],
       ['dark', 'white on accent (default button)', white, dark['accent-600']],
+      ['dark', 'white on danger (danger button)', white, dark['danger-600']],
       ['dark', 'info text on info', dark['info-text'], dark['info-bg']],
       ['dark', 'success on its background', dark['success-600'], dark['success-bg']],
       ['dark', 'warning on its background', dark['warning-600'], dark['warning-bg']],
       ['dark', 'danger on its background', dark['danger-600'], dark['danger-bg']],
     ];
-    const known = ['light success on its background', 'dark white on accent (default button)'];
+    const known = ['light success on its background', 'dark white on accent (default button)', 'dark white on danger (danger button)'];
     let bad = 0;
     for (const [mode, name, text, background] of pairs) {
       const value = ratio(text, background);
@@ -363,8 +364,51 @@ task_4() {
   check "the frontend lint passes" frontend_lint_passes
 }
 
+task_5() {
+  echo "2a.5 Typography and utility classes"
+  check "_typography.scss is tracked" tracked frontend/src/styles/_typography.scss
+  check "_utilities.scss is tracked" tracked frontend/src/styles/_utilities.scss
+  check "the frontend builds" build_frontend
+
+  check "kb-display is 24/32/600 in navy" css_has '.kb-display{font-size:24px;line-height:32px;font-weight:600;color:var(--kb-navy-900)'
+  check "kb-title is 18/26/600 in navy" css_has '.kb-title{font-size:18px;line-height:26px;font-weight:600;color:var(--kb-navy-900)'
+  check "kb-subtitle is 15/22/600 in body color" css_has '.kb-subtitle{font-size:15px;line-height:22px;font-weight:600;color:var(--kb-text-700)'
+  check "kb-body is 14/21/400 in body color" css_has '.kb-body{font-size:14px;line-height:21px;font-weight:400;color:var(--kb-text-700)'
+  check "kb-body-strong is 14/21/600" css_has '.kb-body-strong{font-size:14px;line-height:21px;font-weight:600'
+  check "kb-caption is 12/16/400 in secondary color" css_has '.kb-caption{font-size:12px;line-height:16px;font-weight:400;color:var(--kb-text-600)'
+  check "kb-mono is 13/20 in the mono font" css_has '.kb-mono{font-family:var(--kb-font-mono);font-size:13px;line-height:20px'
+
+  check "kb-bezel exists, with its shadow and highlight" css_has 'box-shadow:var(--kb-shadow-bezel),var(--kb-inner-highlight)'
+  check "kb-bezel uses the control radius" css_has 'border:1pxsolidvar(--kb-border-300);border-radius:var(--kb-radius-sm)'
+  check "kb-default starts from the accent" css_has '--_base:var(--kb-accent-600)'
+  check "kb-default has the subtle gradient" css_has 'linear-gradient(180deg,color-mix(insrgb,var(--_c)92%,white)0%,var(--_c)100%)'
+  check "kb-danger starts from danger" css_has '--_base:var(--kb-danger-600)'
+  check "hover darkens the button's own color" css_has '--_c:color-mix(insrgb,var(--_base)90%,var(--kb-navy-900))'
+  check "press darkens the button's own color" css_has '--_c:color-mix(insrgb,var(--_base)80%,var(--kb-navy-900))'
+  check "a danger button can't turn blue on hover" css_lacks '--_c:color-mix(insrgb,var(--kb-accent-600)'
+  check "kb-default beats Material's button rules" css_has 'html:root.kb-default'
+  check "kb-danger beats Material's button rules" css_has 'html:root.kb-danger'
+  check "kb-bezel beats Material's button rules" css_has 'html:root.kb-bezel'
+  check "a disabled button only fades" css_has 'opacity:.45;cursor:default'
+  check "a disabled button doesn't react to hover" css_has '.kb-default:hover:not(:disabled)'
+  check "the text button has the same height as the others" css_has '--mat-button-text-container-height:32px'
+  check "kb-glass has the blur" css_has 'backdrop-filter:var(--kb-glass-blur)'
+  check "kb-glass falls back to opaque" css_has '@supportsnot(backdrop-filter:blur(1px))'
+  check "kb-floating is 12px with the popover shadow" css_has '.kb-floating{border-radius:var(--kb-radius-lg);box-shadow:var(--kb-shadow-popover)'
+  check "kb-stack exists" css_has '.kb-stack{'
+  check "kb-row exists" css_has '.kb-row{'
+  check "kb-truncate ellipsizes" css_has '.kb-truncate{overflow:hidden;text-overflow:ellipsis'
+  check "kb-visually-hidden exists" css_has '.kb-visually-hidden{'
+  check "the frontend lint passes" frontend_lint_passes
+}
+
+css_lacks() { # css_lacks <text>
+  stylesheet=$(built_css)
+  [ -n "$stylesheet" ] && ! tr -d ' \n' <"$stylesheet" | grep -qF -- "$1"
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 
 for task in "$@"; do

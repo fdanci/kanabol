@@ -18,7 +18,7 @@ Run from `frontend/`:
 
 - Components only use `var(--kb-*)`, never hex values. Material takes its colors from the theme in `src/styles.scss`.
 - No `::ng-deep`. Material is styled through the `mat.*-overrides` mixins in `src/styles.scss`.
-- Buttons: `matButton="filled"` once per surface, `matButton="outlined"` with `kb-bezel`, plain `matButton` for text. No `elevated` or `tonal`.
+- Buttons: `matButton="filled"` with `kb-default` once per surface, or with `kb-danger` for destructive actions; `matButton="outlined"` with `kb-bezel`; plain `matButton` for text. No `elevated` or `tonal`.
 - Fonts and icons are self-hosted, because the app runs on the LAN. Nothing comes from Google Fonts or a CDN.
 - Text is in Romanian, in sentence case, and goes through `i18n`.
 

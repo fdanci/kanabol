@@ -1,0 +1,50 @@
+// The type scale from docs/UI_UX_SPEC.md, section 4. Sentence case everywhere, no decorative capitals.
+.kb-display {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  color: var(--kb-navy-900);
+  letter-spacing: -0.01em;
+}
+
+.kb-title {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--kb-navy-900);
+  letter-spacing: -0.01em;
+}
+
+.kb-subtitle {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--kb-text-700);
+  letter-spacing: -0.01em;
+}
+
+.kb-body {
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 400;
+  color: var(--kb-text-700);
+}
+
+.kb-body-strong {
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 600;
+}
+
+.kb-caption {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  color: var(--kb-text-600);
+}
+
+.kb-mono {
+  font-family: var(--kb-font-mono);
+  font-size: 13px;
+  line-height: 20px;
+}
