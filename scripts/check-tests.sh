@@ -260,8 +260,48 @@ builders_compile_in_the_api_tests() {
   dotnet msbuild backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj -getItem:Compile | grep -q 'UserBuilder.cs'
 }
 
+# Breaks the code in a copy of the backend. The named tests have to fail.
+tests_catch() { # tests_catch <name> <project> <filter> <file under backend/src> <text> <replacement>
+  copy="$scratch/caught-$1"
+  backend_copy "$copy"
+  file="$copy/backend/src/$4"
+  grep -qF -- "$5" "$file" || {
+    echo "nothing to break: '$5' isn't in $4"
+    return 1
+  }
+  SEARCH=$5 REPLACE=$6 node -e "
+    const fs = require('fs');
+    const text = fs.readFileSync(process.argv[1], 'utf8');
+    fs.writeFileSync(process.argv[1], text.replace(process.env.SEARCH, process.env.REPLACE));
+  " "$file"
+  if dotnet test "$copy/backend/tests/$2/$2.csproj" --nologo -p:TreatWarningsAsErrors=false \
+    --filter "$3" >"$scratch/caught-$1.log" 2>&1; then
+    echo "the tests passed with the code broken"
+    return 1
+  fi
+  grep -qE 'Failed: +[1-9]' "$scratch/caught-$1.log" || {
+    tail -n 12 "$scratch/caught-$1.log"
+    return 1
+  }
+}
+
+task_5() {
+  echo "3.5 One template test on each level"
+  check "the domain template passes" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~RoleTests' 2
+  check "the handler template passes on PostgreSQL" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~CreateSampleRoleCommandHandlerTests' 4
+  check "the endpoint template passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ProblemDetailsTests' 4
+  check "the domain template catches a broken invariant" tests_catch invariant Kanabol.Domain.Tests 'FullyQualifiedName~RoleTests' \
+    Kanabol.Domain/Authorization/Role.cs 'if (_rolePermissions.All(granted => granted.PermissionId != permissionId))' 'if (permissionId != Guid.Empty)'
+  check "the handler template catches a validation that does nothing" tests_catch validation Kanabol.Application.Tests 'FullyQualifiedName~CreateSampleRoleCommandHandlerTests' \
+    Kanabol.Application/Common/Decorators/ValidationDecorator.cs 'if (error is not null)' 'if (error is null && command is null)'
+  check "the endpoint template catches a leaked exception" tests_catch leak Kanabol.Api.Tests 'FullyQualifiedName~ProblemDetailsTests' \
+    Kanabol.Api/Errors/GlobalExceptionHandler.cs 'Detail = environment.IsDevelopment() ? exception.Message : null,' 'Detail = exception.Message,'
+  check "the solution builds with warnings as errors" solution_builds
+  check "dotnet format is clean" formatting_is_clean
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 6
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do

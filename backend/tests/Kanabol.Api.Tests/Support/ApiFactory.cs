@@ -46,5 +46,8 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
         builder.UseSetting("Jwt:Secret", "only-for-these-tests-and-long-enough-to-pass");
         builder.UseSetting("Storage:Root", Path.Combine(Path.GetTempPath(), "kanabol-tests", "attachments"));
         builder.UseSetting("Admin:InitialPassword", "only-for-these-tests");
+
+        // Controllers that only exist in the tests, to reach paths no real endpoint has yet.
+        builder.ConfigureServices(services => services.AddControllers().AddApplicationPart(typeof(ApiFactory).Assembly));
     }
 }
