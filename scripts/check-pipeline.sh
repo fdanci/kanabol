@@ -348,8 +348,140 @@ task_4() {
   check "a lint error stops it before the suite" verify_stops_on_lint_before_the_suite
 }
 
+hook_is() { # hook_is <hook> <text>
+  grep -qF -- "$2" ".husky/$1"
+}
+
+commit_in_sandbox() { # commit_in_sandbox <message>
+  commit_log="$scratch/commit.log"
+  git -C "$repo" commit -m "$1" >"$commit_log" 2>&1
+}
+
+head_of() {
+  git -C "$repo" rev-parse "$1"
+}
+
+hooks_are_installed_by_npm() {
+  sandbox || return 1
+  [ "$(git -C "$repo" config core.hooksPath)" = '.husky/_' ]
+}
+
+bad_message_is_refused() {
+  fresh_sandbox && on_a_feature_branch && stage_in_sandbox docs/probe.md '- a\n' || return 1
+  before=$(head_of HEAD)
+  if commit_in_sandbox 'added some things'; then
+    echo "the commit went through"
+    return 1
+  fi
+  grep -q 'subject may not be empty\|type may not be empty' "$commit_log" || {
+    tail -n 12 "$commit_log"
+    return 1
+  }
+  [ "$(head_of HEAD)" = "$before" ]
+}
+
+commit_goes_through_verify() {
+  fresh_sandbox && on_a_feature_branch && stage_in_sandbox docs/probe.md '* a\n' || return 1
+  commit_in_sandbox 'docs: add a probe' || {
+    tail -n 12 "$commit_log"
+    return 1
+  }
+  git -C "$repo" show HEAD:docs/probe.md | grep -qx -- '- a'
+}
+
+commit_on_main_needs_the_suite() {
+  fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '- a\n' || return 1
+  before=$(head_of HEAD)
+  if commit_in_sandbox 'docs: add a probe'; then
+    echo "the commit went through"
+    return 1
+  fi
+  grep -q 'the full suite ran' "$commit_log" && [ "$(head_of HEAD)" = "$before" ]
+}
+
+feature_with_a_commit() {
+  fresh_sandbox && on_a_feature_branch && stage_in_sandbox docs/probe.md '- a\n' &&
+    commit_in_sandbox 'docs: add a probe' && git -C "$repo" checkout -q main
+}
+
+merge_into_main() {
+  merge_log="$scratch/merge.log"
+  git -C "$repo" merge --no-ff --no-edit feature/probe >"$merge_log" 2>&1
+}
+
+merge_stops_on_a_failing_suite() {
+  feature_with_a_commit && stub_full_suite || return 1
+  before=$(head_of main)
+  if merge_into_main; then
+    echo "the merge went through"
+    return 1
+  fi
+  grep -q 'the full suite ran' "$merge_log" && [ "$(head_of main)" = "$before" ]
+}
+
+merge_goes_through_on_a_passing_suite() {
+  feature_with_a_commit || return 1
+  printf '#!/bin/sh\necho "the full suite ran"\n' >"$repo/scripts/test-all.sh"
+  merge_into_main || {
+    tail -n 12 "$merge_log"
+    return 1
+  }
+  grep -q 'the full suite ran' "$merge_log" && [ "$(git -C "$repo" rev-list --parents -n 1 main | wc -w)" -eq 3 ]
+}
+
+remote_for_sandbox() {
+  rm -rf "$scratch/remote.git"
+  git init -q --bare "$scratch/remote.git" &&
+    git -C "$repo" remote remove origin >/dev/null 2>&1
+  git -C "$repo" remote add origin "$scratch/remote.git"
+}
+
+push_to_main_needs_the_suite() {
+  fresh_sandbox && stub_full_suite && remote_for_sandbox || return 1
+  push_log="$scratch/push.log"
+  if git -C "$repo" push origin main >"$push_log" 2>&1; then
+    echo "the push went through"
+    return 1
+  fi
+  grep -q 'the full suite ran' "$push_log" &&
+    ! git -C "$scratch/remote.git" rev-parse -q --verify refs/heads/main >/dev/null
+}
+
+push_to_a_branch_skips_the_suite() {
+  fresh_sandbox && on_a_feature_branch && stub_full_suite && remote_for_sandbox || return 1
+  push_log="$scratch/push.log"
+  git -C "$repo" push origin feature/probe >"$push_log" 2>&1 || {
+    tail -n 12 "$push_log"
+    return 1
+  }
+  ! grep -q 'the full suite ran' "$push_log"
+}
+
+task_3() {
+  echo "Task 3: the hooks"
+  for hook in pre-commit pre-merge-commit commit-msg pre-push; do
+    check "$hook is tracked" tracked ".husky/$hook"
+    check "$hook is executable" executable ".husky/$hook"
+    check "$hook is valid sh" sh -n ".husky/$hook"
+    check "$hook has no line husky has deprecated" not_in_file husky.sh ".husky/$hook"
+  done
+  check ".husky/.gitkeep is gone" test ! -e .husky/.gitkeep
+  check "pre-commit runs verify.sh" hook_is pre-commit 'exec scripts/verify.sh commit'
+  check "pre-merge-commit runs verify.sh" hook_is pre-merge-commit 'exec scripts/verify.sh merge'
+  check "commit-msg runs commitlint" hook_is commit-msg 'npx --no -- commitlint --edit "$1"'
+  check "pre-push guards main" hook_is pre-push 'refs/heads/main) exec scripts/test-all.sh'
+  check "npm installs the hooks" hooks_are_installed_by_npm
+  check "a bad message is refused and nothing is committed" bad_message_is_refused
+  check "a commit goes through verify.sh, and what it formats gets committed" commit_goes_through_verify
+  check "a commit on main needs the suite" commit_on_main_needs_the_suite
+  check "a merge into main stops on a failing suite" merge_stops_on_a_failing_suite
+  check "a merge into main goes through on a passing suite, as a merge commit" merge_goes_through_on_a_passing_suite
+  check "a push to main needs the suite" push_to_main_needs_the_suite
+  check "a push to a branch doesn't" push_to_a_branch_skips_the_suite
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 4
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do

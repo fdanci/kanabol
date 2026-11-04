@@ -1,0 +1,5 @@
+#!/bin/sh
+# The safety net for a commit made with --no-verify.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in refs/heads/main) exec scripts/test-all.sh ;; esac
+done
