@@ -26,6 +26,10 @@ tracked() {
   [ -f "$1" ] && [ -n "$(git ls-files -- "$1")" ]
 }
 
+not_in_file() { # not_in_file <text> <file>
+  ! grep -qF -- "$1" "$2"
+}
+
 json_is() { # json_is <file> <dotted.path> <expected>
   node -e '
     const [file, path, expected] = process.argv.slice(1);
@@ -214,8 +218,138 @@ task_2() {
   check "npm's lock file stays out of prettier" grep -qx 'package-lock.json' frontend/.prettierignore
 }
 
+executable() {
+  git ls-files -s -- "$1" | grep -q '^100755'
+}
+
+on_a_feature_branch() {
+  git -C "$repo" checkout -q -B feature/probe
+}
+
+# Stands in for the full suite, so these checks can see whether it ran. Task 6 runs the real one.
+stub_full_suite() {
+  printf '#!/bin/sh\necho "the full suite ran"\nexit 7\n' >"$repo/scripts/test-all.sh"
+}
+
+verify() { # verify <mode>
+  verify_log="$scratch/verify.log"
+  (cd "$repo" && scripts/verify.sh "$@") >"$verify_log" 2>&1
+}
+
+verify_log_has() { # verify_log_has <extended regex>
+  sed -e 's/\x1b\[[0-9;]*m//g' "$verify_log" | grep -qE -- "$1" || {
+    echo "the output doesn't have: $1"
+    tail -n 12 "$verify_log"
+    return 1
+  }
+}
+
+verify_log_lacks() { # verify_log_lacks <extended regex>
+  if sed -e 's/\x1b\[[0-9;]*m//g' "$verify_log" | grep -qE -- "$1"; then
+    echo "the output has: $1"
+    return 1
+  fi
+}
+
+verify_passes() {
+  verify commit || {
+    echo "verify.sh failed"
+    tail -n 12 "$verify_log"
+    return 1
+  }
+}
+
+verify_refuses() {
+  if verify commit; then
+    echo "verify.sh passed"
+    return 1
+  fi
+}
+
+verify_runs_the_full_suite_on_main() {
+  fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '- a\n' || return 1
+  verify commit
+  status=$?
+  [ "$status" -eq 7 ] || {
+    echo "verify.sh exited with $status, not the suite's 7"
+    return 1
+  }
+  verify_log_has 'the full suite ran'
+}
+
+verify_keeps_docs_fast_on_a_branch() {
+  fresh_sandbox && on_a_feature_branch && stub_full_suite && stage_in_sandbox docs/probe.md '* a\n' || return 1
+  mkdir -p "$scratch/no-dotnet" || return 1
+  printf '#!/bin/sh\necho "dotnet ran"\nexit 1\n' >"$scratch/no-dotnet/dotnet"
+  chmod +x "$scratch/no-dotnet/dotnet"
+  verify_log="$scratch/verify.log"
+  (cd "$repo" && PATH="$scratch/no-dotnet:$PATH" scripts/verify.sh commit) >"$verify_log" 2>&1 || {
+    echo "verify.sh failed"
+    tail -n 12 "$verify_log"
+    return 1
+  }
+  verify_log_lacks 'the full suite ran' &&
+    verify_log_lacks 'dotnet ran' &&
+    verify_log_lacks 'Tests +[0-9]+ passed' &&
+    verify_log_has 'fast checks' &&
+    staged_has docs/probe.md '- a'
+}
+
+verify_formats_and_builds_backend_changes() {
+  fresh_sandbox && on_a_feature_branch && stub_full_suite || return 1
+  stage_in_sandbox backend/src/Kanabol.Domain/Probe.cs 'namespace Kanabol.Domain;\n\npublic   class Probe\n{\n}\n' || return 1
+  verify_passes && staged_has backend/src/Kanabol.Domain/Probe.cs 'public class Probe' && verify_log_lacks 'the full suite ran'
+}
+
+verify_stops_on_a_build_error() {
+  fresh_sandbox && on_a_feature_branch || return 1
+  stage_in_sandbox backend/src/Kanabol.Domain/Probe.cs 'namespace Kanabol.Domain;\n\npublic class Probe\n{\n    public int Value => "nope";\n}\n' || return 1
+  verify_refuses && verify_log_has 'CS0029'
+}
+
+verify_stops_on_a_failing_domain_test() {
+  fresh_sandbox && on_a_feature_branch || return 1
+  stage_in_sandbox backend/tests/Kanabol.Domain.Tests/FailingTests.cs 'namespace Kanabol.Domain.Tests;\n\npublic sealed class FailingTests\n{\n    [Fact]\n    public void Always_WhenRun_Fails() => 1.Should().Be(2);\n}\n' || return 1
+  verify_refuses && verify_log_has 'Always_WhenRun_Fails'
+}
+
+verify_runs_frontend_specs() {
+  fresh_sandbox && on_a_feature_branch && stub_full_suite || return 1
+  stage_in_sandbox frontend/src/app/probe.ts "export const probe = 'x';\n" || return 1
+  verify_passes && verify_log_has 'Tests +[0-9]+ passed' && verify_log_lacks 'the full suite ran'
+}
+
+verify_stops_on_a_failing_spec() {
+  fresh_sandbox && on_a_feature_branch || return 1
+  stage_in_sandbox frontend/src/app/failing.spec.ts "describe('always', () => {\n  it('fails', () => {\n    expect(1).toBe(2);\n  });\n});\n" || return 1
+  verify_refuses && verify_log_has 'Tests +1 failed'
+}
+
+verify_stops_on_lint_before_the_suite() {
+  fresh_sandbox && stub_full_suite && stage_in_sandbox frontend/src/app/probe.ts 'export const probe: any = 1;\n' || return 1
+  verify_refuses && verify_log_has 'no-explicit-any' && verify_log_lacks 'the full suite ran'
+}
+
+task_4() {
+  echo "Task 4: scripts/verify.sh"
+  check "it's tracked" tracked scripts/verify.sh
+  check "it's executable" executable scripts/verify.sh
+  check "it's valid sh" sh -n scripts/verify.sh
+  check "the full suite is tied to main" grep -qF '= "main"' scripts/verify.sh
+  check "master is gone" not_in_file master scripts/verify.sh
+  check "lint-staged gets relative paths, the only ones dotnet format's --include accepts" grep -qF 'lint-staged --relative' scripts/verify.sh
+  check "main runs the full suite and returns its result" verify_runs_the_full_suite_on_main
+  check "a branch with only docs runs neither the suite nor the builds" verify_keeps_docs_fast_on_a_branch
+  check "a branch with backend changes formats and builds them" verify_formats_and_builds_backend_changes
+  check "a build error stops it" verify_stops_on_a_build_error
+  check "a failing domain test stops it" verify_stops_on_a_failing_domain_test
+  check "a branch with frontend changes runs the specs" verify_runs_frontend_specs
+  check "a failing spec stops it" verify_stops_on_a_failing_spec
+  check "a lint error stops it before the suite" verify_stops_on_lint_before_the_suite
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 4
 fi
 
 for task in "$@"; do
