@@ -1101,8 +1101,92 @@ task_8() {
   check "Domain has no data annotations" domain_has_no_annotations
 }
 
+ef() { # ef <arguments...>: runs dotnet ef from backend/, against the built projects
+  (cd backend && dotnet ef "$@" -p src/Kanabol.Infrastructure -s src/Kanabol.Api --no-build)
+}
+
+ef_tool_is_pinned() {
+  grep -qF '"dotnet-ef"' dotnet-tools.json &&
+    grep -qF '"version": "10.0.14"' dotnet-tools.json &&
+    dotnet tool restore
+}
+
+migration_exists() {
+  ls backend/src/Kanabol.Infrastructure/Persistence/Migrations/*_InitialSchema.cs
+}
+
+write_migration_sql() {
+  ef migrations script -o "$scratch/schema.sql"
+}
+
+no_line_in_sql() { # no_line_in_sql <extended regex>
+  [ -s "$scratch/schema.sql" ] && ! grep -E "$1" "$scratch/schema.sql"
+}
+
+only_ef_identifiers_are_quoted() {
+  actual=$(grep -oE '"[^"]+"' "$scratch/schema.sql" | sort -u | paste -sd, -)
+  [ "$actual" = '"__EFMigrationsHistory"' ] || {
+    echo "quoted identifiers: $actual"
+    return 1
+  }
+}
+
+every_timestamp_is_timestamptz() {
+  [ -s "$scratch/schema.sql" ] && ! grep -E '^ +[a-z_]+(_at|_until|_date) ' "$scratch/schema.sql" | grep -v 'timestamp with time zone'
+}
+
+migration_applies() {
+  probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Domain.Tasks;
+using Kanabol.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+await using var database = await ProbeDatabase.Create("migrated", migrate: true);
+
+await database.Run(async db =>
+{
+    Check.That(!(await db.Database.GetPendingMigrationsAsync()).Any(), "no migration is left to apply");
+    Check.That((await db.Database.GetAppliedMigrationsAsync()).Single().EndsWith("_InitialSchema", StringComparison.Ordinal), "InitialSchema is the one applied");
+    await db.Database.MigrateAsync();
+
+    var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1").ToListAsync();
+    string[] expected = ["__EFMigrationsHistory", "attachments", "board_columns", "comments", "notifications", "permissions", "project_members", "projects", "refresh_tokens", "role_permissions", "roles", "task_history_entries", "task_items", "users"];
+    Check.That(tables.SequenceEqual(expected), $"the tables are the expected ones: {string.Join(", ", tables)}");
+
+    var booleans = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT column_name AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'boolean' ORDER BY 1").ToListAsync();
+    Check.That(booleans.SequenceEqual(["is_active", "is_done", "is_system", "must_change_password"]), $"booleans: {string.Join(", ", booleans)}");
+
+    var keys = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'id'").ToListAsync();
+    Check.That(keys.SequenceEqual(["uuid"]), "every id is a uuid");
+
+    var enums = await db.Database.SqlQueryRaw<string>("SELECT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name IN ('priority', 'role', 'type')").ToListAsync();
+    Check.That(enums.Count == 3 && enums.All(type => type == "text"), "enums are text columns");
+});
+CS
+}
+
+task_9() {
+  echo "2.9 The InitialSchema migration"
+  need_database
+  check "dotnet-ef is pinned in the tool manifest" ef_tool_is_pinned
+  check "the backend builds" build_backend
+  check "the migration exists" migration_exists
+  check "the model has no changes without a migration" ef migrations has-pending-model-changes
+  check "the migration script generates" write_migration_sql
+  check "no table or column needs quoting, so all are snake_case" only_ef_identifiers_are_quoted
+  check "no column starts with a capital" no_line_in_sql '^ +[A-Z][a-z]'
+  check "every timestamp is timestamptz" every_timestamp_is_timestamptz
+  check "nothing is a timestamp without time zone" no_line_in_sql 'without time zone'
+  check "no unique index is named ix_" no_line_in_sql '^CREATE UNIQUE INDEX ix_'
+  check "no plain index is named ux_" no_line_in_sql '^CREATE INDEX ux_'
+  check "every unique index is named ux_" no_line_in_sql '^CREATE UNIQUE INDEX [^u]'
+  check "every plain index is named ix_" no_line_in_sql '^CREATE INDEX [^i]'
+  check "the row version is xmin, not a column of ours" no_line_in_sql '^ +(version|xmin) '
+  check "the migration applies to a real PostgreSQL" migration_applies
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7 8
+  set -- 1 2 3 4 5 6 7 8 9
 fi
 
 for task in "$@"; do

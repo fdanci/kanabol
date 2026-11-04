@@ -36,6 +36,10 @@ dotnet_diagnostic.CA1716.severity = none
 # The spec names IDomainEventHandler and RolePermission
 dotnet_code_quality.CA1711.allowed_suffixes = EventHandler|Permission
 
+# EF writes these, and writing a new migration would undo any cleanup
+[**/Migrations/*.cs]
+generated_code = true
+
 [*.{ts,html,scss,json,yaml,yml,md}]
 indent_size = 2
 
