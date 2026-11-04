@@ -120,6 +120,59 @@ build_backend() {
   }
 }
 
+# Run C# from stdin in a throwaway console project that references the given backend projects.
+# Fails if it doesn't compile, or if a Check.That in it fails.
+probe() { # probe <project...>
+  probe_dir=$(mktemp -d)
+  probe_refs=
+  for project in "$@"; do
+    probe_refs="$probe_refs<ProjectReference Include=\"$root/backend/src/$project/$project.csproj\" />"
+  done
+  cat >"$probe_dir/probe.csproj" <<XML
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>$probe_refs</ItemGroup>
+  <ItemGroup>${probe_packages:-}</ItemGroup>
+</Project>
+XML
+  cat >"$probe_dir/Check.cs" <<'CS'
+internal static class Check
+{
+    public static void That(bool condition, string what)
+    {
+        if (!condition)
+        {
+            Console.WriteLine($"not true: {what}");
+            Environment.ExitCode = 1;
+        }
+    }
+
+    public static void Throws<TException>(Action action, string what)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+            That(false, what);
+        }
+        catch (TException)
+        {
+        }
+    }
+}
+CS
+  cat >"$probe_dir/Program.cs"
+  (cd "$probe_dir" && dotnet run --nologo -v q)
+  probe_status=$?
+  rm -rf "$probe_dir"
+  return "$probe_status"
+}
+
 task_1() {
   echo "2.1 Four projects under backend/src"
   for project in Kanabol.Api Kanabol.Domain Kanabol.Application Kanabol.Infrastructure; do
@@ -183,8 +236,57 @@ task_2() {
   stop_api
 }
 
+domain_base_behaves() {
+  probe Kanabol.Domain <<'CS'
+using System.Reflection;
+using Kanabol.Domain.Common;
+
+var first = new Sample();
+var second = new Sample();
+Check.That(first.Id.Version == 7, "the id is a UUID v7");
+Check.That(first.Id != second.Id, "each entity gets its own id");
+Check.That(first.DomainEvents.Count == 0, "a new entity has no events");
+
+var raised = new Happened();
+first.Emit(raised);
+Check.That(first.DomainEvents.Single() == raised, "Raise keeps the event");
+first.ClearDomainEvents();
+Check.That(first.DomainEvents.Count == 0, "ClearDomainEvents empties the list");
+
+var idSetter = typeof(Entity).GetProperty(nameof(Entity.Id))!.SetMethod!;
+Check.That(idSetter.IsFamily, "only subclasses can set the id");
+
+Check.That(typeof(AuditableEntity).IsAbstract, "AuditableEntity is abstract");
+Check.That(typeof(AuditableEntity).BaseType == typeof(Entity), "AuditableEntity extends Entity");
+Check.That(typeof(Entity).IsAbstract, "Entity is abstract");
+void HasType(Type owner, string name, Type type) =>
+    Check.That(owner.GetProperty(name)?.PropertyType == type, $"{owner.Name}.{name} is {type}");
+HasType(typeof(AuditableEntity), "CreatedAt", typeof(DateTimeOffset));
+HasType(typeof(AuditableEntity), "CreatedById", typeof(Guid?));
+HasType(typeof(AuditableEntity), "UpdatedAt", typeof(DateTimeOffset?));
+HasType(typeof(AuditableEntity), "UpdatedById", typeof(Guid?));
+HasType(typeof(IArchivable), "ArchivedAt", typeof(DateTimeOffset?));
+HasType(typeof(IArchivable), "ArchivedById", typeof(Guid?));
+Check.That(typeof(IArchivable).IsInterface, "IArchivable is an interface");
+Check.That(typeof(IDomainEvent).IsInterface, "IDomainEvent is an interface");
+
+internal sealed record Happened : IDomainEvent;
+
+internal sealed class Sample : AuditableEntity
+{
+    public void Emit(IDomainEvent domainEvent) => Raise(domainEvent);
+}
+CS
+}
+
+task_3() {
+  echo "2.3 Domain base types"
+  check "Entity, AuditableEntity, IArchivable and IDomainEvent behave" domain_base_behaves
+  check "Domain still has no packages" no_packages Kanabol.Domain
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do
