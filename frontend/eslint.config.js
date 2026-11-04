@@ -29,10 +29,7 @@ module.exports = tseslint.config(
       '@angular-eslint/prefer-on-push-component-change-detection': 'error',
       '@angular-eslint/prefer-signals': 'error',
       '@angular-eslint/prefer-standalone': 'error',
-      '@typescript-eslint/explicit-member-accessibility': [
-        'error',
-        { accessibility: 'no-public' },
-      ],
+      '@typescript-eslint/explicit-member-accessibility': ['error', { accessibility: 'no-public' }],
       '@typescript-eslint/no-floating-promises': 'error',
       // Components start as empty classes: the decorator is what makes them useful.
       '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],

@@ -299,7 +299,48 @@ task_5() {
   check "a freshly generated component passes lint" generated_component_passes_lint
 }
 
-[ $# -gt 0 ] || set -- 1 2 3 4 5
+frontend_lint_is_clean() {
+  ng lint
+}
+
+frontend_prettier_is_clean() {
+  (cd frontend && npx prettier --check .)
+}
+
+# Negative controls: the two commands above must be able to fail.
+lint_rejects_a_rule_breaker() {
+  write_lint_probe
+  ng lint
+  status=$?
+  rm -rf "$PROBE_DIR"
+  [ "$status" -ne 0 ]
+}
+
+prettier_rejects_bad_formatting() {
+  probe=frontend/src/app/prettier-probe.ts
+  [ ! -e "$probe" ] || return 1
+  printf 'export const value = "double quotes"\n' >"$probe"
+  (cd frontend && npx prettier --check .)
+  status=$?
+  rm -f "$probe"
+  [ "$status" -ne 0 ]
+}
+
+no_hello_world_left() {
+  ! grep -rqi 'hello world' frontend/src
+}
+
+task_6() {
+  echo "1.6 clean lint and Prettier, no Hello World"
+  check "no Hello World is left in src" no_hello_world_left
+  check "the frontend tests pass" frontend_tests_pass
+  check "ng lint is clean" frontend_lint_is_clean
+  check "prettier --check is clean" frontend_prettier_is_clean
+  check "control: ng lint rejects a rule breaker" lint_rejects_a_rule_breaker
+  check "control: prettier rejects bad formatting" prettier_rejects_bad_formatting
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4 5 6
 for task in "$@"; do
   "task_$task"
 done
