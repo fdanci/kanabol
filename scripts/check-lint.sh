@@ -81,7 +81,39 @@ EOF
   check "an inline package version is refused" inline_package_version_is_refused
 }
 
-[ $# -gt 0 ] || set -- 1
+backend_format_is_clean() {
+  dotnet format backend/Kanabol.sln --verify-no-changes
+}
+
+# --no-incremental: an up-to-date build wouldn't run the analyzers again.
+backend_builds_without_warnings() {
+  dotnet build backend/Kanabol.sln -warnaserror --no-incremental --nologo
+}
+
+# Negative controls: the two commands above must be able to fail.
+format_rejects_bad_whitespace() {
+  in_backend_copy '
+    printf "namespace Kanabol.Api;\n\ninternal static class Probe\n{\n  internal static int Value => 1;\n}\n" >Kanabol.Api/Probe.cs
+    ! dotnet format Kanabol.sln --verify-no-changes
+  '
+}
+
+build_rejects_an_analyzer_warning() {
+  in_backend_copy '
+    printf "namespace Kanabol.Api;\n\ninternal sealed class Probe\n{\n    public int One() => 1;\n}\n" >Kanabol.Api/Probe.cs
+    dotnet build Kanabol.sln -warnaserror --no-incremental --nologo 2>&1 | grep -q "error CA1822"
+  '
+}
+
+task_2() {
+  echo "1.2 dotnet format and dotnet build -warnaserror"
+  check "dotnet format accepts the solution" backend_format_is_clean
+  check "dotnet build -warnaserror accepts the solution" backend_builds_without_warnings
+  check "control: dotnet format rejects bad whitespace" format_rejects_bad_whitespace
+  check "control: the build rejects an analyzer warning" build_rejects_an_analyzer_warning
+}
+
+[ $# -gt 0 ] || set -- 1 2
 for task in "$@"; do
   "task_$task"
 done
