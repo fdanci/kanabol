@@ -378,8 +378,84 @@ task_7() {
     '(change)="toggled.emit()"' ''
 }
 
+test_all_is_the_specs() {
+  sed -n '/^### 14.4/,/^### 14.5/p' docs/SPEC.md | sed -n '/^```sh$/,/^```$/p' | sed -e '1d' -e '$d' >"$scratch/expected-test-all.sh"
+  tr -d '\r' <scripts/test-all.sh | cmp - "$scratch/expected-test-all.sh"
+}
+
+test_all_is_executable() {
+  git ls-files -s scripts/test-all.sh | grep -q '^100755'
+}
+
+test_all_passes() {
+  scripts/test-all.sh >"$scratch/test-all.log" 2>&1 || {
+    tail -n 25 "$scratch/test-all.log"
+    return 1
+  }
+  grep -qF 'all green' "$scratch/test-all.log"
+}
+
+# The script has to stop at a failing test, on either side.
+test_all_copy() {
+  copy="$scratch/test-all-copy"
+  rm -rf "$copy/backend" "$copy/frontend/src" "$copy/scripts"
+  mkdir -p "$copy"
+  cp .editorconfig "$copy/"
+  git archive "$(git write-tree)" backend frontend scripts | tar -x -C "$copy"
+  [ -d "$copy/.git" ] || git init -q "$copy"
+  [ -d "$copy/frontend/node_modules" ] || (cd "$copy/frontend" && npm ci --no-audit --no-fund) >/dev/null 2>&1
+}
+
+test_all_stops_on_a_failing_backend_test() {
+  test_all_copy
+  cat >"$copy/backend/tests/Kanabol.Domain.Tests/FailingTests.cs" <<'CS'
+namespace Kanabol.Domain.Tests;
+
+public sealed class FailingTests
+{
+    [Fact]
+    public void Always_WhenRun_Fails() => 1.Should().Be(2);
+}
+CS
+  if (cd "$copy" && scripts/test-all.sh) >"$scratch/test-all-backend.log" 2>&1; then
+    echo "it passed with a failing backend test"
+    return 1
+  fi
+  ! grep -qF 'frontend: lint' "$scratch/test-all-backend.log"
+}
+
+test_all_stops_on_a_failing_frontend_spec() {
+  test_all_copy
+  cat >"$copy/frontend/src/app/failing.spec.ts" <<'TS'
+describe('always', () => {
+  it('fails', () => {
+    expect(1).toBe(2);
+  });
+});
+TS
+  if (cd "$copy" && scripts/test-all.sh) >"$scratch/test-all-frontend.log" 2>&1; then
+    echo "it passed with a failing frontend spec"
+    return 1
+  fi
+  sed -e 's/\x1b\[[0-9;]*m//g' "$scratch/test-all-frontend.log" | grep -qE 'Tests +1 failed'
+}
+
+task_8() {
+  echo "3.8 The whole suite"
+  check "scripts/test-all.sh is tracked" tracked scripts/test-all.sh
+  check "it's the spec's script" test_all_is_the_specs
+  check "it's executable" test_all_is_executable
+  check "it runs green, back and front" test_all_passes
+  check "it stops on a failing backend test" test_all_stops_on_a_failing_backend_test
+  check "it stops on a failing frontend spec" test_all_stops_on_a_failing_frontend_spec
+  check "the backend notes say how to run the tests" in_file 'dotnet test Kanabol.sln' backend/CLAUDE.md
+  check "the backend notes say the tests need Docker" in_file 'Docker Desktop' backend/CLAUDE.md
+  check "the backend notes point to the whole suite" in_file 'scripts/test-all.sh' backend/CLAUDE.md
+  check "the backend notes no longer say there are no tests" not_in_file 'no test projects yet' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7
+  set -- 1 2 3 4 5 6 7 8
 fi
 
 for task in "$@"; do

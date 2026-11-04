@@ -1,6 +1,6 @@
 # Backend
 
-.NET 10 API with controllers, PostgreSQL 17 and EF Core. There are no test projects yet, so `scripts/check-backend.sh` holds the checks: add the test commands here once they exist.
+.NET 10 API with controllers, PostgreSQL 17 and EF Core.
 
 ## Commands
 Run from `backend/`:
@@ -9,7 +9,9 @@ Run from `backend/`:
 - Run: `dotnet run --project src/Kanabol.Api --launch-profile http` (serves on http://localhost:5200)
 - Lint: `dotnet build Kanabol.sln -warnaserror` (analyzers; add `--no-incremental` if nothing changed since the last build)
 - Check formatting: `dotnet format Kanabol.sln --verify-no-changes`
-- Run the checks, from the repo root: `scripts/check-backend.sh [task-number...]`. They need a PostgreSQL whose user may create databases, and each run works in its own databases and drops them. The connection string comes from `KANABOL_CHECK_DB`, or else from the `ConnectionStrings:Default` user secret.
+- Test: `dotnet test Kanabol.sln`, with Docker Desktop running: the tests start their own PostgreSQL 17 in a container, so they don't need the local database.
+- Test back and front together, from the repo root: `scripts/test-all.sh`
+- Run the structure checks, from the repo root: `scripts/check-backend.sh [task-number...]`. They need a PostgreSQL whose user may create databases, and each run works in its own databases and drops them. The connection string comes from `KANABOL_CHECK_DB`, or else from the `ConnectionStrings:Default` user secret.
 
 ## Migrations
 Run `dotnet tool restore` once after cloning, which installs the `dotnet-ef` version the repo pins. Then, from `backend/`:
