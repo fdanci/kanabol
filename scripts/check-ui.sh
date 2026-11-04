@@ -158,8 +158,54 @@ task_2() {
   check "the built page is in Romanian" in_file '<html lang="ro"' frontend/dist/kanabol/browser/index.html
 }
 
+dependency_exists() { # dependency_exists <package>
+  node -e "
+    const { dependencies } = JSON.parse(require('fs').readFileSync('frontend/package.json', 'utf8'));
+    if (!dependencies[process.argv[1]]) throw new Error(process.argv[1] + ' is not a dependency');
+  " "$1"
+}
+
+same_major_as_angular() { # same_major_as_angular <package>
+  node -e "
+    const version = (name) => JSON.parse(require('fs').readFileSync('frontend/node_modules/' + name + '/package.json', 'utf8')).version;
+    const major = (value) => value.split('.')[0];
+    const actual = version(process.argv[1]);
+    const angular = version('@angular/core');
+    if (major(actual) !== major(angular)) throw new Error(process.argv[1] + ' ' + actual + ' with Angular ' + angular);
+  " "$1"
+}
+
+dependencies_are_consistent() {
+  (cd frontend && npm ls --all >/dev/null 2>"$scratch/npm-ls.log") || {
+    grep -E 'invalid|missing|ERR' "$scratch/npm-ls.log" | head -n 10
+    return 1
+  }
+}
+
+no_google_fonts_added() {
+  ! grep -rnE 'fonts\.(googleapis|gstatic)\.com' frontend/src frontend/angular.json
+}
+
+
+task_3() {
+  echo "2a.3 Material, fonts and the generated palette"
+  for package in @angular/material @angular/cdk @fontsource-variable/inter material-symbols; do
+    check "$package is a dependency" dependency_exists "$package"
+  done
+  check "Material has Angular's major version" same_major_as_angular @angular/material
+  check "the CDK has Angular's major version" same_major_as_angular @angular/cdk
+  check "the dependency tree is consistent" dependencies_are_consistent
+  theme=frontend/src/styles/theme/_theme-colors.scss
+  check "the generated palette is tracked" tracked "$theme"
+  check "it has the primary palette" in_file '$primary-palette' "$theme"
+  check "it has the tertiary palette" in_file '$tertiary-palette' "$theme"
+  check "Prettier leaves the generated file alone" in_file 'src/styles/theme/' frontend/.prettierignore
+  check "nothing comes from Google Fonts" no_google_fonts_added
+  check "the frontend still builds" build_frontend
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do
