@@ -276,7 +276,7 @@ task_6() {
   check ".husky/ checks out as LF" checks_out_as_lf .husky/pre-commit
   check "source files check out as LF" checks_out_as_lf backend/src/Kanabol.Api/Program.cs
   check "no tracked file is CRLF in the worktree" worktree_has_no_crlf
-  check "the favicon stays binary" stays_binary frontend/public/favicon.ico
+  check "the favicon stays binary" stays_binary frontend/public/brand/favicon-32.png
   check "dotnet format accepts the backend" backend_format_is_clean
 }
 

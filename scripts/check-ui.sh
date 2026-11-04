@@ -82,8 +82,84 @@ task_1() {
   check "_Architecture.md links to it" vault_note_mentions 'Atasamente/UI_UX_SPEC' _Architecture.md
 }
 
+brand_file_is_the_vaults() { # brand_file_is_the_vaults <name>
+  has_vault || return 0
+  cmp "$VAULT/Atasamente/logo/$1" "frontend/public/brand/$1"
+}
+
+png_is() { # png_is <file> <width> <height>: reads the size from the PNG header
+  node -e "
+    const header = require('fs').readFileSync(process.argv[1]);
+    const signature = header.subarray(0, 8).toString('latin1');
+    if (signature !== '\x89PNG\r\n\x1a\n') throw new Error('not a PNG');
+    const size = [header.readUInt32BE(16), header.readUInt32BE(20)].join('x');
+    if (size !== process.argv[2] + 'x' + process.argv[3]) throw new Error('size is ' + size);
+  " "$1" "$2" "$3"
+}
+
+svg_is_valid() { # svg_is_valid <file>
+  grep -q '<svg' "$1" && grep -q '</svg>' "$1"
+}
+
+manifest_is_right() {
+  node -e "
+    const manifest = JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest', 'utf8'));
+    const expect = (ok, what) => { if (!ok) throw new Error(what); };
+    expect(manifest.name === 'Kanabol', 'the name');
+    expect(manifest.lang === 'ro', 'the language');
+    expect(manifest.start_url === '/', 'the start url');
+    expect(manifest.background_color === '#f5f8ff', 'the background: surface-50');
+    expect(manifest.theme_color === '#122d94', 'the theme color: brand-800');
+    const sizes = Object.fromEntries(manifest.icons.map((icon) => [icon.sizes, icon.src]));
+    expect(sizes['192x192'] === '/brand/kanabol-app-icon-192.png', 'the 192 icon');
+    expect(sizes['512x512'] === '/brand/kanabol-app-icon-512.png', 'the 512 icon');
+  "
+}
+
+build_frontend() {
+  (cd frontend && npx ng build) >"$scratch/build.log" 2>&1 || {
+    tail -n 20 "$scratch/build.log"
+    return 1
+  }
+}
+
+in_dist() { # in_dist <path>
+  [ -f "frontend/dist/kanabol/browser/$1" ]
+}
+
+task_2() {
+  echo "2a.2 Logo and identity"
+  for name in apple-touch-icon.png favicon-16.png favicon-32.png kanabol-app-icon-192.png kanabol-app-icon-512.png \
+    kanabol-favicon.svg kanabol-mark-mono.svg kanabol-mark-on-dark.svg kanabol-mark.svg; do
+    check "$name is tracked" tracked "frontend/public/brand/$name"
+    check "$name is the vault's" brand_file_is_the_vaults "$name"
+  done
+  check "favicon-16 is 16 by 16" png_is frontend/public/brand/favicon-16.png 16 16
+  check "favicon-32 is 32 by 32" png_is frontend/public/brand/favicon-32.png 32 32
+  check "the 192 icon is 192 by 192" png_is frontend/public/brand/kanabol-app-icon-192.png 192 192
+  check "the 512 icon is 512 by 512" png_is frontend/public/brand/kanabol-app-icon-512.png 512 512
+  check "the apple touch icon is 180 by 180" png_is frontend/public/brand/apple-touch-icon.png 180 180
+  check "the SVG favicon is an SVG" svg_is_valid frontend/public/brand/kanabol-favicon.svg
+  check "Angular's favicon is gone" absent frontend/public/favicon.ico
+  html=frontend/src/index.html
+  check "the page is in Romanian" in_file '<html lang="ro">' "$html"
+  check "the title is Kanabol" in_file '<title>Kanabol</title>' "$html"
+  check "the SVG favicon is linked" in_file '<link rel="icon" type="image/svg+xml" href="/brand/kanabol-favicon.svg" />' "$html"
+  check "the 32 fallback is linked" in_file '<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />' "$html"
+  check "the 16 fallback is linked" in_file '<link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />' "$html"
+  check "the apple touch icon is linked" in_file '<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />' "$html"
+  check "the manifest is linked" in_file '<link rel="manifest" href="/manifest.webmanifest" />' "$html"
+  check "the manifest is tracked" tracked frontend/public/manifest.webmanifest
+  check "the manifest is right" manifest_is_right
+  check "the frontend builds" build_frontend
+  check "the build has the favicon" in_dist brand/kanabol-favicon.svg
+  check "the build has the manifest" in_dist manifest.webmanifest
+  check "the build has the app icon" in_dist brand/kanabol-app-icon-512.png
+  check "the built page is in Romanian" in_file '<html lang="ro"' frontend/dist/kanabol/browser/index.html
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 
 for task in "$@"; do
