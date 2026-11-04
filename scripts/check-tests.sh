@@ -300,8 +300,86 @@ task_5() {
   check "dotnet format is clean" formatting_is_clean
 }
 
+frontend_tests_pass() { # frontend_tests_pass <minimum passed>
+  (cd frontend && npx ng test --no-watch) >"$scratch/frontend-tests.log" 2>&1 || {
+    tail -n 25 "$scratch/frontend-tests.log"
+    return 1
+  }
+  passed=$(sed -e 's/\x1b\[[0-9;]*m//g' "$scratch/frontend-tests.log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$1" ] || {
+    echo "only ${passed:-0} tests passed, expected at least $1"
+    tail -n 8 "$scratch/frontend-tests.log"
+    return 1
+  }
+}
+
+frontend_lint_passes() {
+  (cd frontend && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    tail -n 15 "$scratch/lint.log"
+    return 1
+  }
+}
+
+prettier_passes() {
+  (cd frontend && npx prettier --check .) >"$scratch/prettier.log" 2>&1 || {
+    tail -n 10 "$scratch/prettier.log"
+    return 1
+  }
+}
+
+frontend_builds() {
+  (cd frontend && npx ng build) >"$scratch/build.log" 2>&1 || {
+    tail -n 15 "$scratch/build.log"
+    return 1
+  }
+}
+
+# Breaks the code in a copy of the frontend. The specs have to fail.
+frontend_tests_catch() { # frontend_tests_catch <name> <file under frontend/src> <text> <replacement>
+  copy="$scratch/frontend-copy"
+  rm -rf "$copy/frontend/src"
+  mkdir -p "$copy"
+  git archive "$(git write-tree)" frontend | tar -x -C "$copy"
+  [ -d "$copy/frontend/node_modules" ] || (cd "$copy/frontend" && npm ci --no-audit --no-fund) >/dev/null 2>&1
+  file="$copy/frontend/src/$2"
+  grep -qF -- "$3" "$file" || {
+    echo "nothing to break: '$3' isn't in $2"
+    return 1
+  }
+  SEARCH=$3 REPLACE=$4 node -e "
+    const fs = require('fs');
+    const text = fs.readFileSync(process.argv[1], 'utf8');
+    fs.writeFileSync(process.argv[1], text.replace(process.env.SEARCH, process.env.REPLACE));
+  " "$file"
+  if (cd "$copy/frontend" && npx ng test --no-watch) >"$scratch/frontend-caught-$1.log" 2>&1; then
+    echo "the specs passed with the code broken"
+    return 1
+  fi
+  sed -e 's/\x1b\[[0-9;]*m//g' "$scratch/frontend-caught-$1.log" | grep -qE 'Tests +[0-9]+ failed' || {
+    tail -n 12 "$scratch/frontend-caught-$1.log"
+    return 1
+  }
+}
+
+task_7() {
+  echo "3.7 Frontend specs"
+  store=frontend/src/app/core/layout/theme-store.ts
+  check "the store is tracked" tracked "$store"
+  check "the component is tracked" tracked frontend/src/app/shared/ui/theme-toggle.ts
+  check "the store's spec needs no TestBed" not_in_file '@angular/core/testing' frontend/src/app/core/layout/theme-store.spec.ts
+  check "the component's spec uses a Material harness" in_file 'MatSlideToggleHarness' frontend/src/app/shared/ui/theme-toggle.spec.ts
+  check "the frontend specs pass" frontend_tests_pass 13
+  check "the frontend lint passes" frontend_lint_passes
+  check "Prettier passes" prettier_passes
+  check "the frontend builds" frontend_builds
+  check "the store's spec catches a choice that isn't saved" frontend_tests_catch save app/core/layout/theme-store.ts \
+    "localStorage.setItem(STORAGE_KEY, theme);" ""
+  check "the component's spec catches a toggle that doesn't report" frontend_tests_catch report app/shared/ui/theme-toggle.ts \
+    '(change)="toggled.emit()"' ''
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6
+  set -- 1 2 3 4 5 6 7
 fi
 
 for task in "$@"; do
