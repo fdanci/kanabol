@@ -228,6 +228,78 @@ internal static class Check
     }
 }
 CS
+  case " $* " in
+  *" Kanabol.Infrastructure "*)
+    cat >"$probe_dir/ProbeDatabase.cs" <<'CS'
+using Kanabol.Application.Abstractions;
+using Kanabol.Infrastructure;
+using Kanabol.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+// A database of the probe's own, with the real AddInfrastructure. Dropped when disposed.
+internal sealed class ProbeDatabase(ServiceProvider services) : IAsyncDisposable
+{
+    public IServiceProvider Services => services;
+
+    public static async Task<ProbeDatabase> Create(string name, bool migrate = false)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("KANABOL_CHECK_CONNECTION"));
+        connection.Database = $"{connection.Database}_{name}";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = connection.ConnectionString })
+            .Build();
+        var collection = new ServiceCollection();
+        collection.AddLogging();
+        collection.AddInfrastructure(configuration);
+        collection.AddScoped<ICurrentUser, ProbeVisitor>();
+
+        var database = new ProbeDatabase(collection.BuildServiceProvider());
+        await database.Run(async db =>
+        {
+            await db.Database.EnsureDeletedAsync();
+            if (migrate)
+            {
+                await db.Database.MigrateAsync();
+            }
+            else
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+        });
+        return database;
+    }
+
+    public string CreateScript()
+    {
+        using var scope = services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.GenerateCreateScript();
+    }
+
+    public async Task Run(Func<AppDbContext, Task> action)
+    {
+        await using var scope = services.CreateAsyncScope();
+        await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Run(db => db.Database.EnsureDeletedAsync());
+        await services.DisposeAsync();
+    }
+}
+
+internal sealed class ProbeVisitor : ICurrentUser
+{
+    public bool IsAuthenticated => false;
+
+    public Guid Id => throw new InvalidOperationException();
+
+    public bool HasPermission(string permission) => false;
+}
+CS
+    ;;
+  esac
   cat >"$probe_dir/Program.cs"
   (cd "$probe_dir" && dotnet run --nologo -v q)
   probe_status=$?
@@ -730,8 +802,128 @@ task_6() {
   check "Domain still has no packages" no_packages Kanabol.Domain
 }
 
+users_and_roles_schema_is_right() {
+  probe Kanabol.Infrastructure <<'CS'
+await using var database = await ProbeDatabase.Create("schema_users");
+var script = database.CreateScript();
+void Has(string text) => Check.That(script.Contains(text), $"the schema has: {text}");
+
+Has("CREATE TABLE users (");
+Has("CREATE TABLE roles (");
+Has("CREATE TABLE permissions (");
+Has("CREATE TABLE role_permissions (");
+Has("CREATE TABLE refresh_tokens (");
+Has("CONSTRAINT pk_users PRIMARY KEY (id)");
+Has("CONSTRAINT pk_role_permissions PRIMARY KEY (role_id, permission_id)");
+Has("email character varying(320) NOT NULL");
+Has("display_name character varying(200) NOT NULL");
+Has("password_hash character varying(256) NOT NULL");
+Has("is_active boolean NOT NULL");
+Has("is_system boolean NOT NULL");
+Has("must_change_password boolean NOT NULL");
+Has("locked_until timestamp with time zone");
+Has("created_at timestamp with time zone NOT NULL");
+Has("created_by_id uuid");
+Has("updated_at timestamp with time zone");
+Has("expires_at timestamp with time zone NOT NULL");
+Has("revoked_at timestamp with time zone");
+Has("token_hash character varying(64) NOT NULL");
+Has("family_id uuid NOT NULL");
+Has("CREATE UNIQUE INDEX ux_users_email ON users (email)");
+Has("CREATE UNIQUE INDEX ux_roles_name ON roles (name)");
+Has("CREATE UNIQUE INDEX ux_permissions_name ON permissions (name)");
+Has("CREATE UNIQUE INDEX ux_refresh_tokens_token_hash ON refresh_tokens (token_hash)");
+Has("CONSTRAINT fk_users_roles_role_id FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT");
+Has("CREATE INDEX ix_refresh_tokens_family_id ON refresh_tokens (family_id)");
+Check.That(!script.Contains("domain_events"), "domain events stay out of the schema");
+CS
+}
+
+users_and_roles_behave() {
+  probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Users;
+using Microsoft.EntityFrameworkCore;
+
+await using var database = await ProbeDatabase.Create("users");
+
+var permission = new Permission("users.manage");
+var role = new Role("Manager", isSystem: false);
+role.Grant(permission.Id);
+var user = new User("ana@example.com", "Ana", "hash", role.Id);
+var token = new RefreshToken(user.Id, Guid.CreateVersion7(), new string('a', 64), DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow);
+
+await database.Run(async db =>
+{
+    db.Permissions.Add(permission);
+    db.Roles.Add(role);
+    db.Users.Add(user);
+    db.RefreshTokens.Add(token);
+    await db.SaveChangesAsync();
+});
+
+Check.That(user.CreatedAt != default, "users get audit stamps");
+Check.That(role.CreatedAt != default, "roles get audit stamps");
+
+await database.Run(async db =>
+{
+    var stored = await db.Users.Include(u => u.Role).SingleAsync(u => u.Id == user.Id);
+    Check.That(stored.Id.Version == 7, "ids stored are UUID v7");
+    Check.That(stored.Email == "ana@example.com", "the email is stored");
+    Check.That(stored.DisplayName == "Ana", "the display name is stored");
+    Check.That(stored.PasswordHash == "hash", "the password hash is stored");
+    Check.That(stored.IsActive, "new users are active");
+    Check.That(!stored.MustChangePassword, "the password change is opt-in");
+    Check.That(stored.LockedUntil is null, "new users aren't locked");
+    Check.That(stored.Role.Name == "Manager", "a user has exactly one role");
+
+    var storedRole = await db.Roles.Include(r => r.RolePermissions).SingleAsync(r => r.Id == role.Id);
+    Check.That(storedRole.RolePermissions.Single().PermissionId == permission.Id, "a role keeps its permissions");
+    Check.That(!storedRole.IsSystem, "IsSystem is stored");
+
+    var storedToken = await db.RefreshTokens.SingleAsync(t => t.Id == token.Id);
+    Check.That(storedToken.UserId == user.Id && storedToken.RevokedAt is null, "refresh tokens are stored unrevoked");
+});
+
+async Task Refused(string what, Action<Kanabol.Infrastructure.Persistence.AppDbContext> change) =>
+    await database.Run(async db =>
+    {
+        change(db);
+        try
+        {
+            await db.SaveChangesAsync();
+            Check.That(false, what);
+        }
+        catch (DbUpdateException)
+        {
+        }
+    });
+
+await Refused("a second user with the same email is refused", db => db.Users.Add(new User("ana@example.com", "Other", "hash", role.Id)));
+await Refused("a second role with the same name is refused", db => db.Roles.Add(new Role("Manager", false)));
+await Refused("a second permission with the same name is refused", db => db.Permissions.Add(new Permission("users.manage")));
+await Refused("a second token with the same hash is refused", db => db.RefreshTokens.Add(new RefreshToken(user.Id, Guid.CreateVersion7(), new string('a', 64), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
+await Refused("a user needs a role that exists", db => db.Users.Add(new User("no-role@example.com", "None", "hash", Guid.CreateVersion7())));
+await Refused("a role with users can't be deleted", db => db.Roles.Remove(db.Roles.Single(r => r.Id == role.Id)));
+CS
+}
+
+domain_has_no_annotations() {
+  ! grep -rq 'DataAnnotations' backend/src/Kanabol.Domain --include='*.cs'
+}
+
+task_7() {
+  echo "2.7 Users, roles, permissions and refresh tokens"
+  need_database
+  check "the schema uses the spec's names, types and indexes" users_and_roles_schema_is_right
+  check "the entities behave on a real PostgreSQL" users_and_roles_behave
+  check "Domain still has no packages" no_packages Kanabol.Domain
+  check "Domain has no data annotations" domain_has_no_annotations
+  check "Application still references only Domain" references_are Kanabol.Application Kanabol.Domain
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6
+  set -- 1 2 3 4 5 6 7
 fi
 
 for task in "$@"; do

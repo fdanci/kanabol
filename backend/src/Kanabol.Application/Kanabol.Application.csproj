@@ -4,4 +4,8 @@
     <ProjectReference Include="..\Kanabol.Domain\Kanabol.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+
 </Project>
