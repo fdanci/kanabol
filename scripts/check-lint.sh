@@ -217,7 +217,89 @@ task_4() {
   check "a wrong input type in a template is rejected" strict_templates_reject_a_wrong_input_type
 }
 
-[ $# -gt 0 ] || set -- 1 2 3 4
+PROBE_DIR=frontend/src/app/lint-probe
+
+write_lint_probe() {
+  mkdir -p "$PROBE_DIR"
+  cat >"$PROBE_DIR/rule-breaker.ts" <<'TS'
+import { ChangeDetectionStrategy, Component, Directive, Input } from '@angular/core';
+
+@Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
+  selector: 'wrong-prefix',
+  templateUrl: './rule-breaker.html',
+})
+export class RuleBreaker {
+  @Input() label = '';
+
+  public untyped: any = 1;
+
+  load(): void {
+    console.log(this.label);
+    Promise.resolve(1);
+  }
+}
+
+@Directive({ selector: '[wrongPrefix]' })
+export class WrongDirective {}
+
+export class EmptyWithoutDecorator {}
+TS
+  cat >"$PROBE_DIR/rule-breaker.html" <<'HTML'
+<div *ngIf="label">{{ label }}</div>
+<img src="logo.png" />
+HTML
+  cat >"$PROBE_DIR/rule-breaker.spec.ts" <<'TS'
+export const firstItem = (items: string[]): string => items.at(0)!;
+TS
+}
+
+# The lint output for the rule breakers, stored once: ESLint is slow and every rule shares it.
+lint_probe_output() {
+  write_lint_probe
+  (cd frontend && npx eslint src/app/lint-probe) 2>&1
+  rm -rf "$PROBE_DIR"
+}
+
+reports_rule() { # reports_rule <rule>
+  printf '%s\n' "$LINT_OUTPUT" | grep -qF -- "$1"
+}
+
+spec_allows_non_null_assertion() {
+  ! printf '%s\n' "$LINT_OUTPUT" | grep -A3 'rule-breaker.spec.ts' | grep -q 'no-non-null-assertion'
+}
+
+# What the schematics generate must already pass the rules, or every new component starts red.
+generated_component_passes_lint() {
+  fresh=frontend/src/app/fresh-probe
+  [ ! -e "$fresh" ] || return 1
+  ng generate component fresh-probe || return 1
+  (cd frontend && npx eslint --max-warnings=0 src/app/fresh-probe)
+  status=$?
+  rm -rf "$fresh"
+  return "$status"
+}
+
+
+task_5() {
+  echo "1.5 ESLint and Prettier"
+  check "eslint.config.js is tracked" tracked frontend/eslint.config.js
+  check "package.json has a lint script" grep -q '"lint": "ng lint"' frontend/package.json
+  check "angular.json has a lint target" grep -q '@angular-eslint/builder:lint' frontend/angular.json
+  check ".prettierrc sets trailingComma" grep -q '"trailingComma": "all"' frontend/.prettierrc
+  LINT_OUTPUT=$(lint_probe_output)
+  for rule in no-console @typescript-eslint/no-explicit-any @typescript-eslint/no-floating-promises \
+    @typescript-eslint/explicit-member-accessibility @angular-eslint/component-selector \
+    @angular-eslint/directive-selector @angular-eslint/prefer-on-push-component-change-detection \
+    @angular-eslint/prefer-signals @angular-eslint/template/prefer-control-flow \
+    @angular-eslint/template/alt-text @typescript-eslint/no-extraneous-class; do
+    check "reports $rule" reports_rule "$rule"
+  done
+  check "spec files may use non-null assertions" spec_allows_non_null_assertion
+  check "a freshly generated component passes lint" generated_component_passes_lint
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4 5
 for task in "$@"; do
   "task_$task"
 done
