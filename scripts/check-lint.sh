@@ -173,7 +173,51 @@ task_3() {
   check "the frontend tests pass" frontend_tests_pass
 }
 
-[ $# -gt 0 ] || set -- 1 2 3
+typescript_is_effectively_strict() {
+  (cd frontend && npx tsc -p tsconfig.app.json --showConfig) | grep -q '"strict": true'
+}
+
+angular_compiler_is_clean() {
+  (cd frontend && npx ngc -p tsconfig.app.json --noEmit)
+}
+
+# Binding a number to a string input only fails under strictTemplates.
+strict_templates_reject_a_wrong_input_type() {
+  probe=frontend/src/app/strict-templates-probe.ts
+  [ ! -e "$probe" ] || return 1
+  cat >"$probe" <<'TS'
+import { Component, Input } from '@angular/core';
+
+@Component({ selector: 'kb-strict-child', template: '' })
+export class StrictChild {
+  @Input() label = '';
+}
+
+@Component({
+  imports: [StrictChild],
+  selector: 'kb-strict-probe',
+  template: '<kb-strict-child [label]="1" />',
+})
+export class StrictProbe {}
+TS
+  output=$(cd frontend && npx ngc -p tsconfig.app.json --noEmit 2>&1)
+  rm -f "$probe"
+  printf '%s\n' "$output" | grep -q 'TS2322'
+}
+
+task_4() {
+  echo "1.4 strict TypeScript and templates"
+  check "tsconfig.json sets strict explicitly" grep -q '"strict": true' frontend/tsconfig.json
+  check "tsconfig.json sets strictTemplates explicitly" grep -q '"strictTemplates": true' frontend/tsconfig.json
+  for option in noImplicitOverride noPropertyAccessFromIndexSignature noImplicitReturns noFallthroughCasesInSwitch; do
+    check "tsconfig.json keeps $option" grep -q "\"$option\": true" frontend/tsconfig.json
+  done
+  check "the compiler sees strict: true" typescript_is_effectively_strict
+  check "the Angular compiler accepts the app" angular_compiler_is_clean
+  check "a wrong input type in a template is rejected" strict_templates_reject_a_wrong_input_type
+}
+
+[ $# -gt 0 ] || set -- 1 2 3 4
 for task in "$@"; do
   "task_$task"
 done
