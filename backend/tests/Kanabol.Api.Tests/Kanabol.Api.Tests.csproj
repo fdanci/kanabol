@@ -10,10 +10,12 @@
 
   <ItemGroup>
     <!-- Not a project of its own: it needs the test libraries, and each assembly needs its own collection. -->
-    <Compile Include="..\Shared\Database\*.cs" LinkBase="Shared\Database" />
+    <Compile Include="..\Shared\Database\PostgresFixture.cs" LinkBase="Shared\Database" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Respawn" />
     <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>

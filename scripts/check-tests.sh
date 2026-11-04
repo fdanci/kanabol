@@ -219,8 +219,33 @@ task_2() {
   check "dotnet format is clean" formatting_is_clean
 }
 
+tests_catch_a_wrong_signing_key() {
+  copy="$scratch/wrong-key"
+  backend_copy "$copy"
+  sed -i 's/Encoding.UTF8.GetBytes(jwt.Secret)/Encoding.UTF8.GetBytes(new string(\x27y\x27, 48))/' \
+    "$copy/backend/tests/Kanabol.Api.Tests/Support/ApiFactory.cs"
+  if dotnet test "$copy/backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj" --nologo -p:TreatWarningsAsErrors=false \
+    --filter 'FullyQualifiedName~ApiFactoryTests' >"$scratch/wrong-key.log" 2>&1; then
+    echo "the tests passed with tokens signed by another key"
+    return 1
+  fi
+  grep -qE 'Failed: +[1-9]' "$scratch/wrong-key.log" || {
+    tail -n 12 "$scratch/wrong-key.log"
+    return 1
+  }
+}
+
+task_3() {
+  echo "3.3 WebApplicationFactory on the container, with test tokens"
+  check "the factory is tracked" tracked backend/tests/Kanabol.Api.Tests/Support/ApiFactory.cs
+  check "the factory's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ApiFactoryTests' 6
+  check "they catch tokens the API's settings wouldn't accept" tests_catch_a_wrong_signing_key
+  check "the solution builds with warnings as errors" solution_builds
+  check "dotnet format is clean" formatting_is_clean
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 6
+  set -- 1 2 3 6
 fi
 
 for task in "$@"; do
