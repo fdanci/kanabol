@@ -922,8 +922,187 @@ task_7() {
   check "Application still references only Domain" references_are Kanabol.Application Kanabol.Domain
 }
 
+board_schema_is_right() {
+  probe Kanabol.Infrastructure <<'CS'
+await using var database = await ProbeDatabase.Create("schema_board");
+var script = database.CreateScript();
+void Has(string text) => Check.That(script.Contains(text), $"the schema has: {text}");
+
+Has("CREATE TABLE projects (");
+Has("CREATE TABLE project_members (");
+Has("CREATE TABLE board_columns (");
+Has("CREATE TABLE task_items (");
+Has("CREATE TABLE comments (");
+Has("CREATE TABLE attachments (");
+Has("CREATE TABLE task_history_entries (");
+Has("CREATE TABLE notifications (");
+Has("CONSTRAINT pk_task_items PRIMARY KEY (id)");
+Has("CONSTRAINT pk_project_members PRIMARY KEY (project_id, user_id)");
+Has("title character varying(300) NOT NULL");
+Has("description text");
+Has("body text NOT NULL");
+Has("priority text NOT NULL");
+Has("role text NOT NULL");
+Has("type text NOT NULL");
+Has("due_date timestamp with time zone");
+Has("completed_at timestamp with time zone");
+Has("archived_at timestamp with time zone");
+Has("archived_by_id uuid");
+Has("read_at timestamp with time zone");
+Has("changed_at timestamp with time zone NOT NULL");
+Has("is_done boolean NOT NULL");
+Has("size bigint NOT NULL");
+Has("storage_key character varying(500) NOT NULL");
+Has("CONSTRAINT fk_task_items_projects_project_id FOREIGN KEY (project_id) REFERENCES projects (id)");
+Has("CONSTRAINT fk_task_items_board_columns_column_id FOREIGN KEY (column_id) REFERENCES board_columns (id)");
+Has("CONSTRAINT fk_task_items_users_assignee_id FOREIGN KEY (assignee_id) REFERENCES users (id)");
+Has("CONSTRAINT fk_comments_task_items_task_id FOREIGN KEY (task_id) REFERENCES task_items (id)");
+Has("CONSTRAINT fk_notifications_users_user_id FOREIGN KEY (user_id) REFERENCES users (id)");
+Has("CREATE INDEX ix_task_items_project_id_column_id ON task_items (project_id, column_id)");
+Check.That(!script.Contains("domain_events"), "domain events stay out of the schema");
+Check.That(!script.Contains("xmin"), "xmin is PostgreSQL's own column, not one we create");
+CS
+}
+
+board_entities_behave() {
+  probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Notifications;
+using Kanabol.Domain.Projects;
+using Kanabol.Domain.Tasks;
+using Kanabol.Domain.Users;
+using Kanabol.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+
+await using var database = await ProbeDatabase.Create("board");
+
+var role = new Role("Member", isSystem: false);
+var user = new User("ana@example.com", "Ana", "hash", role.Id);
+var project = new Project("Website", "The company site");
+project.AddMember(user.Id, ProjectRole.Owner);
+var column = new BoardColumn(project.Id, "To do", 0, isDone: false);
+var task = new TaskItem(project.Id, column.Id, "Write the copy", "All pages", TaskPriority.High, 0);
+var comment = new Comment(task.Id, user.Id, "Looks fine");
+var attachment = new Attachment(task.Id, "brief.pdf", "application/pdf", 1234, "2026/11/key.pdf", user.Id);
+var entry = new TaskHistoryEntry(task.Id, "Title", "Old", "New", user.Id, DateTimeOffset.UtcNow);
+var notification = new Notification(user.Id, NotificationType.TaskAssigned, task.Id, "Assigned to you", DateTimeOffset.UtcNow);
+
+await database.Run(async db =>
+{
+    db.Roles.Add(role);
+    db.Users.Add(user);
+    db.Projects.Add(project);
+    db.BoardColumns.Add(column);
+    db.TaskItems.Add(task);
+    db.Comments.Add(comment);
+    db.Attachments.Add(attachment);
+    db.TaskHistoryEntries.Add(entry);
+    db.Notifications.Add(notification);
+    await db.SaveChangesAsync();
+});
+
+await database.Run(async db =>
+{
+    var stored = await db.TaskItems
+        .Include(t => t.Comments)
+        .Include(t => t.Attachments)
+        .Include(t => t.History)
+        .SingleAsync(t => t.Id == task.Id);
+    Check.That(stored.Title == "Write the copy" && stored.Description == "All pages", "a task keeps its text");
+    Check.That(stored.Priority == TaskPriority.High, "a task keeps its priority");
+    Check.That(stored.ProjectId == project.Id && stored.ColumnId == column.Id, "a task knows its project and column");
+    Check.That(stored.Position == 0, "a task keeps its position");
+    Check.That(stored.AssigneeId is null && stored.DueDate is null, "assignee and deadline are optional");
+    Check.That(stored.CompletedAt is null && stored.ArchivedAt is null, "a new task is neither done nor archived");
+    Check.That(stored.Comments.Single().Body == "Looks fine", "a task owns its comments");
+    Check.That(stored.Attachments.Single().StorageKey == "2026/11/key.pdf", "a task owns its attachments");
+    Check.That(stored.History.Single().Field == "Title", "a task owns its history");
+    Check.That(stored.CreatedAt != default, "tasks get audit stamps");
+
+    var storedProject = await db.Projects.Include(p => p.Members).Include(p => p.Columns).SingleAsync(p => p.Id == project.Id);
+    Check.That(storedProject.Members.Single().Role == ProjectRole.Owner, "a project owns its members");
+    Check.That(storedProject.Columns.Single().Name == "To do", "a project owns its columns");
+    Check.That(!storedProject.Columns.Single().IsDone, "a column knows whether it means done");
+
+    var storedNotification = await db.Notifications.SingleAsync();
+    Check.That(storedNotification.Type == NotificationType.TaskAssigned && storedNotification.ReadAt is null, "a notification is stored unread");
+
+    var priority = await db.Database.SqlQueryRaw<string>("SELECT priority AS \"Value\" FROM task_items").SingleAsync();
+    Check.That(priority == "High", "enums are stored as readable text");
+    var memberRole = await db.Database.SqlQueryRaw<string>("SELECT role AS \"Value\" FROM project_members").SingleAsync();
+    Check.That(memberRole == "Owner", "the project role is stored as text");
+
+    var warnings = db.GetService<IDbContextOptions>().FindExtension<CoreOptionsExtension>()!.WarningsConfiguration;
+    var behavior = warnings.GetBehavior(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning);
+    Check.That(behavior == WarningBehavior.Ignore, "reading through aggregates makes the query filter warning noise");
+});
+
+// A new child found through a tracked parent has to be inserted, not updated.
+await database.Run(async db =>
+{
+    var storedProject = await db.Projects.Include(p => p.Members).SingleAsync(p => p.Id == project.Id);
+    var second = new User("dan@example.com", "Dan", "hash", role.Id);
+    db.Users.Add(second);
+    storedProject.AddMember(second.Id, ProjectRole.Member);
+    await db.SaveChangesAsync();
+    Check.That(await db.ProjectMembers.CountAsync() == 2, "a member added through its project is inserted");
+});
+
+async Task ConcurrentEditsConflict<TEntity>(string what, Guid id, string property)
+    where TEntity : class
+{
+    await using var firstScope = database.Services.CreateAsyncScope();
+    await using var secondScope = database.Services.CreateAsyncScope();
+    var first = firstScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var second = secondScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var firstCopy = await first.Set<TEntity>().FindAsync(id);
+    var secondCopy = await second.Set<TEntity>().FindAsync(id);
+    first.Entry(firstCopy!).Property(property).CurrentValue = "first";
+    await first.SaveChangesAsync();
+    second.Entry(secondCopy!).Property(property).CurrentValue = "second";
+    try
+    {
+        await second.SaveChangesAsync();
+        Check.That(false, what);
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+    }
+}
+
+await ConcurrentEditsConflict<TaskItem>("concurrent edits of a task conflict", task.Id, "Title");
+await ConcurrentEditsConflict<Project>("concurrent edits of a project conflict", project.Id, "Name");
+await ConcurrentEditsConflict<BoardColumn>("concurrent edits of a column conflict", column.Id, "Name");
+
+await database.Run(async db =>
+{
+    Check.That(await db.TaskItems.CountAsync() == 1, "tasks start out visible");
+    await db.Database.ExecuteSqlRawAsync("UPDATE task_items SET archived_at = now()");
+    Check.That(await db.TaskItems.CountAsync() == 0, "archived tasks disappear from queries");
+    Check.That(await db.TaskItems.IgnoreQueryFilters().CountAsync() == 1, "IgnoreQueryFilters still finds them");
+    Check.That(await db.Comments.CountAsync() == 1, "the comments of an archived task stay");
+
+    Check.That(await db.Projects.CountAsync() == 1, "projects start out visible");
+    await db.Database.ExecuteSqlRawAsync("UPDATE projects SET archived_at = now()");
+    Check.That(await db.Projects.CountAsync() == 0, "archived projects disappear from queries");
+    Check.That(await db.Projects.IgnoreQueryFilters().CountAsync() == 1, "IgnoreQueryFilters still finds them");
+});
+CS
+}
+
+task_8() {
+  echo "2.8 Projects, board, tasks and notifications"
+  need_database
+  check "the schema uses the spec's names, types and indexes" board_schema_is_right
+  check "the entities behave on a real PostgreSQL" board_entities_behave
+  check "Domain still has no packages" no_packages Kanabol.Domain
+  check "Domain has no data annotations" domain_has_no_annotations
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6 7
+  set -- 1 2 3 4 5 6 7 8
 fi
 
 for task in "$@"; do

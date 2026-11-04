@@ -3,6 +3,7 @@ using Kanabol.Infrastructure.Persistence;
 using Kanabol.Infrastructure.Persistence.Interceptors;
 using Kanabol.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -21,7 +22,12 @@ public static class DependencyInjection
             .UseSnakeCaseNamingConvention()
             .AddInterceptors(
                 provider.GetRequiredService<AuditingInterceptor>(),
-                provider.GetRequiredService<DomainEventsInterceptor>()));
+                provider.GetRequiredService<DomainEventsInterceptor>())
+
+            // Warns that children of an archived task or project can outlive the filter on their parent.
+            // That's the plan: they're read through their parent, and they stay when it's archived.
+            .ConfigureWarnings(warnings => warnings.Ignore(
+                CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
 
         return services;

@@ -1,4 +1,7 @@
 using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Notifications;
+using Kanabol.Domain.Projects;
+using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +16,22 @@ public interface IAppDbContext
     DbSet<Permission> Permissions { get; }
 
     DbSet<RefreshToken> RefreshTokens { get; }
+
+    DbSet<Project> Projects { get; }
+
+    DbSet<ProjectMember> ProjectMembers { get; }
+
+    DbSet<BoardColumn> BoardColumns { get; }
+
+    DbSet<TaskItem> TaskItems { get; }
+
+    DbSet<Comment> Comments { get; }
+
+    DbSet<Attachment> Attachments { get; }
+
+    DbSet<TaskHistoryEntry> TaskHistoryEntries { get; }
+
+    DbSet<Notification> Notifications { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

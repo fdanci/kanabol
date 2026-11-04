@@ -1,6 +1,9 @@
 using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Common;
+using Kanabol.Domain.Notifications;
+using Kanabol.Domain.Projects;
+using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +18,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Permission> Permissions => Set<Permission>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<Project> Projects => Set<Project>();
+
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+
+    public DbSet<BoardColumn> BoardColumns => Set<BoardColumn>();
+
+    public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+
+    public DbSet<Comment> Comments => Set<Comment>();
+
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+
+    public DbSet<TaskHistoryEntry> TaskHistoryEntries => Set<TaskHistoryEntry>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
