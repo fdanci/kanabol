@@ -1,6 +1,12 @@
 # Backend
 
-.NET Core with PostgreSQL. Not scaffolded yet: add the build, test and migration commands, required env vars and local database setup here once they exist.
+.NET 10 minimal API with PostgreSQL. No database or tests yet: add the test and migration commands, required env vars and local database setup here once they exist.
+
+## Commands
+Run from `backend/`:
+
+- Build: `dotnet build Kanabol.sln`
+- Run: `dotnet run --project Kanabol.Api --launch-profile http` (serves on http://localhost:5200)
 
 ## Access rules
 - Code checks permissions, never role names.
