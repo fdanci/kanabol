@@ -361,8 +361,85 @@ task_4() {
   check "Result, Error, ErrorType, Unit and the handler interfaces behave" results_behave
 }
 
+application_ports_fit() {
+  probe Kanabol.Application <<'CS'
+using Kanabol.Application.Abstractions;
+using Kanabol.Application.Common;
+
+// Implementing each interface proves its shape at compile time.
+IClock clock = new FixedClock();
+Check.That(clock.UtcNow == DateTimeOffset.UnixEpoch, "IClock gives the time");
+
+ICurrentUser user = new Visitor();
+Check.That(!user.IsAuthenticated && !user.HasPermission("users.manage"), "ICurrentUser answers");
+
+IProjectAccess access = new NoAccess();
+var denied = await access.EnsureMemberAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+Check.That(denied.IsFailure, "IProjectAccess returns a Result");
+
+IFileStorage storage = new NullStorage();
+var stored = await storage.SaveAsync(Stream.Null, "a.txt", CancellationToken.None);
+Check.That(stored == new StoredFile("key", 0, "text/plain"), "IFileStorage returns a StoredFile");
+
+IBoardNotifier notifier = new SilentNotifier();
+await notifier.NotifyProjectAsync(Guid.NewGuid(), "TaskMoved", new { }, CancellationToken.None);
+await notifier.NotifyUserAsync(Guid.NewGuid(), "NotificationCreated", new { }, CancellationToken.None);
+
+var save = typeof(IAppDbContext).GetMethod("SaveChangesAsync", [typeof(CancellationToken)]);
+Check.That(typeof(IAppDbContext).IsInterface, "IAppDbContext is an interface");
+Check.That(save?.ReturnType == typeof(Task<int>), "IAppDbContext can save");
+
+internal sealed class FixedClock : IClock
+{
+    public DateTimeOffset UtcNow => DateTimeOffset.UnixEpoch;
+}
+
+internal sealed class Visitor : ICurrentUser
+{
+    public bool IsAuthenticated => false;
+
+    public Guid Id => throw new InvalidOperationException();
+
+    public bool HasPermission(string permission) => false;
+}
+
+internal sealed class NoAccess : IProjectAccess
+{
+    public Task<Result> EnsureMemberAsync(Guid projectId, Guid userId, CancellationToken ct) =>
+        Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
+
+    public Task<Result> EnsureOwnerAsync(Guid projectId, Guid userId, CancellationToken ct) =>
+        Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
+}
+
+internal sealed class NullStorage : IFileStorage
+{
+    public Task<StoredFile> SaveAsync(Stream content, string fileName, CancellationToken ct) =>
+        Task.FromResult(new StoredFile("key", 0, "text/plain"));
+
+    public Task<Stream> OpenReadAsync(string key, CancellationToken ct) => Task.FromResult(Stream.Null);
+
+    public Task DeleteAsync(string key, CancellationToken ct) => Task.CompletedTask;
+}
+
+internal sealed class SilentNotifier : IBoardNotifier
+{
+    public Task NotifyProjectAsync(Guid projectId, string eventName, object payload, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    public Task NotifyUserAsync(Guid userId, string eventName, object payload, CancellationToken ct) =>
+        Task.CompletedTask;
+}
+CS
+}
+
+task_5() {
+  echo "2.5 Application interfaces"
+  check "IAppDbContext, ICurrentUser, IClock, IFileStorage, IProjectAccess and IBoardNotifier fit" application_ports_fit
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 
 for task in "$@"; do
