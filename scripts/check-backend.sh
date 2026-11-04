@@ -70,6 +70,69 @@ formatting_is_clean() {
   dotnet format backend/Kanabol.sln --verify-no-changes
 }
 
+# A database of this run's own, dropped at the end. Exports its connection string for the
+# probes and for the API.
+need_database() {
+  [ -n "${KANABOL_CHECK_CONNECTION:-}" ] && return 0
+  base_connection=${KANABOL_CHECK_DB:-$(dotnet user-secrets list --id kanabol-api 2>/dev/null |
+    tr -d '\r' | sed -n 's/^ConnectionStrings:Default = //p')}
+  if [ -z "$base_connection" ]; then
+    echo "No database: set KANABOL_CHECK_DB or the API's ConnectionStrings:Default user secret." >&2
+    exit 2
+  fi
+  admin_connection=$(printf '%s' "$base_connection" | sed 's/Database=[^;]*/Database=postgres/')
+  sql "$admin_connection" "CREATE DATABASE $check_db" >/dev/null || exit 2
+  KANABOL_CHECK_CONNECTION=$(printf '%s' "$base_connection" | sed "s/Database=[^;]*/Database=$check_db/")
+  ConnectionStrings__Default=$KANABOL_CHECK_CONNECTION
+  export KANABOL_CHECK_CONNECTION ConnectionStrings__Default
+}
+
+# Run a statement and print its rows, with columns separated by |. Built once, on first use.
+sql() { # sql <connection> <statement>
+  sql_dll="$scratch/sql/bin/Debug/net10.0/sql.dll"
+  if [ ! -f "$sql_dll" ]; then
+    mkdir -p "$scratch/sql"
+    cat >"$scratch/sql/sql.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.*" />
+  </ItemGroup>
+</Project>
+XML
+    cat >"$scratch/sql/Program.cs" <<'CS'
+await using var connection = new Npgsql.NpgsqlConnection(args[0]);
+await connection.OpenAsync();
+await using var command = new Npgsql.NpgsqlCommand(args[1], connection);
+await using var reader = await command.ExecuteReaderAsync();
+while (await reader.ReadAsync())
+{
+    var values = Enumerable.Range(0, reader.FieldCount).Select(i => reader.GetValue(i)?.ToString());
+    Console.WriteLine(string.Join('|', values));
+}
+CS
+    dotnet build "$scratch/sql/sql.csproj" --nologo -v q >"$scratch/sql/build.log" 2>&1 || {
+      cat "$scratch/sql/build.log" >&2
+      return 1
+    }
+  fi
+  dotnet "$sql_dll" "$1" "$2"
+}
+
+cleanup() {
+  [ -n "$api_pid" ] && stop_api
+  if [ -n "${KANABOL_CHECK_CONNECTION:-}" ]; then
+    sql "$admin_connection" "DROP DATABASE IF EXISTS $check_db WITH (FORCE)" >/dev/null
+  fi
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
 # The whole backend as it's staged, in a throwaway folder, to add a probe to.
 backend_copy() { # backend_copy <folder>
   mkdir -p "$1"
@@ -129,7 +192,7 @@ probe() { # probe <project...>
     probe_refs="$probe_refs<ProjectReference Include=\"$root/backend/src/$project/$project.csproj\" />"
   done
   cat >"$probe_dir/probe.csproj" <<XML
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -137,7 +200,6 @@ probe() { # probe <project...>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>$probe_refs</ItemGroup>
-  <ItemGroup>${probe_packages:-}</ItemGroup>
 </Project>
 XML
   cat >"$probe_dir/Check.cs" <<'CS'
@@ -438,15 +500,243 @@ task_5() {
   check "IAppDbContext, ICurrentUser, IClock, IFileStorage, IProjectAccess and IBoardNotifier fit" application_ports_fit
 }
 
+app_db_context_is_wired() {
+  probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Application.Abstractions;
+using Kanabol.Infrastructure;
+using Kanabol.Infrastructure.Persistence;
+using Kanabol.Infrastructure.Persistence.Interceptors;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+
+var connection = Environment.GetEnvironmentVariable("KANABOL_CHECK_CONNECTION");
+var configuration = new ConfigurationBuilder()
+    .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = connection })
+    .Build();
+var services = new ServiceCollection();
+services.AddLogging();
+services.AddInfrastructure(configuration);
+services.AddScoped<ICurrentUser, Nobody>();
+await using var provider = services.BuildServiceProvider(validateScopes: true);
+await using var scope = provider.CreateAsyncScope();
+
+var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+Check.That(db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL", "the context uses Npgsql");
+Check.That(await db.Database.CanConnectAsync(), "the context reaches PostgreSQL");
+Check.That(ReferenceEquals(scope.ServiceProvider.GetRequiredService<IAppDbContext>(), db), "IAppDbContext is the context");
+Check.That(scope.ServiceProvider.GetRequiredService<IClock>().UtcNow.Offset == TimeSpan.Zero, "IClock is in UTC");
+
+var interceptors = db.GetService<IDbContextOptions>().FindExtension<CoreOptionsExtension>()!.Interceptors!;
+Check.That(interceptors.OfType<AuditingInterceptor>().Any(), "the context has the auditing interceptor");
+Check.That(interceptors.OfType<DomainEventsInterceptor>().Any(), "the context has the domain events interceptor");
+var extensions = db.GetService<IDbContextOptions>().Extensions.Select(e => e.GetType().Name);
+Check.That(extensions.Contains("NamingConventionsOptionsExtension"), "the context uses the snake_case convention");
+
+internal sealed class Nobody : ICurrentUser
+{
+    public bool IsAuthenticated => false;
+
+    public Guid Id => throw new InvalidOperationException();
+
+    public bool HasPermission(string permission) => false;
+}
+CS
+}
+
+interceptors_behave() {
+  probe Kanabol.Infrastructure <<'CS'
+using Kanabol.Application.Abstractions;
+using Kanabol.Application.Abstractions.Messaging;
+using Kanabol.Domain.Common;
+using Kanabol.Infrastructure.Persistence.Interceptors;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+var connection = Environment.GetEnvironmentVariable("KANABOL_CHECK_CONNECTION")!;
+var clock = new MovableClock();
+var user = new SwitchableUser();
+var recorder = new Recorder(connection);
+
+var services = new ServiceCollection();
+services.AddLogging();
+services.AddSingleton<IClock>(clock);
+services.AddSingleton<ICurrentUser>(user);
+services.AddSingleton(recorder);
+services.AddScoped<IDomainEventHandler<ItemNamed>, ThrowingHandler>();
+services.AddScoped<IDomainEventHandler<ItemNamed>, RecordingHandler>();
+services.AddScoped<AuditingInterceptor>();
+services.AddScoped<DomainEventsInterceptor>();
+await using var provider = services.BuildServiceProvider();
+
+ProbeContext NewContext(IServiceProvider scoped) => new(new DbContextOptionsBuilder<ProbeContext>()
+    .UseNpgsql(connection)
+    .UseSnakeCaseNamingConvention()
+    .AddInterceptors(scoped.GetRequiredService<AuditingInterceptor>(), scoped.GetRequiredService<DomainEventsInterceptor>())
+    .Options);
+
+await using (var scope = provider.CreateAsyncScope())
+{
+    await using var setup = NewContext(scope.ServiceProvider);
+    await setup.Database.ExecuteSqlRawAsync("CREATE TABLE probe_items (id uuid PRIMARY KEY, name text NOT NULL, created_at timestamptz NOT NULL, created_by_id uuid, updated_at timestamptz, updated_by_id uuid)");
+}
+
+var creator = Guid.CreateVersion7();
+var editor = Guid.CreateVersion7();
+var createdAt = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
+var updatedAt = createdAt.AddHours(1);
+
+var item = new Item("first");
+await using (var scope = provider.CreateAsyncScope())
+{
+    await using var db = NewContext(scope.ServiceProvider);
+    clock.UtcNow = createdAt;
+    user.Signed = creator;
+    db.Items.Add(item);
+    await db.SaveChangesAsync();
+
+    Check.That(item.CreatedAt == createdAt, "an insert stamps CreatedAt from IClock");
+    Check.That(item.CreatedById == creator, "an insert stamps CreatedById from ICurrentUser");
+    Check.That(item.UpdatedAt is null && item.UpdatedById is null, "an insert leaves the update stamps empty");
+    Check.That(recorder.Seen.SequenceEqual(["first"]), "the handler saw the event once");
+    Check.That(recorder.RowsVisibleFromAnotherConnection.SequenceEqual([1L]), "the event is published after the commit");
+    Check.That(item.DomainEvents.Count == 0, "published events leave the entity");
+
+    await db.SaveChangesAsync();
+    Check.That(recorder.Seen.Count == 1, "saving again doesn't publish again");
+
+    clock.UtcNow = updatedAt;
+    user.Signed = editor;
+    item.Rename("second");
+    item.CreatedAt = updatedAt;
+    item.CreatedById = editor;
+    db.SaveChanges();
+    Check.That(recorder.Seen.SequenceEqual(["first", "second"]), "synchronous saves publish too");
+    Check.That(item.UpdatedAt == updatedAt, "an update stamps UpdatedAt");
+    Check.That(item.UpdatedById == editor, "an update stamps UpdatedById");
+}
+
+await using (var scope = provider.CreateAsyncScope())
+{
+    await using var db = NewContext(scope.ServiceProvider);
+    var stored = await db.Items.SingleAsync(i => i.Id == item.Id);
+    Check.That(stored.CreatedAt == createdAt, "an update can't rewrite CreatedAt");
+    Check.That(stored.CreatedById == creator, "an update can't rewrite CreatedById");
+    Check.That(stored.UpdatedAt == updatedAt, "the update stamp reaches the database");
+}
+
+await using (var scope = provider.CreateAsyncScope())
+{
+    await using var db = NewContext(scope.ServiceProvider);
+    user.Signed = null;
+    var anonymous = new Item("anonymous");
+    db.Items.Add(anonymous);
+    await db.SaveChangesAsync();
+    Check.That(anonymous.CreatedById is null, "without a user CreatedById stays empty");
+}
+
+var seenBefore = recorder.Seen.Count;
+await using (var scope = provider.CreateAsyncScope())
+{
+    await using var db = NewContext(scope.ServiceProvider);
+    var duplicate = new Item("duplicate", item.Id);
+    db.Items.Add(duplicate);
+    Check.Throws<DbUpdateException>(() => db.SaveChanges(), "a duplicate id fails");
+    Check.That(recorder.Seen.Count == seenBefore, "a failed save publishes nothing");
+    Check.That(duplicate.DomainEvents.Count == 1, "a failed save keeps the events for a retry");
+}
+
+internal sealed record ItemNamed(string Name) : IDomainEvent;
+
+internal sealed class Item : AuditableEntity
+{
+    public Item(string name, Guid? id = null)
+    {
+        Id = id ?? Id;
+        Rename(name);
+    }
+
+    private Item()
+    {
+    }
+
+    public string Name { get; private set; } = "";
+
+    public void Rename(string name)
+    {
+        Name = name;
+        Raise(new ItemNamed(name));
+    }
+}
+
+internal sealed class ProbeContext(DbContextOptions<ProbeContext> options) : DbContext(options)
+{
+    public DbSet<Item> Items => Set<Item>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        modelBuilder.Entity<Item>().ToTable("probe_items").Ignore(i => i.DomainEvents);
+}
+
+internal sealed class MovableClock : IClock
+{
+    public DateTimeOffset UtcNow { get; set; }
+}
+
+internal sealed class SwitchableUser : ICurrentUser
+{
+    public Guid? Signed { get; set; }
+
+    public bool IsAuthenticated => Signed is not null;
+
+    public Guid Id => Signed ?? throw new InvalidOperationException();
+
+    public bool HasPermission(string permission) => false;
+}
+
+internal sealed class Recorder(string connection)
+{
+    public List<string> Seen { get; } = [];
+
+    public List<long> RowsVisibleFromAnotherConnection { get; } = [];
+
+    public async Task Record(string name)
+    {
+        Seen.Add(name);
+        await using var other = new NpgsqlConnection(connection);
+        await other.OpenAsync();
+        await using var count = new NpgsqlCommand("SELECT count(*) FROM probe_items", other);
+        RowsVisibleFromAnotherConnection.Add((long)(await count.ExecuteScalarAsync())!);
+    }
+}
+
+// A failing handler can't undo what's committed, so it mustn't stop the next one or fail the save.
+internal sealed class ThrowingHandler : IDomainEventHandler<ItemNamed>
+{
+    public Task Handle(ItemNamed domainEvent, CancellationToken ct) =>
+        throw new InvalidOperationException("Handler failure on purpose.");
+}
+
+internal sealed class RecordingHandler(Recorder recorder) : IDomainEventHandler<ItemNamed>
+{
+    public Task Handle(ItemNamed domainEvent, CancellationToken ct) => recorder.Record(domainEvent.Name);
+}
+CS
+}
+
+task_6() {
+  echo "2.6 AppDbContext and interceptors"
+  need_database
+  check "AppDbContext is wired to Npgsql, snake_case and the interceptors" app_db_context_is_wired
+  check "the interceptors audit and publish, on a real PostgreSQL" interceptors_behave
+  check "Domain still has no packages" no_packages Kanabol.Domain
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do
   "task_$task"
 done
-
-rm -rf "$scratch"
 
 echo
 if [ "$failures" -gt 0 ]; then
