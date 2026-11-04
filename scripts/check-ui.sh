@@ -204,8 +204,167 @@ task_3() {
   check "the frontend still builds" build_frontend
 }
 
+built_css() { # prints the path of the built global stylesheet
+  ls frontend/dist/kanabol/browser/styles-*.css 2>/dev/null | head -n 1
+}
+
+css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
+  stylesheet=$(built_css)
+  [ -n "$stylesheet" ] && tr -d ' \n' <"$stylesheet" | grep -qF -- "$1" || {
+    echo "not in the built CSS: $1"
+    return 1
+  }
+}
+
+# The tokens file has to say what the spec's section 2.4 says, for light and for dark.
+tokens_match_the_spec() {
+  node -e "
+    const fs = require('fs');
+    const spec = fs.readFileSync('docs/UI_UX_SPEC.md', 'utf8').replace(/\r/g, '');
+    const start = spec.indexOf('\`src/styles/_tokens.scss\`:');
+    const open = spec.indexOf('\`\`\`scss', start);
+    const close = spec.indexOf('\`\`\`', open + 7);
+    const fromSpec = spec.slice(open + 7, close);
+    const fromFile = fs.readFileSync('frontend/src/styles/_tokens.scss', 'utf8').replace(/\r/g, '');
+    const normalize = (value) => value.replace(/\s+/g, '').replace(/([(,\s:])\./g, '\$10.').replace(/(\.\d*?[1-9])0+(?!\d)/g, '\$1').replace(/\"/g, \"'\").toLowerCase();
+    const parts = (source) => {
+      const split = source.indexOf('@mixin dark');
+      return [source.slice(0, split), source.slice(split)];
+    };
+    const tokens = (source) => {
+      const found = {};
+      for (const match of source.matchAll(/(--kb-[a-z0-9-]+)\s*:\s*([^;]+);/g)) found[match[1]] = normalize(match[2]);
+      return found;
+    };
+    const [specLight, specDark] = parts(fromSpec).map(tokens);
+    const [fileLight, fileDark] = parts(fromFile).map(tokens);
+    let bad = 0;
+    for (const [name, specTokens, fileTokens] of [['light', specLight, fileLight], ['dark', specDark, fileDark]]) {
+      if (Object.keys(specTokens).length < 10) { console.log('too few tokens read from the spec: ' + name); bad++; }
+      for (const key of new Set([...Object.keys(specTokens), ...Object.keys(fileTokens)])) {
+        if (specTokens[key] !== fileTokens[key]) { console.log(name + ' ' + key + ': spec ' + specTokens[key] + ', file ' + fileTokens[key]); bad++; }
+      }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+# WCAG AA for normal text, computed from the tokens themselves, for the pairs the UI uses.
+# Two pairs from the spec fall short. They stay as the spec has them until it changes, and
+# this fails as soon as one of them passes, so the list can't outlive the problem.
+contrast_is_aa() {
+  node -e "
+    const fs = require('fs');
+    const source = fs.readFileSync('frontend/src/styles/_tokens.scss', 'utf8');
+    const split = source.indexOf('@mixin dark');
+    const tokens = (part) => Object.fromEntries([...part.matchAll(/(--kb-[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)].map((m) => [m[1].slice(5), m[2]]));
+    const light = tokens(source.slice(0, split));
+    const dark = { ...light, ...tokens(source.slice(split)) };
+    const luminance = (hex) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => {
+      const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (high + 0.05) / (low + 0.05);
+    };
+    const white = '#ffffff';
+    const pairs = [
+      ['light', 'navy on white', light['navy-900'], white],
+      ['light', 'accent on white', light['accent-600'], white],
+      ['light', 'accent on tint', light['accent-600'], light['tint-100']],
+      ['light', 'white on accent (default button)', white, light['accent-600']],
+      ['light', 'white on danger (danger button)', white, light['danger-600']],
+      ['light', 'body text on white', light['text-700'], white],
+      ['light', 'secondary text on white', light['text-600'], white],
+      ['light', 'info text on info', light['info-text'], light['info-bg']],
+      ['light', 'success on white', light['success-600'], white],
+      ['light', 'warning on white', light['warning-600'], white],
+      ['light', 'danger on white', light['danger-600'], white],
+      ['light', 'success on its background', light['success-600'], light['success-bg']],
+      ['light', 'warning on its background', light['warning-600'], light['warning-bg']],
+      ['light', 'danger on its background', light['danger-600'], light['danger-bg']],
+      ['dark', 'titles on cards', dark['text-900'], dark['surface-0']],
+      ['dark', 'body text on cards', dark['text-700'], dark['surface-0']],
+      ['dark', 'secondary text on cards', dark['text-600'], dark['surface-0']],
+      ['dark', 'accent on cards', dark['accent-600'], dark['surface-0']],
+      ['dark', 'accent on tint', dark['accent-600'], dark['tint-100']],
+      ['dark', 'white on accent (default button)', white, dark['accent-600']],
+      ['dark', 'info text on info', dark['info-text'], dark['info-bg']],
+      ['dark', 'success on its background', dark['success-600'], dark['success-bg']],
+      ['dark', 'warning on its background', dark['warning-600'], dark['warning-bg']],
+      ['dark', 'danger on its background', dark['danger-600'], dark['danger-bg']],
+    ];
+    const known = ['light success on its background', 'dark white on accent (default button)'];
+    let bad = 0;
+    for (const [mode, name, text, background] of pairs) {
+      const value = ratio(text, background);
+      const label = mode + ' ' + name;
+      if (value >= 4.5 && known.includes(label)) { console.log(label + ' passes now, so take it off the list'); bad++; }
+      if (value < 4.5 && !known.includes(label)) { console.log(label + ': ' + value.toFixed(2)); bad++; }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+nothing_loads_from_a_cdn() {
+  ! grep -rlE 'fonts\.(googleapis|gstatic)\.com|cdn\.jsdelivr|unpkg\.com' frontend/dist/kanabol/browser frontend/src
+}
+
+media_has() { # media_has <name pattern>
+  ls frontend/dist/kanabol/browser/media/ 2>/dev/null | grep -qE "$1"
+}
+
+no_hex_in_components() {
+  ! grep -rnE '#[0-9a-fA-F]{3,8}\b' frontend/src/app --include='*.scss' --include='*.html'
+}
+
+no_ng_deep() {
+  ! grep -rn '::ng-deep' frontend/src --include='*.scss' --include='*.ts' --include='*.html'
+}
+
+frontend_tests_pass() {
+  (cd frontend && npx ng test --no-watch) >"$scratch/test.log" 2>&1 || {
+    tail -n 15 "$scratch/test.log"
+    return 1
+  }
+}
+
+frontend_lint_passes() {
+  (cd frontend && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    tail -n 15 "$scratch/lint.log"
+    return 1
+  }
+}
+
+task_4() {
+  echo "2a.4 Tokens and the Material theme"
+  check "_tokens.scss is tracked" tracked frontend/src/styles/_tokens.scss
+  check "the tokens are the spec's, in light and dark" tokens_match_the_spec
+  check "text on its background passes WCAG AA" contrast_is_aa
+  check "the frontend builds" build_frontend
+  check "the build has the light tokens" css_has '--kb-accent-600:#135bf7'
+  check "the build has the dark tokens" css_has '--kb-accent-600:#5b93ff'
+  check "dark follows the system" css_has 'prefers-color-scheme:dark'
+  check "dark follows the manual toggle" css_has 'data-theme=dark'
+  check "the manual dark toggle also switches Material" css_has 'data-theme=dark]{color-scheme:dark'
+  check "the manual light toggle also switches Material" css_has 'data-theme=light]{color-scheme:light'
+  check "the build has Material's system tokens" css_has '--mat-sys-primary'
+  check "Material's primary is the accent" css_has '--mat-sys-primary:var(--kb-accent-600)'
+  check "the default button is the accent, in white" css_has '--mat-button-filled-container-color:var(--kb-accent-600)'
+  check "the page has the font" css_has "var(--kb-font)"
+  check "Inter is self-hosted" media_has '^inter.*\.woff2$'
+  check "Material Symbols are self-hosted" media_has '^material-symbols-outlined.*\.woff2$'
+  check "nothing loads from a CDN" nothing_loads_from_a_cdn
+  check "components have no hex colors" no_hex_in_components
+  check "nothing uses ::ng-deep" no_ng_deep
+  check "the frontend tests pass" frontend_tests_pass
+  check "the frontend lint passes" frontend_lint_passes
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do
