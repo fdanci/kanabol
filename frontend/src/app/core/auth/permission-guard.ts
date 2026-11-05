@@ -1,17 +1,13 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, RedirectCommand, Router } from '@angular/router';
+import { CanMatchFn } from '@angular/router';
 import { AuthStore } from './auth-store';
 import { Permission } from './permissions';
 
 /**
- * Opens a page only with its permission. Without it, the 403 page shows at the address typed
- * (docs/UI_UX_SPEC.md §6.8). It only spares a refusal: the API checks the permission anyway.
+ * Matches a page's route only with its permission. Without it the router goes on to the next route
+ * with the same path, which shows the 403 page at the address asked for (docs/UI_UX_SPEC.md §6.8).
+ * It only spares a refusal: the API checks the permission anyway.
  */
-export function permissionGuard(permission: Permission): CanActivateFn {
-  return () => {
-    if (inject(AuthStore).has(permission)) {
-      return true;
-    }
-    return new RedirectCommand(inject(Router).parseUrl('/forbidden'), { skipLocationChange: true });
-  };
+export function permissionGuard(permission: Permission): CanMatchFn {
+  return () => inject(AuthStore).has(permission);
 }

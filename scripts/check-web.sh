@@ -206,6 +206,30 @@ task_6() {
   check "no component has a color of its own" no_hex_in_components
 }
 
+# ---- 9.4
+
+no_search_in_the_toolbar() {
+  lacks 'type="search"' "$app/core/layout/navbar.ts" && lacks matInput "$app/core/layout/navbar.ts"
+}
+
+lockup_is_inline() {
+  in_file '<kb-lockup' "$app/core/layout/navbar.ts" && in_file '<svg' "$app/shared/ui/lockup.ts" && lacks '<img' "$app/shared/ui/lockup.ts"
+}
+
+task_4() {
+  echo "9.4 The shell"
+  for file in core/layout/shell.ts core/layout/navbar.ts core/layout/sidenav.ts core/layout/sidebar-store.ts     core/layout/navigation.ts core/layout/pages.ts shared/ui/lockup.ts shared/ui/page-header.ts; do
+    check "$file is tracked" tracked "$app/$file"
+  done
+  check "the layout specs pass, with the 403 page at the address asked for" specs_pass src/app/core/layout/layout.spec.ts 15
+  check "the sidebar remembers its state and folds by the window's width" specs_pass src/app/core/layout/sidebar-store.spec.ts 5
+  check "dates and numbers are Romanian" specs_pass src/app/app.config.spec.ts 7
+  check "the toolbar has no global search" no_search_in_the_toolbar
+  check "the lockup is inline SVG" lockup_is_inline
+  check "the sidebar is as wide as its content" css_has '--mat-sidenav-container-width:auto'
+  check "the build carries the Romanian locale" bundle_has '"ro-RO"'
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -238,7 +262,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3 9 5 6
+  set -- 1 7 2 3 9 5 6 4
 fi
 
 for task in "$@"; do

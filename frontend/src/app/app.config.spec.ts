@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ApplicationInitStatus, ErrorHandler } from '@angular/core';
+import { formatDate, formatNumber } from '@angular/common';
+import { ApplicationInitStatus, ErrorHandler, LOCALE_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DEFAULT_OPTIONS } from '@angular/material/dialog';
 import { MatIconRegistry } from '@angular/material/icon';
@@ -117,5 +118,17 @@ describe('appConfig', () => {
       enterAnimationDuration: 240,
       exitAnimationDuration: 160,
     });
+  });
+
+  // docs/UI_UX_SPEC.md §11: 04.11.2026, 1.234,5.
+  it('formats dates and numbers the Romanian way', () => {
+    const locale = TestBed.inject(LOCALE_ID);
+
+    expect(locale).toBe('ro-RO');
+    expect(formatDate(new Date(2026, 10, 4, 9, 5), 'dd.MM.yyyy HH:mm', locale)).toBe(
+      '04.11.2026 09:05',
+    );
+    expect(formatDate(new Date(2026, 10, 4), 'shortDate', locale)).toBe('04.11.2026');
+    expect(formatNumber(1234.5, locale)).toBe('1.234,5');
   });
 });

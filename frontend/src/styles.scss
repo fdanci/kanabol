@@ -222,10 +222,16 @@ html {
       supporting-text-weight: 400,
     )
   );
+  // A source list (6.0.7): as wide as its content, translucent, square, with a faint line on its right.
   @include mat.sidenav-overrides(
     (
-      container-background-color: var(--kb-surface-0),
-      container-divider-color: var(--kb-border-200),
+      container-width: auto,
+      container-background-color: var(--kb-glass-bg),
+      container-divider-color: color-mix(in srgb, var(--kb-border-200) 50%, transparent),
+      container-shape: 0,
+      container-elevation-shadow: none,
+      content-background-color: var(--kb-surface-50),
+      scrim-color: rgba(5, 32, 99, 0.28),
     )
   );
   @include mat.toolbar-overrides(
@@ -282,6 +288,18 @@ html:root :is(.kb-default, .kb-danger, .kb-bezel):not(.kb-regular, .kb-sm) {
   box-shadow: var(--kb-shadow-popover);
   -webkit-backdrop-filter: var(--kb-glass-blur);
   backdrop-filter: var(--kb-glass-blur);
+}
+
+kb-navbar {
+  --_icon: 16px;
+
+  @include mat.icon-button-overrides(
+    (
+      state-layer-size: 28px,
+      icon-size: 16px,
+      icon-color: var(--kb-navy-900),
+    )
+  );
 }
 
 // Sheets hang from 12% of the window's height, in the widths of 6.0.5, over a navy veil.

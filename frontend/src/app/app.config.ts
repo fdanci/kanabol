@@ -1,7 +1,10 @@
+import { registerLocaleData } from '@angular/common';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import localeRo from '@angular/common/locales/ro';
 import {
   ApplicationConfig,
   ErrorHandler,
+  LOCALE_ID,
   inject,
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
@@ -22,10 +25,14 @@ import { AuthStore } from './core/auth/auth-store';
 import { ThemeStore } from './core/layout/theme-store';
 import { GlobalErrorHandler } from './core/logging/global-error-handler';
 
+// Dates as 04.11.2026 and numbers as 1.234,5 (docs/UI_UX_SPEC.md §11).
+registerLocaleData(localeRo, 'ro-RO');
+
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
+    { provide: LOCALE_ID, useValue: 'ro-RO' },
     provideRouter(routes),
     // How the controls behave, where their shape in styles.scss can't say it (docs/UI_UX_SPEC.md §6.0).
     {

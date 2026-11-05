@@ -1,6 +1,6 @@
 import {
   ActivatedRouteSnapshot,
-  RedirectCommand,
+  PartialMatchRouteSnapshot,
   Router,
   RouterStateSnapshot,
   UrlTree,
@@ -39,9 +39,6 @@ describe('guards', () => {
   }
 
   function urlOf(result: unknown): string {
-    if (result instanceof RedirectCommand) {
-      return router.serializeUrl(result.redirectTo);
-    }
     return router.serializeUrl(result as UrlTree);
   }
 
@@ -78,22 +75,24 @@ describe('guards', () => {
   });
 
   describe('permissionGuard', () => {
-    it('lets through someone with the permission', () => {
+    function matches(permission: 'users.manage'): unknown {
+      return TestBed.runInInjectionContext(() =>
+        permissionGuard(permission)({}, [], {} as PartialMatchRouteSnapshot),
+      );
+    }
+
+    it('matches for someone with the permission', () => {
       auth.signedIn = true;
       auth.held.add('users.manage');
 
-      expect(run(permissionGuard('users.manage'), '/users')).toBe(true);
+      expect(matches('users.manage')).toBe(true);
     });
 
-    // The address stays what they typed (docs/UI_UX_SPEC.md §6.8).
-    it('shows the 403 page to someone without it, at the same address', () => {
+    // The router then takes the next route on the same path: the 403 page (docs/UI_UX_SPEC.md §6.8).
+    it('does not match for someone without it', () => {
       auth.signedIn = true;
 
-      const result = run(permissionGuard('users.manage'), '/users');
-
-      expect(result).toBeInstanceOf(RedirectCommand);
-      expect(urlOf(result)).toBe('/forbidden');
-      expect((result as RedirectCommand).navigationBehaviorOptions?.skipLocationChange).toBe(true);
+      expect(matches('users.manage')).toBe(false);
     });
   });
 });
