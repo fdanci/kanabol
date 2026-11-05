@@ -1,11 +1,16 @@
 import { Injectable, inject } from '@angular/core';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { ErrorSnack, ErrorSnackData } from './error-snack';
 
-const PLACE = { horizontalPosition: 'start', verticalPosition: 'bottom' } as const;
+const PLACE = {
+  horizontalPosition: 'start',
+  verticalPosition: 'bottom',
+  panelClass: 'kb-snack',
+} as const;
 
 /**
  * Feedback on an action, bottom left, one at a time: a new one replaces the one showing
- * (docs/UI_UX_SPEC.md §6.2). An error shows the end of its correlation id, and copies all of it.
+ * (docs/UI_UX_SPEC.md §6.2). An error stays 8 seconds and shows the end of its correlation id.
  */
 @Injectable({ providedIn: 'root' })
 export class Snackbar {
@@ -16,21 +21,10 @@ export class Snackbar {
   }
 
   error(message: string, correlationId: string | null): void {
-    if (!correlationId) {
-      this.snackBar.open(message, undefined, { ...PLACE, duration: 8000 });
-      return;
-    }
-
-    const shown = this.snackBar.open(
-      `${message} ${$localize`Cod: ${correlationId.slice(-6)}:code:`}`,
-      $localize`Copiază`,
-      {
-        ...PLACE,
-        duration: 8000,
-      },
-    );
-    shown.onAction().subscribe(() => {
-      void navigator.clipboard.writeText(correlationId);
+    this.snackBar.openFromComponent<ErrorSnack, ErrorSnackData>(ErrorSnack, {
+      ...PLACE,
+      duration: 8000,
+      data: { message, correlationId },
     });
   }
 }

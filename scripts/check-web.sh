@@ -189,6 +189,23 @@ task_5() {
   check "Material is styled through its tokens only" no_material_internals
 }
 
+# ---- 9.6
+
+no_hex_in_components() {
+  ! git grep -nE '#[0-9a-fA-F]{3,8}' -- "$app/**/*.ts" "$app/**/*.html" "$app/**/*.scss" ":!*.spec.ts"
+}
+
+task_6() {
+  echo "9.6 The shared components and the snackbar"
+  for file in avatar banner chip confirm-dialog empty-state skeleton upload-zone error-snack snackbar; do
+    check "shared/ui/$file.ts is tracked" tracked "$app/shared/ui/$file.ts"
+  done
+  check "their specs pass" specs_pass "src/app/shared/ui/*.spec.ts" 28
+  check "the snackbar is on ink, which stays dark in dark" css_has '--mat-snack-bar-container-color:color-mix(insrgb,var(--kb-ink)92%,transparent)'
+  check "with the glass and the popover shadow" css_has '.kb-snack{border-radius:var(--kb-radius-md);box-shadow:var(--kb-shadow-popover)'
+  check "no component has a color of its own" no_hex_in_components
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -221,7 +238,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3 9 5
+  set -- 1 7 2 3 9 5 6
 fi
 
 for task in "$@"; do
