@@ -20,7 +20,7 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 ## After implementing a feature
 
 - Check the task off and move it to **Done** in `Tasks.md`.
-- Don't edit `docs/SPEC.md`, `docs/UI_UX_SPEC.md`, `_Overview.md`, `_Architecture.md` or `Decisions/` and its copies in `docs/adr/`. Write what differs from them under **Blocked** in `Tasks.md`, with a proposal, and the supervisor corrects them.
+- Update `_Architecture.md` or `Decisions/` if the feature changed or settled something they cover.
 
 ## Naming
 
