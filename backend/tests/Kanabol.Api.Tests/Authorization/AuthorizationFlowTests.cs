@@ -7,6 +7,7 @@ using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
 using Kanabol.Tests.Shared.Builders;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace Kanabol.Api.Tests.Authorization;
 
@@ -67,6 +68,18 @@ public sealed class AuthorizationFlowTests(ApiFixture api) : AuthApiTest(api)
         await ShouldBeProblem(response, HttpStatusCode.Forbidden, "Auth.PasswordChangeRequired");
     }
 
+    // The gate comes before the permission check: the answer has to say what the user can do about it.
+    [Fact]
+    public async Task Endpoint_WhenThePasswordMustChangeAndThePermissionIsMissing_SaysToChangeThePassword()
+    {
+        var user = await CreateUser(mustChangePassword: true);
+        var token = await AccessTokenFrom(await Login(user.Email));
+
+        var response = await GetWith(token, PermissionPath);
+
+        await ShouldBeProblem(response, HttpStatusCode.Forbidden, "Auth.PasswordChangeRequired");
+    }
+
     [Fact]
     public async Task SeededAdmin_AfterChangingThePassword_HasEveryPermission()
     {
@@ -81,7 +94,10 @@ public sealed class AuthorizationFlowTests(ApiFixture api) : AuthApiTest(api)
         var changed = await Client.SendAsync(change);
 
         changed.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await GetWith(await AccessTokenFrom(changed), PermissionPath)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var newToken = await AccessTokenFrom(changed);
+        (await GetWith(newToken, PermissionPath)).StatusCode.Should().Be(HttpStatusCode.OK);
+        new JsonWebToken(newToken).Claims.Where(claim => claim.Type == "permission").Select(claim => claim.Value)
+            .Should().BeEquivalentTo(Permissions.All);
     }
 
     [Fact]
@@ -153,6 +169,21 @@ public sealed class AuthorizationFlowTests(ApiFixture api) : AuthApiTest(api)
         var token = await AccessTokenFrom(await Login(user.Email));
 
         (await GetWith(token, $"/api/test-project-access/{project.Id}/member")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    // On the seeded database, where the permission that would open the project has its row.
+    [Theory]
+    [InlineData("member", "Project.MemberRequired")]
+    [InlineData("owner", "Project.OwnerRequired")]
+    public async Task ProjectEndpoint_WithAnUnrelatedPermission_Returns403(string asked, string code)
+    {
+        var user = await CreateUser(permissions: [Permissions.ReportsView]);
+        var project = await CreateProject();
+        var token = await AccessTokenFrom(await Login(user.Email));
+
+        var response = await GetWith(token, $"/api/test-project-access/{project.Id}/{asked}");
+
+        await ShouldBeProblem(response, HttpStatusCode.Forbidden, code);
     }
 
     [Fact]

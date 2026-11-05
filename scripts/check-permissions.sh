@@ -204,7 +204,7 @@ task_1() {
 task_2() {
   echo "7.2 IProjectAccess"
   check "the implementation is tracked" tracked backend/src/Kanabol.Application/Features/Projects/ProjectAccess.cs
-  check "its tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectAccessTests' 23
+  check "its tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectAccessTests' 28
 }
 
 # ---- 7.3
@@ -257,6 +257,10 @@ test_endpoints_are_absent() {
   done
 }
 
+api_still_answers() {
+  is 200 "$(send GET /health)"
+}
+
 # Only what came after startup: on a new database, EF logs an error while it looks for its history table.
 no_errors_since_startup() {
   sleep 1
@@ -267,7 +271,7 @@ no_errors_since_startup() {
 
 task_3() {
   echo "7.3 Over HTTP, and on the real API"
-  check "the flow tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~AuthorizationFlowTests|FullyQualifiedName~PermissionDeniedResultHandlerTests' 17
+  check "the flow tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~AuthorizationFlowTests|FullyQualifiedName~PermissionDeniedResultHandlerTests|FullyQualifiedName~RefusalLogTests' 23
   check "the real API starts in Production" api_is_up
   check "a request without a token still gets a 401, with the custom policy provider" no_token_gets_401
   check "the first admin signs in" admin_signs_in
@@ -275,7 +279,8 @@ task_3() {
   check "an endpoint with only the default policy still opens" default_policy_still_opens_me
   check "the tests' own endpoints aren't in what ships" test_endpoints_are_absent
   check "the log has no errors since startup" no_errors_since_startup
-  check "the real API stops, since it holds the files a full build replaces" stop_api
+  check "the real API is still up after all that" api_still_answers
+  stop_api # It holds the files a full build replaces.
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean
 }
@@ -285,7 +290,12 @@ if [ "$#" -eq 0 ]; then
 fi
 
 for task in "$@"; do
-  "task_$task"
+  if command -v "task_$task" >/dev/null 2>&1; then
+    "task_$task"
+  else
+    echo "There is no task $task."
+    failures=$((failures + 1))
+  fi
 done
 
 echo

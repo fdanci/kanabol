@@ -16,6 +16,16 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
 {
     private IProjectAccess Access => Get<IProjectAccess>();
 
+    // Every permission exists, as after the seed, so a refusal can't come from a row that isn't there.
+    public override async Task InitializeAsync()
+    {
+        await base.InitializeAsync();
+
+        await using var db = Postgres.CreateContext();
+        db.Permissions.AddRange(Permissions.All.Select(name => new Permission(name)));
+        await db.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task EnsureMemberAsync_WhenTheUserIsAMember_Succeeds()
     {
@@ -126,12 +136,49 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
     }
 
     [Fact]
+    public async Task EnsureOwnerAsync_WhenAnotherUserIsTheOwner_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var owner = await CreateUser("owner@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenAMemberAsksAndAnotherUserIsTheOwner_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var owner = await CreateUser("owner@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(user));
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
     public async Task EnsureOwnerAsync_WithManage_SucceedsWithoutBeingAMember()
     {
         var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
         var project = await CreateProject();
 
         (await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(Permissions.ReportsView)]
+    [InlineData(Permissions.UsersManage)]
+    public async Task EnsureOwnerAsync_WithAnotherPermission_ReturnsForbidden(string permission)
+    {
+        var user = await CreateUser(permissions: [permission]);
+        var project = await CreateProject();
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
     }
 
     [Fact]
@@ -262,14 +309,19 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
     {
         var user = await CreateUser();
         var project = await CreateProject(builder => builder.OwnedBy(user));
-        await using (var db = Postgres.CreateContext())
-        {
-            await db.Projects
-                .Where(existing => existing.Id == project.Id)
-                .ExecuteUpdateAsync(set => set.SetProperty(existing => existing.ArchivedAt, Now));
-        }
+        await Archive(project);
 
         (await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheProjectIsArchived_StillRecognizesItsMember()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.WithMember(user));
+        await Archive(project);
+
+        (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
     }
 
     private async Task<Project> CreateProject(Func<ProjectBuilder, ProjectBuilder>? configure = null)
@@ -280,6 +332,14 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
         db.Projects.Add(project);
         await db.SaveChangesAsync();
         return project;
+    }
+
+    private async Task Archive(Project project)
+    {
+        await using var db = Postgres.CreateContext();
+        await db.Projects
+            .Where(existing => existing.Id == project.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(existing => existing.ArchivedAt, Now));
     }
 
     private void SignIn(User user, params string[] permissions)
