@@ -2,7 +2,7 @@
 
 > Specificație vizuală și de interacțiune pentru frontend-ul Angular 22 + Angular Material 22. Complementară cu `SPEC.md` (arhitectură); unde se contrazic, pentru vizual câștigă acest fișier.
 >
-> Stare: v1.2 — 2026-11-04 (v1.1 + identitate: logo ales și fișiere, §14). Tema derivă din culorile aplicației interne existente la firmă (screenshot „SDG Platformă Web”, eșantionat pixel cu pixel), ca trecerea colegilor la Kanabol să fie familiară. Ce era inconsistent acolo e corectat aici, nu copiat. **Forma** (colțuri, borduri, umbre, dialoguri, controale) urmează limbajul aplicațiilor macOS — nu culorile lui, ci proporțiile și materialele.
+> Stare: v1.3 — 2026-11-05 (v1.2 + contrast AA: `--kb-fill-*` sub textul alb și verdele `#1c7a26`, §2). Tema derivă din culorile aplicației interne existente la firmă (screenshot „SDG Platformă Web”, eșantionat pixel cu pixel), ca trecerea colegilor la Kanabol să fie familiară. Ce era inconsistent acolo e corectat aici, nu copiat. **Forma** (colțuri, borduri, umbre, dialoguri, controale) urmează limbajul aplicațiilor macOS — nu culorile lui, ci proporțiile și materialele.
 
 ![Paleta Kanabol](images/kanabol-palette.png)
 
@@ -14,7 +14,7 @@
 |---|---|
 | Direcție | „Enterprise calm, formă macOS”: alb + albastru-marin, fundal foarte deschis, accente albastre vii; colțuri rotunjite generos, borduri fine cu highlight, umbre moi stratificate, translucență pe sidebar/meniuri |
 | Paletă | 6 culori de brand + 4 de stare + neutre; toate ca CSS custom properties `--kb-*` și ca temă Material M3 |
-| Buton implicit (default) | **accent-600 `#135bf7` plin, text alb, gradient subtil** — ca butonul „default” din macOS. *(schimbat față de v1.0; sky-300 trece la selecție/highlight)* |
+| Buton implicit (default) | **fill-accent `#135bf7` plin, text alb, gradient subtil** — ca butonul „default” din macOS. *(schimbat față de v1.0; sky-300 trece la selecție/highlight)* |
 | Buton secundar (bezel) | alb, bordură `border-300`, umbră 1px — butonul standard macOS |
 | Link / activ / focus | accent-600 `#135bf7`; focus = halo 4px semitransparent |
 | Font | Inter (self-hosted `@fontsource-variable/inter`), 13px bază în controale, 14px în text, tracking ușor negativ pe titluri |
@@ -54,7 +54,7 @@
 | `--kb-surface-0` | `#ffffff` | carduri, navbar, sidebar | carduri, dialoguri, tabele, câmpuri |
 | `--kb-info-bg` | `#c9f2fb` | bannerele cyan | banner informativ |
 | `--kb-info-text` | `#39727f` | textul din bannere | text în banner informativ |
-| `--kb-success-600` | `#1f8229` | „+” verde din sidebar | stare „done”, confirmări, chips succes |
+| `--kb-success-600` | `#1c7a26` | „+” verde din sidebar (`#1f8229`), închis puțin ca să treacă AA pe `success-bg` | stare „done”, confirmări, chips succes |
 | `--kb-warning-600` | `#b54708` | — (adăugat) | prioritate High, avertismente, deadline apropiat |
 | `--kb-danger-600` | `#b42318` | — (adăugat) | prioritate Critical, erori, deadline depășit, acțiuni distructive |
 | `--kb-text-900` | `#052063` | = navy | titluri |
@@ -67,6 +67,8 @@
 
 Fundaluri de stare (derivate, pentru chips/bannere): `--kb-success-bg #e6f4e8`, `--kb-warning-bg #fdf0e6`, `--kb-danger-bg #fbe9e7`.
 
+Fundaluri pline sub text alb: `--kb-fill-accent #135bf7` și `--kb-fill-danger #b42318`, pentru butoanele default și distructiv, hover în meniu, rând selectat, chip de filtru activ, badge și checkbox bifat. `--kb-fill-shade #052063` le închide la hover, la apăsare și pe bordură. Sunt aceleași în light și dark. Textul alb nu stă niciodată direct pe `accent-600` sau `danger-600`, care devin deschise în dark.
+
 ### 2.2 Perechi verificate WCAG (contrast)
 
 | Text | Fundal | Raport | Verdict |
@@ -76,12 +78,14 @@ Fundaluri de stare (derivate, pentru chips/bannere): `--kb-success-bg #e6f4e8`, 
 | alb | sky-300 `#91c4fb` | 1.8 | ✗ interzis |
 | accent `#135bf7` | alb | 5.4 | AA — ok pentru link-uri și iconițe |
 | accent `#135bf7` | tint-100 `#ecf4fc` | 4.9 | AA — element activ în sidebar |
-| alb | accent `#135bf7` | 5.4 | AA — badge-uri, buton „danger”/„accent” plin |
+| alb | fill-accent `#135bf7` | 5.4 (4.8 în vârful gradientului) | AA — badge-uri, buton default plin, în light și dark |
+| alb | fill-danger `#b42318` | 6.6 (5.8 în vârful gradientului) | AA — buton distructiv plin, în light și dark |
 | text-700 `#394561` | alb | 9.6 | AAA |
 | text-600 `#616971` | alb | 5.6 | AA |
 | text-500 `#787f86` | alb | 4.1 | doar text ≥ 14px bold sau ≥ 18px, sau non-text |
 | info-text `#39727f` | info-bg `#c9f2fb` | 4.5 | AA (la limită: nu folosi font < 14px în bannere) |
-| success `#1f8229` / danger `#b42318` / warning `#b54708` | alb | 4.9 / 6.6 / 5.4 | AA |
+| success `#1c7a26` / danger `#b42318` / warning `#b54708` | alb | 5.4 / 6.6 / 5.4 | AA |
+| success `#1c7a26` / danger `#b42318` / warning `#b54708` | fundalul de stare al fiecăreia | 4.8 / 5.6 / 4.9 | AA |
 
 Albastrul deschis al link-urilor din aplicația veche (`#4a8ee6`, 3.3:1) **nu** e preluat — pică AA.
 
@@ -99,7 +103,8 @@ Aceiași tokens semantici, valori diferite. Nu inversăm pur și simplu; păstr�
 | `--kb-text-700` | `#cdd5e8` |
 | `--kb-text-600` | `#9aa6c2` |
 | `--kb-text-500` | `#6f7b96` |
-| `--kb-accent-600` | `#5b93ff` (mai deschis, 6.3:1 pe `#161f36`) |
+| `--kb-accent-600` | `#5b93ff` (mai deschis, 5.5:1 pe `#161f36`) |
+| `--kb-fill-accent` / `--kb-fill-danger` / `--kb-fill-shade` | la fel ca în light: `#135bf7` / `#b42318` / `#052063` (textul alb ar avea doar 3.0:1 pe accentul din dark și 2.8:1 pe danger) |
 | `--kb-sky-300` (buton primar) | `#3d6fc9` cu text `#eef2ff` |
 | `--kb-info-bg` / `--kb-info-text` | `#113a45` / `#9fdcea` |
 | success / warning / danger | `#4ade80` / `#fbbf24` / `#f87171` pe fundaluri `#0f2a16` / `#2d1f05` / `#2d0f0d` |
@@ -121,7 +126,7 @@ Activare: `@media (prefers-color-scheme: dark)` + `html[data-theme="dark"]`; tog
   --kb-surface-0: #ffffff;
   --kb-info-bg: #c9f2fb;
   --kb-info-text: #39727f;
-  --kb-success-600: #1f8229;
+  --kb-success-600: #1c7a26;
   --kb-success-bg: #e6f4e8;
   --kb-warning-600: #b54708;
   --kb-warning-bg: #fdf0e6;
@@ -134,6 +139,11 @@ Activare: `@media (prefers-color-scheme: dark)` + `html[data-theme="dark"]`; tog
   --kb-border-300: #c6c9d0;
   --kb-border-200: #e5e8ee;
   --kb-archived-400: #9da9b8;
+
+  /* Fundaluri pline sub text alb. Rămân la fel în dark, unde accent-600 și danger-600 devin deschise. */
+  --kb-fill-accent: #135bf7;
+  --kb-fill-danger: #b42318;
+  --kb-fill-shade: #052063; /* le închide la hover, la apăsare și pe bordură */
 
   /* Focus: halo mac-like, 4px, semitransparent */
   --kb-focus-ring: 0 0 0 4px color-mix(in srgb, var(--kb-accent-600) 30%, transparent);
@@ -251,9 +261,9 @@ html {
     corner-large: var(--kb-radius-md),
   ));
 
-  // Butoane mac-like: "filled" = default (accent + alb), "outlined" = bezel (alb + bordură + umbră)
+  // Butoane mac-like: "filled" = default (fill-accent + alb), "outlined" = bezel (alb + bordură + umbră)
   @include mat.button-overrides((
-    filled-container-color: var(--kb-accent-600),
+    filled-container-color: var(--kb-fill-accent),
     filled-label-text-color: #ffffff,
     filled-container-shape: var(--kb-radius-sm),
     filled-container-height: 32px,
@@ -290,10 +300,10 @@ Pachete: `@angular/material`, `@angular/cdk`, `@fontsource-variable/inter`, `mat
 
 | Rol | Directivă Material | Aspect (detalii în §6.0.3) |
 |---|---|---|
-| Default (o singură dată pe dialog/zonă; răspunde la `Enter`) | `matButton="filled"` | accent-600 cu gradient subtil, text alb, highlight interior |
+| Default (o singură dată pe dialog/zonă; răspunde la `Enter`) | `matButton="filled"` | fill-accent cu gradient subtil, text alb, highlight interior |
 | Bezel / standard | `matButton="outlined"` + clasă `kb-bezel` | alb, bordură border-300, umbră bezel, text navy |
 | Text / inline | `matButton` | text accent-600, fără bordură, hover fundal tint-100 |
-| Distructiv | `matButton="filled"` + clasă `kb-danger` | danger-600 cu același tratament ca default; **mereu** după dialog de confirmare |
+| Distructiv | `matButton="filled"` + clasă `kb-danger` | fill-danger cu același tratament ca default; **mereu** după dialog de confirmare |
 | Iconiță (toolbar) | `matIconButton` | 28×28 în toolbar, 32×32 în conținut; fundal transparent, hover fundal tint-100, rază 6px |
 
 Nu folosim `matButton="elevated"` sau `"tonal"` — un singur limbaj de butoane.
@@ -375,16 +385,17 @@ Ce luăm din macOS: proporțiile controalelor, colțurile, bordurile fine cu hig
   &:active { background: color-mix(in srgb, var(--kb-navy-900) 10%, var(--kb-surface-0)); transform: translateY(0.5px); box-shadow: var(--kb-shadow-bezel); }
 }
 .kb-default {
-  --_c: var(--kb-accent-600);
+  --_base: var(--kb-fill-accent);
+  --_c: var(--_base);
   background: linear-gradient(180deg, color-mix(in srgb, var(--_c) 92%, white) 0%, var(--_c) 100%);
-  border: 1px solid color-mix(in srgb, var(--_c) 80%, var(--kb-navy-900));
+  border: 1px solid color-mix(in srgb, var(--_c) 80%, var(--kb-fill-shade));
   border-radius: var(--kb-radius-sm);
   box-shadow: var(--kb-shadow-bezel), var(--kb-inner-highlight-on-accent);
   color: #fff;
-  &:hover { --_c: color-mix(in srgb, var(--kb-accent-600) 90%, var(--kb-navy-900)); }
-  &:active { --_c: color-mix(in srgb, var(--kb-accent-600) 80%, var(--kb-navy-900)); transform: translateY(0.5px); }
+  &:hover { --_c: color-mix(in srgb, var(--_base) 90%, var(--kb-fill-shade)); }
+  &:active { --_c: color-mix(in srgb, var(--_base) 80%, var(--kb-fill-shade)); transform: translateY(0.5px); }
 }
-.kb-danger { @extend .kb-default; --_c: var(--kb-danger-600); }
+.kb-danger { @extend .kb-default; --_base: var(--kb-fill-danger); }
 .kb-glass {
   background: var(--kb-glass-bg);
   -webkit-backdrop-filter: var(--kb-glass-blur); backdrop-filter: var(--kb-glass-blur);
@@ -412,7 +423,7 @@ Material primește aceste stiluri prin overrides (§3.2) și, acolo unde tokens-
 - **Buton de meniu** (dropdown): bezel + chevron 12px `expand_more` la dreapta, padding dreapta 8px. Deschis → chevron rotit 180°, fundal ca la `:active`.
 - **Segmented control** (înlocuiește tabs mici și toggle-uri de vizualizare, ex. Board/Listă): container pill-ish cu raza 7px, fundal `color-mix(navy 6%, surface-0)`, padding 2px; segmentul activ e alb cu `shadow-bezel` și raza 5px; înălțime 28px; text 13px/500; tranziția segmentului activ 200ms.
 - **Switch** (`mat-slide-toggle`): track 26×16, pill, accent-600 când e pornit, knob alb 12px cu `shadow-bezel`. Folosit pentru setări on/off; **nu** pentru acțiuni.
-- **Checkbox / radio**: 16px, raza 4px (checkbox) / cerc, bordură border-300, bifat = fundal accent-600 cu bifă albă și același gradient ca default-ul.
+- **Checkbox / radio**: 16px, raza 4px (checkbox) / cerc, bordură border-300, bifat = fundal fill-accent cu bifă albă și același gradient ca default-ul.
 
 #### 6.0.4 Câmpuri de formular
 
@@ -438,7 +449,7 @@ Dialogurile modale sunt **sheets**: nu au bară de titlu separată, nu au „×�
 #### 6.0.6 Popovers și meniuri
 
 - Meniuri (`mat-menu`), select-uri deschise, pickeri de dată, panoul de notificări: `kb-floating` + `kb-glass` (translucid), raza 12px, padding 6px, `shadow-popover`.
-- Item de meniu: 28px înălțime, raza 6px, padding 0 10px, iconiță 16px + text 13px; hover = fundal accent-600 cu text alb (comportamentul mac), nu tint. Separator: 1px border-200 cu margine 6px vertical. Item distructiv: text danger-600, pe hover fundal danger-600 cu text alb.
+- Item de meniu: 28px înălțime, raza 6px, padding 0 10px, iconiță 16px + text 13px; hover = fundal fill-accent cu text alb (comportamentul mac), nu tint. Separator: 1px border-200 cu margine 6px vertical. Item distructiv: text danger-600, pe hover fundal fill-danger cu text alb.
 - Popover-urile ancorate la un buton (ex. filtre pe board, picker de asignat) au **săgeată** 12px spre elementul-sursă, aceeași culoare cu fundalul, decupată cu `clip-path`. Meniurile din `⋮` nu au săgeată.
 - Animație: 160ms, `scale(0.96) → 1` din punctul de ancorare (`transform-origin`), opacitate.
 - Tooltip: fundal navy-900 90%, text alb 12px, raza 6px, padding 4px 8px, fără săgeată, apare la 500ms.
@@ -455,7 +466,7 @@ Navbar-ul e o bară de unelte: translucidă, 52px (nu 64; mac-ul e mai scund), f
 
 - Rânduri de 32px (dense) sau 40px (cu avatar), text 13px, **zebra** subtilă: rândurile pare au fundal `color-mix(navy 3%, surface-0)`. Fără linii orizontale între rânduri (zebra le înlocuiește); o singură linie `border-200` sub header.
 - Header 28px, `caption` 600 text-600, fundal surface-0 lipicios (`position: sticky`).
-- Selecție rând: fundal accent-600 cu text alb la click (stil Finder) pentru tabelele cu selecție; hover doar `color-mix(navy 5%)`. Pentru tabelele fără selecție (rapoarte) nu există stare de selecție.
+- Selecție rând: fundal fill-accent cu text alb la click (stil Finder) pentru tabelele cu selecție; hover doar `color-mix(navy 5%)`. Pentru tabelele fără selecție (rapoarte) nu există stare de selecție.
 - Colțurile tabelului urmează cardul (10px) cu `overflow: hidden`.
 
 #### 6.0.10 Carduri și grupuri
@@ -464,7 +475,7 @@ Cardurile din pagină sunt plate: alb, bordură 1px border-200, raza 10px, făr�
 
 #### 6.0.11 Chips, badge-uri, toggles de filtru
 
-Chips: 22px înălțime, raza pill, 12px/500, padding 0 8px, fundal de stare, **fără bordură**. Chips de filtru pe board: bezel pill (alb, bordură) 26px; activ = fundal accent-600 text alb. Badge pe clopoțel: 16px minim, pill, accent-600 cu text alb 10px/700, bordură 2px de culoarea navbar-ului ca să „stea” pe iconiță.
+Chips: 22px înălțime, raza pill, 12px/500, padding 0 8px, fundal de stare, **fără bordură**. Chips de filtru pe board: bezel pill (alb, bordură) 26px; activ = fundal fill-accent text alb. Badge pe clopoțel: 16px minim, pill, fill-accent cu text alb 10px/700, bordură 2px de culoarea navbar-ului ca să „stea” pe iconiță.
 
 #### 6.0.12 Scroll, separatoare, iconițe
 
@@ -502,7 +513,7 @@ Alte chips: „Owner” (navy-900 pe sky-300), „Membru” (text-700 pe `#eef0f
 Formă în §6.0.5 (sheets ancorate sus, fără „×”, 440/600/920). `MatDialog` cu `panelClass: 'kb-sheet'` și `position: { top: '12vh' }`. Confirmare distructivă: titlul spune ce se întâmplă („Arhivezi task-ul «Login SSO»?”), o propoziție explică consecința, butonul distructiv e `kb-danger` și are verbul („Arhivează”), niciodată „OK/Da”; iconiță `archive` în cerc danger-bg la stânga titlului.
 
 ### 6.7 Meniuri, tooltips, tabs
-Formă în §6.0.6 (popover translucid, item 28px, hover accent cu text alb). Tabs: pentru 2–4 vederi ale aceleiași entități (Board / Listă / Membri / Setări) folosim **segmented control** (§6.0.3) în page header, nu `mat-tab-group`; `mat-tab-group` rămâne doar în dialogul de detalii task (Comentarii / Atașamente / Istoric), cu indicator 2px accent-600, etichete 13px/500, înălțime 36px, fără uppercase.
+Formă în §6.0.6 (popover translucid, item 28px, hover fill-accent cu text alb). Tabs: pentru 2–4 vederi ale aceleiași entități (Board / Listă / Membri / Setări) folosim **segmented control** (§6.0.3) în page header, nu `mat-tab-group`; `mat-tab-group` rămâne doar în dialogul de detalii task (Comentarii / Atașamente / Istoric), cu indicator 2px accent-600, etichete 13px/500, înălțime 36px, fără uppercase.
 
 ### 6.8 Stări de pagină
 - **Loading**: skeleton (blocuri `#e9edf5` cu shimmer 1.2 s), aceeași formă ca și conținutul final; niciodată spinner pe pagină întreagă. Spinner 20px doar în butoane (înlocuiește eticheta, butonul rămâne de aceeași lățime).

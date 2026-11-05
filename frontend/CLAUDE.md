@@ -24,6 +24,7 @@ Run from `frontend/`:
 `docs/UI_UX_SPEC.md` decides how everything looks and behaves. Read the section for what you're building.
 
 - Components only use `var(--kb-*)`, never hex values. Material takes its colors from the theme in `src/styles.scss`.
+- White text and checkmarks only go on `--kb-fill-accent` and `--kb-fill-danger`. `--kb-accent-600` and `--kb-danger-600` get lighter in dark, to read on the cards, and white text on them falls below AA there.
 - No `::ng-deep`. Material is styled through the `mat.*-overrides` mixins in `src/styles.scss`.
 - Buttons: `matButton="filled"` with `kb-default` once per surface, or with `kb-danger` for destructive actions; `matButton="outlined"` with `kb-bezel`; plain `matButton` for text. No `elevated` or `tonal`.
 - Fonts and icons are self-hosted, because the app runs on the LAN. Nothing comes from Google Fonts or a CDN.

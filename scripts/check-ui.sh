@@ -249,9 +249,25 @@ tokens_match_the_spec() {
   "
 }
 
-# WCAG AA for normal text, computed from the tokens themselves, for the pairs the UI uses.
-# Three pairs from the spec fall short. They stay as the spec has them until it changes, and
-# this fails as soon as one of them passes, so the list can't outlive the problem.
+# accent-600 and danger-600 get lighter in dark, to read on the cards. White text can't sit on
+# them there, so what it sits on stays the same in both themes.
+fills_stay_the_same_in_dark() {
+  node -e "
+    const source = require('fs').readFileSync('frontend/src/styles/_tokens.scss', 'utf8');
+    const split = source.indexOf('@mixin dark');
+    const light = source.slice(0, split);
+    const dark = source.slice(split);
+    let bad = 0;
+    for (const [name, value] of [['fill-accent', '#135bf7'], ['fill-danger', '#b42318'], ['fill-shade', '#052063']]) {
+      if (!light.includes('--kb-' + name + ': ' + value + ';')) { console.log('light ' + name + ' is not ' + value); bad++; }
+      if (dark.includes('--kb-' + name)) { console.log('dark changes ' + name); bad++; }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+# WCAG AA for normal text, computed from the tokens themselves, for the pairs the UI uses. White
+# text is measured where its background is lightest: the top of the gradient, in every state.
 contrast_is_aa() {
   node -e "
     const fs = require('fs');
@@ -270,12 +286,27 @@ contrast_is_aa() {
       return (high + 0.05) / (low + 0.05);
     };
     const white = '#ffffff';
+    const mix = (a, b, share) => '#' + [1, 3, 5]
+      .map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * share + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, '0'))
+      .join('');
+    const filled = (mode, tokens, name) => {
+      const fill = tokens['fill-' + name];
+      const shade = tokens['fill-shade'];
+      if (!fill || !shade) return [[mode, 'white on ' + name, white, undefined]];
+      const top = (color) => mix(color, white, 0.92);
+      return [
+        [mode, 'white on ' + name, white, fill],
+        [mode, 'white on the top of the ' + name + ' gradient', white, top(fill)],
+        [mode, 'white on the top of the hovered ' + name + ' gradient', white, top(mix(fill, shade, 0.9))],
+        [mode, 'white on the top of the pressed ' + name + ' gradient', white, top(mix(fill, shade, 0.8))],
+      ];
+    };
     const pairs = [
       ['light', 'navy on white', light['navy-900'], white],
       ['light', 'accent on white', light['accent-600'], white],
       ['light', 'accent on tint', light['accent-600'], light['tint-100']],
-      ['light', 'white on accent (default button)', white, light['accent-600']],
-      ['light', 'white on danger (danger button)', white, light['danger-600']],
+      ...filled('light', light, 'accent'),
+      ...filled('light', light, 'danger'),
       ['light', 'body text on white', light['text-700'], white],
       ['light', 'secondary text on white', light['text-600'], white],
       ['light', 'info text on info', light['info-text'], light['info-bg']],
@@ -290,20 +321,19 @@ contrast_is_aa() {
       ['dark', 'secondary text on cards', dark['text-600'], dark['surface-0']],
       ['dark', 'accent on cards', dark['accent-600'], dark['surface-0']],
       ['dark', 'accent on tint', dark['accent-600'], dark['tint-100']],
-      ['dark', 'white on accent (default button)', white, dark['accent-600']],
-      ['dark', 'white on danger (danger button)', white, dark['danger-600']],
+      ...filled('dark', dark, 'accent'),
+      ...filled('dark', dark, 'danger'),
       ['dark', 'info text on info', dark['info-text'], dark['info-bg']],
       ['dark', 'success on its background', dark['success-600'], dark['success-bg']],
       ['dark', 'warning on its background', dark['warning-600'], dark['warning-bg']],
       ['dark', 'danger on its background', dark['danger-600'], dark['danger-bg']],
     ];
-    const known = ['light success on its background', 'dark white on accent (default button)', 'dark white on danger (danger button)'];
     let bad = 0;
     for (const [mode, name, text, background] of pairs) {
-      const value = ratio(text, background);
       const label = mode + ' ' + name;
-      if (value >= 4.5 && known.includes(label)) { console.log(label + ' passes now, so take it off the list'); bad++; }
-      if (value < 4.5 && !known.includes(label)) { console.log(label + ': ' + value.toFixed(2)); bad++; }
+      if (!text || !background) { console.log(label + ': a token is missing'); bad++; continue; }
+      const value = ratio(text, background);
+      if (value < 4.5) { console.log(label + ': ' + value.toFixed(2)); bad++; }
     }
     process.exit(bad ? 1 : 0);
   "
@@ -344,6 +374,7 @@ task_4() {
   check "_tokens.scss is tracked" tracked frontend/src/styles/_tokens.scss
   check "the tokens are the spec's, in light and dark" tokens_match_the_spec
   check "text on its background passes WCAG AA" contrast_is_aa
+  check "what white text sits on stays the same in dark" fills_stay_the_same_in_dark
   check "the frontend builds" build_frontend
   check "the build has the light tokens" css_has '--kb-accent-600:#135bf7'
   check "the build has the dark tokens" css_has '--kb-accent-600:#5b93ff'
@@ -353,7 +384,7 @@ task_4() {
   check "the manual light toggle also switches Material" css_has 'data-theme=light]{color-scheme:light'
   check "the build has Material's system tokens" css_has '--mat-sys-primary'
   check "Material's primary is the accent" css_has '--mat-sys-primary:var(--kb-accent-600)'
-  check "the default button is the accent, in white" css_has '--mat-button-filled-container-color:var(--kb-accent-600)'
+  check "the default button has the fill that keeps white text readable" css_has '--mat-button-filled-container-color:var(--kb-fill-accent)'
   check "the page has the font" css_has "var(--kb-font)"
   check "Inter is self-hosted" media_has '^inter.*\.woff2$'
   check "Material Symbols are self-hosted" media_has '^material-symbols-outlined.*\.woff2$'
@@ -380,12 +411,15 @@ task_5() {
 
   check "kb-bezel exists, with its shadow and highlight" css_has 'box-shadow:var(--kb-shadow-bezel),var(--kb-inner-highlight)'
   check "kb-bezel uses the control radius" css_has 'border:1pxsolidvar(--kb-border-300);border-radius:var(--kb-radius-sm)'
-  check "kb-default starts from the accent" css_has '--_base:var(--kb-accent-600)'
+  check "kb-default starts from the accent fill" css_has '--_base:var(--kb-fill-accent)'
   check "kb-default has the subtle gradient" css_has 'linear-gradient(180deg,color-mix(insrgb,var(--_c)92%,white)0%,var(--_c)100%)'
-  check "kb-danger starts from danger" css_has '--_base:var(--kb-danger-600)'
-  check "hover darkens the button's own color" css_has '--_c:color-mix(insrgb,var(--_base)90%,var(--kb-navy-900))'
-  check "press darkens the button's own color" css_has '--_c:color-mix(insrgb,var(--_base)80%,var(--kb-navy-900))'
+  check "kb-danger starts from the danger fill" css_has '--_base:var(--kb-fill-danger)'
+  check "hover darkens the button's own color" css_has '--_c:color-mix(insrgb,var(--_base)90%,var(--kb-fill-shade))'
+  check "press darkens the button's own color" css_has '--_c:color-mix(insrgb,var(--_base)80%,var(--kb-fill-shade))'
+  check "the border darkens the button's own color" css_has 'border:1pxsolidcolor-mix(insrgb,var(--_c)80%,var(--kb-fill-shade))'
   check "a danger button can't turn blue on hover" css_lacks '--_c:color-mix(insrgb,var(--kb-accent-600)'
+  check "no button starts from a color that gets lighter in dark" css_lacks '--_base:var(--kb-accent-600)'
+  check "no danger button does either" css_lacks '--_base:var(--kb-danger-600)'
   check "kb-default beats Material's button rules" css_has 'html:root.kb-default'
   check "kb-danger beats Material's button rules" css_has 'html:root.kb-danger'
   check "kb-bezel beats Material's button rules" css_has 'html:root.kb-bezel'

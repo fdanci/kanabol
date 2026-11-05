@@ -47,10 +47,10 @@ html {
     )
   );
 
-  // Butoane mac-like: "filled" = default (accent + alb), "outlined" = bezel (alb + bordură + umbră)
+  // Butoane mac-like: "filled" = default (fill-accent + alb), "outlined" = bezel (alb + bordură + umbră)
   @include mat.button-overrides(
     (
-      filled-container-color: var(--kb-accent-600),
+      filled-container-color: var(--kb-fill-accent),
       filled-label-text-color: #ffffff,
       filled-container-shape: var(--kb-radius-sm),
       filled-container-height: 32px,

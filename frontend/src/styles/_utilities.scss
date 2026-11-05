@@ -20,29 +20,30 @@ html:root .kb-bezel {
   }
 }
 
-// Hover and press start from --_base, not from the accent, so kb-danger stays red in both.
+// Hover and press start from --_base, so kb-danger stays red in both. The fills and their shade
+// stay the same in dark, so white text stays readable there, in every state.
 html:root .kb-default {
-  --_base: var(--kb-accent-600);
+  --_base: var(--kb-fill-accent);
   --_c: var(--_base);
   background: linear-gradient(180deg, color-mix(in srgb, var(--_c) 92%, white) 0%, var(--_c) 100%);
-  border: 1px solid color-mix(in srgb, var(--_c) 80%, var(--kb-navy-900));
+  border: 1px solid color-mix(in srgb, var(--_c) 80%, var(--kb-fill-shade));
   border-radius: var(--kb-radius-sm);
   box-shadow: var(--kb-shadow-bezel), var(--kb-inner-highlight-on-accent);
   color: #fff;
 
   &:hover:not(:disabled) {
-    --_c: color-mix(in srgb, var(--_base) 90%, var(--kb-navy-900));
+    --_c: color-mix(in srgb, var(--_base) 90%, var(--kb-fill-shade));
   }
 
   &:active:not(:disabled) {
-    --_c: color-mix(in srgb, var(--_base) 80%, var(--kb-navy-900));
+    --_c: color-mix(in srgb, var(--_base) 80%, var(--kb-fill-shade));
     transform: translateY(0.5px);
   }
 }
 
 html:root .kb-danger {
   @extend .kb-default;
-  --_base: var(--kb-danger-600);
+  --_base: var(--kb-fill-danger);
 }
 
 // A disabled control only fades, without changing color (section 6.0.1).

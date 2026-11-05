@@ -9,7 +9,7 @@
   --kb-surface-0: #ffffff;
   --kb-info-bg: #c9f2fb;
   --kb-info-text: #39727f;
-  --kb-success-600: #1f8229;
+  --kb-success-600: #1c7a26;
   --kb-success-bg: #e6f4e8;
   --kb-warning-600: #b54708;
   --kb-warning-bg: #fdf0e6;
@@ -22,6 +22,11 @@
   --kb-border-300: #c6c9d0;
   --kb-border-200: #e5e8ee;
   --kb-archived-400: #9da9b8;
+
+  /* Fundaluri pline sub text alb. Rămân la fel în dark, unde accent-600 și danger-600 devin deschise. */
+  --kb-fill-accent: #135bf7;
+  --kb-fill-danger: #b42318;
+  --kb-fill-shade: #052063; /* le închide la hover, la apăsare și pe bordură */
 
   /* Focus: halo mac-like, 4px, semitransparent */
   --kb-focus-ring: 0 0 0 4px color-mix(in srgb, var(--kb-accent-600) 30%, transparent);
