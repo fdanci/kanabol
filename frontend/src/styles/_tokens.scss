@@ -27,6 +27,7 @@
   --kb-fill-accent: #135bf7;
   --kb-fill-danger: #b42318;
   --kb-fill-shade: #052063; /* le închide la hover, la apăsare și pe bordură */
+  --kb-ink: #052063; /* fundal închis sub text alb în ambele teme: tooltip, snackbar */
 
   /* Focus: halo mac-like, 4px, semitransparent */
   --kb-focus-ring: 0 0 0 4px color-mix(in srgb, var(--kb-accent-600) 30%, transparent);
