@@ -635,6 +635,7 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnName("password_hash");
 
                     b.Property<Guid>("RoleId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uuid")
                         .HasColumnName("role_id");
 

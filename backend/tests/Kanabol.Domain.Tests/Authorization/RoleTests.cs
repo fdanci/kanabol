@@ -80,6 +80,19 @@ public sealed class RoleTests
         role.RolePermissions.Should().ContainSingle();
     }
 
+    // Each holder leaving has to change the row, or two of them racing could both save.
+    [Fact]
+    public void RecordHolderLeaving_EachTime_ChangesTheVersion()
+    {
+        var role = new Role(Role.AdminName, isSystem: true);
+
+        role.RecordHolderLeaving();
+        var first = role.HoldersVersion;
+        role.RecordHolderLeaving();
+
+        role.HoldersVersion.Should().NotBe(first).And.NotBe(0);
+    }
+
     // The seed gives Admin each permission that's new in the code.
     [Fact]
     public void Grant_OnTheSystemRole_StillWorks()

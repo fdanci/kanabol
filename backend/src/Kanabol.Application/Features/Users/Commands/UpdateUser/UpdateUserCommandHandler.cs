@@ -46,6 +46,11 @@ public sealed class UpdateUserCommandHandler(
         {
             await db.SaveChangesAsync(ct);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Their role or their state changed after they were read here, so the checks above may not hold.
+            return UserErrors.ChangedMeanwhile;
+        }
         catch (DbUpdateException exception) when (exception.IsUniqueViolation())
         {
             return UserErrors.EmailTaken;

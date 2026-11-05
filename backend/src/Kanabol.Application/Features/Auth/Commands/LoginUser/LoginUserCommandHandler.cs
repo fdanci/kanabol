@@ -38,7 +38,16 @@ public sealed class LoginUserCommandHandler(
 
         user.RecordSuccessfulLogin();
         var session = await sessions.Issue(user, Guid.CreateVersion7(), ct);
-        await db.SaveChangesAsync(ct);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Their role changed after they were read here, so the token would carry the old permissions.
+            return AuthErrors.SessionChangedMeanwhile;
+        }
 
         logger.LogInformation("User {UserId} signed in", user.Id);
         return session;

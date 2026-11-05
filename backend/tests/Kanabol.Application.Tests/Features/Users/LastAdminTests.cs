@@ -32,6 +32,32 @@ public sealed class LastAdminTests(PostgresFixture postgres) : ManagementHandler
         (await Reload(admin)).IsActive.Should().BeTrue();
     }
 
+    // Only someone with the Admin role counts as the admin who remains, not any active user.
+    [Fact]
+    public async Task Deactivate_OfTheLastAdminWhileOthersAreActive_ReturnsConflict()
+    {
+        var admin = await CreateAdmin();
+        await CreateUser("ana@example.com");
+        SignIn(admin);
+
+        var result = await Deactivation.Handle(new DeactivateUserCommand(admin.Id), CancellationToken.None);
+
+        result.Error.Should().Be(UserErrors.LastAdmin);
+    }
+
+    [Fact]
+    public async Task ChangeRole_OfTheLastAdminWhileOthersAreActive_ReturnsConflict()
+    {
+        var admin = await CreateAdmin();
+        await CreateUser("ana@example.com");
+        var role = await CreateRole("Analist");
+        SignIn(admin);
+
+        var result = await RoleChange.Handle(new ChangeUserRoleCommand(admin.Id, role.Id), CancellationToken.None);
+
+        result.Error.Should().Be(UserErrors.LastAdmin);
+    }
+
     [Fact]
     public async Task Deactivate_OfAnAdminWhenAnotherIsActive_Succeeds()
     {
