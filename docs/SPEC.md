@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.7 — 2026-11-05 (v1.6 + deciziile grupului 8: cine poate da ce și contul dezactivat în §4.4, invarianta ultimului `Admin` la concurență în §4.4, §5.1 și §5.3, `ux_roles_lower_name` în §5.1 și §7.2, `check-users.sh` în §14.7).
+> Stare: v1.8 — 2026-11-06 (v1.7 + deciziile grupului 8b: reactivarea și resetarea parolei în §4.4, `MustChangePassword` în verificarea din baza de date, `users.is_active` ca concurrency token în §4.4, §5.1 și §5.3, ținta merge-ului în `main` ridicată la 150 s în §14.6, parola proprie în §16).
 
 ---
 
@@ -266,7 +266,9 @@ Permisiunile ajung în JWT ca claims `permission`. Pe API: `[HasPermission(Permi
 
 **Cine poate da ce.** Nimeni nu dă mai mult decât are. Un rol se creează, se editează sau se șterge doar de cineva care are toate permisiunile lui, cele vechi și cele noi (403 `Role.PermissionsBeyondYours`). Un utilizator primește, la creare sau la schimbarea rolului, doar un rol ale cărui permisiuni le are apelantul (403 `User.RoleBeyondYours`), iar nimeni nu editează, nu mută în alt rol și nu dezactivează pe cineva care are permisiuni în plus față de el (403 `User.PermissionsBeyondYours`). Altfel `users.manage` singur ar duce la `Admin`, iar `roles.manage` ar putea goli rolul cuiva aflat mai sus, ca apoi să-l dezactiveze. `GET /api/users/assignable-roles` întoarce rolurile pe care apelantul le poate da. Adminul are toate permisiunile, deci limita nu-l atinge.
 
-**Cont dezactivat sau retrogradat.** Administrarea utilizatorilor și a rolurilor nu se încrede în token: `CurrentPermissions` recitește din baza de date utilizatorul și permisiunile lui la fiecare cerere (401 `Auth.SessionEnded` dacă e dezactivat, 403 `Auth.PermissionRequired` dacă permisiunea a dispărut), iar dezactivarea închide sesiunile (refresh token-urile sunt revocate). Celelalte endpoint-uri se bazează pe claims din access token, deci un cont dezactivat sau retrogradat le mai poate apela până expiră token-ul, cel mult 15 minute (§4.5). Acceptat așa în v1, pe 2026-11-05.
+**Cont dezactivat sau retrogradat.** Administrarea utilizatorilor și a rolurilor nu se încrede în token: `CurrentPermissions` recitește din baza de date utilizatorul și permisiunile lui la fiecare cerere (401 `Auth.SessionEnded` dacă e dezactivat, 403 `Auth.PermissionRequired` dacă permisiunea a dispărut, 403 `Auth.PasswordChangeRequired` dacă `MustChangePassword` e activ, de pildă după o resetare), iar dezactivarea și resetarea parolei închid sesiunile (refresh token-urile sunt revocate). Celelalte endpoint-uri se bazează pe claims din access token, deci un cont dezactivat, retrogradat sau cu parola resetată le mai poate apela până expiră token-ul, cel mult 15 minute (§4.5). Acceptat așa în v1, pe 2026-11-05.
+
+**Reactivare și resetare de parolă.** Amândouă cer `users.manage` și respectă limita de mai sus (403 `User.PermissionsBeyondYours`). `POST /api/users/{id}/activate` readuce utilizatorul cu rolul și parola de dinainte, fără sesiune nouă. `POST /api/users/{id}/reset-password` primește o parolă inițială (politica din §4.5), pune `MustChangePassword = true`, golește `failed_login_attempts` și `locked_until` și revocă refresh token-urile, într-o singură salvare; pe un cont dezactivat e permisă și nu-l reactivează. Nimeni nu-și resetează propria parolă pe calea asta (403 `User.OwnPasswordReset`): `change-password` cere parola curentă tocmai ca un access token furat să nu poată prelua contul.
 
 **Nivel proiect — rol pe proiect.** `ProjectMember(ProjectId, UserId, ProjectRole)` cu `ProjectRole = Owner | Member`. Verificat în handler prin `IProjectAccess`:
 - `EnsureMemberAsync(projectId, userId)` — trece dacă e membru **sau** are `projects.view_all` **sau** `projects.manage` (cine poate administra orice proiect îl poate și vedea).
@@ -277,7 +279,7 @@ Refuzul e un 403 ProblemDetails: `code: Auth.PermissionRequired` pentru o permis
 Invariante:
 - `Project` are mereu cel puțin un owner (verificat în `Project.RemoveMember` / `ChangeMemberRole`).
 - Rolul `Admin` (`is_system = true`) nu poate fi șters, redenumit sau lipsit de permisiuni.
-- Ultimul utilizator cu rolul `Admin` nu poate primi alt rol și nu poate fi dezactivat (verificat în handlerele `ChangeUserRole` și `DeactivateUser`, prin `LastAdminGuard`). O numărare nu ajunge când cererile se suprapun: `Role.HoldersVersion` crește de câte ori cineva pleacă din rol și e concurrency token, la fel `users.role_id`, deci a doua din două salvări simultane, sau una făcută pe o citire veche, primește 409 `User.ChangedMeanwhile`.
+- Ultimul utilizator cu rolul `Admin` nu poate primi alt rol și nu poate fi dezactivat (verificat în handlerele `ChangeUserRole` și `DeactivateUser`, prin `LastAdminGuard`). O numărare nu ajunge când cererile se suprapun: `Role.HoldersVersion` crește de câte ori cineva pleacă din rol și e concurrency token, la fel `users.role_id` și `users.is_active`, deci a doua din două salvări simultane, sau una făcută pe o citire veche, primește 409 `User.ChangedMeanwhile`. Fără `is_active`, o cerere care citise un admin dezactivat îl putea scoate din `Admin` după ce fusese reactivat, iar ultimul alt admin plecase.
 - Utilizatorii nu se șterg, se dezactivează (`is_active = false`): rămân referențiați din istoric, comentarii și rapoarte.
 
 ### 4.5 Autentificare
@@ -336,7 +338,7 @@ Project ──< TaskItem ──< Comment
                      └──< Notification (overdue etc.)
 ```
 
-- `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol; concurrency token, §4.4), `IsActive`, `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
+- `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol; concurrency token, §4.4), `IsActive` (și el concurrency token, §4.4), `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
 - `Role`: `Name` (unic indiferent de majuscule, `ux_roles_lower_name`), `IsSystem` (true doar pentru `Admin`), `HoldersVersion` (crește când cineva pleacă din rol; concurrency token care ține invarianta ultimului `Admin`, §4.4), permisiuni prin `role_permissions`.
 - `Project`: `Name`, `Key` (prefixul cheilor de task: 2–5 majuscule, unic, ex. `KAN`; nu se schimbă după creare), `Description?`, `NextTaskNumber` (contorul din care se alocă numerele de task), `ArchivedAt?`, `ArchivedById?`; deține `Members` și `Columns`.
 - `TaskItem` (nu `Task`, ca să nu se bată cu `System.Threading.Tasks.Task`): `Number` (unic în proiect, alocat crescător la creare din `Project.NextTaskNumber`, în aceeași tranzacție; `Project` are concurrency token, deci două creări simultane nu primesc același număr), `Title`, `Description` (markdown de bază, stocat ca text), `Priority` (enum `Low|Medium|High|Critical`), `DueDate?`, `AssigneeId?`, `ColumnId`, `Position`, `CompletedAt?`, `ArchivedAt?`, `ArchivedById?`. Cheia afișată e `{Project.Key}-{Number}`, ex. `KAN-123`; `GET /api/tasks/by-key/{key}` o rezolvă (UI §7.5). Numărul rămâne și după arhivare, nu se refolosește.
@@ -385,7 +387,7 @@ Un `AuditingInterceptor : SaveChangesInterceptor` completează câmpurile de aud
 
 - Un fișier `IEntityTypeConfiguration<T>` per entitate în `Infrastructure/Persistence/Configurations/`, aplicate cu `ApplyConfigurationsFromAssembly`. **Fără** data annotations pe entități (Domain rămâne curat).
 - `UseNpgsql(...).UseSnakeCaseNamingConvention()` → toate tabelele/coloanele/indexurile în `snake_case` automat.
-- Concurență optimistă: `builder.Property<uint>("Version").IsRowVersion()` pe `TaskItem`, `Project`, `BoardColumn` (mutările pe kanban concurente se rezolvă cu 409). Npgsql o mapează pe `xmin`; `UseXminAsConcurrencyToken` nu mai există în Npgsql 10. Separat, `IsConcurrencyToken()` pe `Role.HoldersVersion` și `User.RoleId` (invarianta ultimului `Admin`, §4.4) și pe `RefreshToken.RevokedAt` (rotirea refresh token-ului, §4.5).
+- Concurență optimistă: `builder.Property<uint>("Version").IsRowVersion()` pe `TaskItem`, `Project`, `BoardColumn` (mutările pe kanban concurente se rezolvă cu 409). Npgsql o mapează pe `xmin`; `UseXminAsConcurrencyToken` nu mai există în Npgsql 10. Separat, `IsConcurrencyToken()` pe `Role.HoldersVersion`, `User.RoleId` și `User.IsActive` (invarianta ultimului `Admin`, §4.4) și pe `RefreshToken.RevokedAt` (rotirea refresh token-ului, §4.5).
 - Enum-uri stocate ca `text` (`HasConversion<string>()`) — lizibile în DB și în Seq, sigure la reordonare.
 - Toate datele în `timestamptz` (`DateTimeOffset` în C#). Serverul lucrează în UTC; frontend-ul afișează local.
 - `string` → `varchar(n)` explicit cu `HasMaxLength`; `Description` și `Comment.Body` → `text`.
@@ -1172,7 +1174,7 @@ Observații:
 - `core.hooksPath` rămâne `.husky/_`, cum îl setează husky 9; nu-l suprascriem.
 - Testele de integrare au nevoie de **Docker Desktop pornit** (Testcontainers). Dacă nu e pornit, `scripts/require-docker.sh` refuză commit-ul pe `main` cu un mesaj clar — corect, nu sărim testele.
 - `git commit --no-verify` rămâne posibil (git nu poate interzice); `pre-push` pe `main` e plasa de siguranță.
-- Durată estimată pe `main`: build ~15 s + container Postgres ~8 s + teste; țintim < 90 s total. Pe feature branches limita e 40 s: un commit care atinge și backend, și frontend durează 21–22 s, unul pe o singură parte 14–18 s.
+- Durată estimată pe `main`: build ~15 s + container Postgres ~8 s + teste; limita e 150 s total (ridicată de la 90 s pe 2026-11-06: suita dura 56–73 s și varia cu până la 14 s între rulări identice, iar fiecare grup nou mai adaugă câteva secunde). Pe feature branches limita e 40 s: un commit care atinge și backend, și frontend durează 21–22 s, unul pe o singură parte 14–18 s.
 - Pe Windows, hook-urile rulează prin `sh` din Git for Windows; scripturile sunt POSIX sh (fără bash-isme) și au `eol=lf` prin `.gitattributes`.
 
 ### 14.7 Verificări de acceptanță
@@ -1202,7 +1204,7 @@ Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-a
 - [ ] `HSTS`, `X-Content-Type-Options`, `X-Frame-Options`, CSP de bază (`default-src 'self'`).
 - [ ] Rate limiting pe login; lockout 15 min după 10 eșecuri consecutive (câmp `locked_until` pe `users`).
 - [ ] Parole: minim 10 caractere, verificate contra unei liste scurte de parole comune.
-- [ ] Refresh token rotit, revocare la logout și la schimbarea parolei.
+- [ ] Refresh token rotit, revocare la logout, la schimbarea parolei, la dezactivare și la resetarea parolei de către admin. Parola proprie se schimbă doar cu cea curentă, niciodată prin endpoint-ul de resetare (§4.4).
 - [ ] Validare de input în toate commands (FluentValidation); EF parametrizat → fără SQL injection.
 - [ ] Atașamente: extensii permise, dimensiune max, nume generat, `Content-Disposition: attachment`, nu se execută niciodată din `wwwroot`.
 - [ ] Backend verifică permisiunea și accesul la proiect la fiecare request; UI doar ascunde.
