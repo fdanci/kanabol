@@ -38,9 +38,9 @@ public sealed class UpdateRoleCommandHandler(
             return RoleErrors.SystemRoleIsFixed;
         }
 
-        // Only what's being added: editing a role doesn't require holding everything it already has.
+        // What it has and what it would get: a role above the caller is out of their reach, like its holders.
         var current = await db.PermissionNamesOfRole(role.Id).ToListAsync(ct);
-        if (!held.Value.Covers(command.Permissions.Except(current)))
+        if (!held.Value.Covers(current.Union(command.Permissions)))
         {
             return RoleErrors.PermissionsBeyondYours;
         }

@@ -32,6 +32,11 @@ public sealed class DeleteRoleCommandHandler(
             return RoleErrors.SystemRoleIsFixed;
         }
 
+        if (!held.Value.Covers(await db.PermissionNamesOfRole(role.Id).ToListAsync(ct)))
+        {
+            return RoleErrors.PermissionsBeyondYours;
+        }
+
         // Deactivated users count: they stay in the database, and each of them needs a role.
         if (await db.Users.AnyAsync(user => user.RoleId == role.Id, ct))
         {

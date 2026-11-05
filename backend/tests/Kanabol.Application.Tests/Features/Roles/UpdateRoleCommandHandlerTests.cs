@@ -130,23 +130,51 @@ public sealed class UpdateRoleCommandHandlerTests(PostgresFixture postgres) : Ma
         (await PermissionNamesOf(role.Id)).Should().BeEmpty();
     }
 
-    // Only what's being added counts: editing a role doesn't require holding all it already has.
+    // A role above the caller is out of their reach, as its holders are.
     [Fact]
-    public async Task Handle_WhenKeepingAPermissionTheCallerDoesNotHave_Succeeds()
+    public async Task Handle_OnARoleWithAPermissionTheCallerDoesNotHave_ReturnsForbiddenAndChangesNothing()
     {
         await SignInWith(Permissions.RolesManage);
         var role = await CreateRole("Analist", Permissions.ReportsView);
 
         var result = await Handler.Handle(new UpdateRoleCommand(role.Id, "Analist senior", [Permissions.ReportsView]), CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue();
-        (await PermissionNamesOf(role.Id)).Should().BeEquivalentTo(Permissions.ReportsView);
+        result.Error.Should().Be(RoleErrors.PermissionsBeyondYours);
+        await using var db = Postgres.CreateContext();
+        (await db.Roles.SingleAsync(existing => existing.Id == role.Id)).Name.Should().Be("Analist");
     }
 
     [Fact]
-    public async Task Handle_WhenRemovingAPermissionTheCallerDoesNotHave_Succeeds()
+    public async Task Handle_WhenRemovingAPermissionTheCallerDoesNotHave_ReturnsForbiddenAndKeepsIt()
     {
         await SignInWith(Permissions.RolesManage);
+        var role = await CreateRole("Analist", Permissions.ReportsView);
+
+        var result = await Handler.Handle(new UpdateRoleCommand(role.Id, "Analist", []), CancellationToken.None);
+
+        result.Error.Should().Be(RoleErrors.PermissionsBeyondYours);
+        (await PermissionNamesOf(role.Id)).Should().BeEquivalentTo(Permissions.ReportsView);
+    }
+
+    // The way around the rule the review found: strip a role, then deactivate the person who held it.
+    [Fact]
+    public async Task Handle_ByAManagerOfUsersAndRoles_CannotStripTheRoleOfSomeoneAboveThem()
+    {
+        await SignInWith(Permissions.RolesManage, Permissions.UsersManage);
+        var role = await CreateRole("Sef", Permissions.RolesManage, Permissions.UsersManage, Permissions.ReportsView);
+
+        var result = await Handler.Handle(
+            new UpdateRoleCommand(role.Id, "Sef", [Permissions.RolesManage, Permissions.UsersManage]),
+            CancellationToken.None);
+
+        result.Error.Should().Be(RoleErrors.PermissionsBeyondYours);
+        (await PermissionNamesOf(role.Id)).Should().Contain(Permissions.ReportsView);
+    }
+
+    [Fact]
+    public async Task Handle_OnARoleWithinTheCallersPermissions_CanRemoveFromIt()
+    {
+        await SignInWith(Permissions.RolesManage, Permissions.ReportsView);
         var role = await CreateRole("Analist", Permissions.ReportsView);
 
         var result = await Handler.Handle(new UpdateRoleCommand(role.Id, "Analist", []), CancellationToken.None);

@@ -17,7 +17,7 @@ public sealed class DeleteRoleCommandHandlerTests(PostgresFixture postgres) : Ma
     [Fact]
     public async Task Handle_WhenTheRoleIsUnused_DeletesItAndKeepsThePermissions()
     {
-        await SignInWith(Permissions.RolesManage);
+        await SignInWith(Permissions.RolesManage, Permissions.ReportsView);
         var role = await CreateRole("Analist", Permissions.ReportsView);
 
         var result = await Handler.Handle(new DeleteRoleCommand(role.Id), CancellationToken.None);
@@ -73,6 +73,18 @@ public sealed class DeleteRoleCommandHandlerTests(PostgresFixture postgres) : Ma
 
         result.Error.Should().Be(RoleErrors.SystemRoleIsFixed);
         result.Error.Type.Should().Be(ErrorType.Conflict);
+    }
+
+    [Fact]
+    public async Task Handle_OnARoleWithAPermissionTheCallerDoesNotHave_ReturnsForbiddenAndKeepsIt()
+    {
+        await SignInWith(Permissions.RolesManage);
+        var role = await CreateRole("Analist", Permissions.ReportsView);
+
+        var result = await Handler.Handle(new DeleteRoleCommand(role.Id), CancellationToken.None);
+
+        result.Error.Should().Be(RoleErrors.PermissionsBeyondYours);
+        await ShouldStillExist(role);
     }
 
     [Fact]

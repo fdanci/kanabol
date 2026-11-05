@@ -14,5 +14,5 @@ public static class RoleErrors
 
     public static readonly Error ChangedMeanwhile = Error.Conflict("Role.ChangedMeanwhile", "This role changed at the same moment. Try again.");
 
-    public static readonly Error PermissionsBeyondYours = Error.Forbidden("Role.PermissionsBeyondYours", "You can't grant a permission you don't have.");
+    public static readonly Error PermissionsBeyondYours = Error.Forbidden("Role.PermissionsBeyondYours", "You can't grant a permission you don't have, or change a role that has one.");
 }
