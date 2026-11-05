@@ -480,8 +480,107 @@ task_3() {
   check "a push to a branch doesn't" push_to_a_branch_skips_the_suite
 }
 
+# A repo as a fresh clone has it, with no packages installed.
+bare_copy() { # bare_copy <folder>
+  tree=$(git write-tree) || return 1
+  mkdir -p "$1" || return 1
+  git archive "$tree" | tar -x -C "$1" || return 1
+  git -C "$1" init -q -b main &&
+    git -C "$1" config user.name check &&
+    git -C "$1" config user.email check@example.invalid &&
+    git -C "$1" add -A &&
+    git -C "$1" commit -q -m 'chore: the starting point'
+}
+
+setup_copy_ready() {
+  setup_copy="$scratch/setup"
+  [ -d "$setup_copy/.git" ] && return 0
+  bare_copy "$setup_copy" || return 1
+  (cd "$setup_copy" && scripts/setup.sh) >"$scratch/setup.log" 2>&1 || {
+    tail -n 12 "$scratch/setup.log"
+    rm -rf "$setup_copy"
+    return 1
+  }
+}
+
+setup_config_is() { # setup_config_is <key> <value>
+  setup_copy_ready || return 1
+  [ "$(git -C "$setup_copy" config "$1")" = "$2" ] || {
+    echo "$1 is $(git -C "$setup_copy" config "$1"), expected $2"
+    return 1
+  }
+}
+
+setup_installed() { # setup_installed <path>
+  setup_copy_ready && [ -e "$setup_copy/$1" ]
+}
+
+setup_restored_tools() {
+  setup_copy_ready && (cd "$setup_copy" && dotnet tool run dotnet-ef --version)
+}
+
+setup_leaves_the_tree_clean() {
+  setup_copy_ready || return 1
+  [ -z "$(git -C "$setup_copy" status --porcelain)" ] || {
+    git -C "$setup_copy" status --short | head -n 10
+    return 1
+  }
+}
+
+setup_can_run_again() {
+  setup_copy_ready && (cd "$setup_copy" && scripts/setup.sh) >"$scratch/setup-again.log" 2>&1 || {
+    tail -n 12 "$scratch/setup-again.log"
+    return 1
+  }
+}
+
+setup_turns_on_the_hooks() {
+  setup_copy_ready || return 1
+  if git -C "$setup_copy" commit --allow-empty -m 'added some things' >"$scratch/setup-commit.log" 2>&1; then
+    echo "the commit went through"
+    return 1
+  fi
+  grep -q 'type may not be empty' "$scratch/setup-commit.log"
+}
+
+setup_makes_merges_into_main_create_a_commit() {
+  setup_copy_ready || return 1
+  git -C "$setup_copy" checkout -q -b feature/probe &&
+    printf '# Probe\n' >"$setup_copy/probe.md" &&
+    git -C "$setup_copy" add probe.md &&
+    git -C "$setup_copy" commit -q -m 'docs: add a probe' &&
+    git -C "$setup_copy" checkout -q main || return 1
+  printf '#!/bin/sh\necho "the full suite ran"\n' >"$setup_copy/scripts/test-all.sh"
+  # No --no-ff here: this branch could fast-forward, and the setting has to prevent it.
+  git -C "$setup_copy" merge --no-edit feature/probe >"$scratch/setup-merge.log" 2>&1 || {
+    tail -n 12 "$scratch/setup-merge.log"
+    return 1
+  }
+  git -C "$setup_copy" checkout -q -- scripts/test-all.sh
+  grep -q 'the full suite ran' "$scratch/setup-merge.log" &&
+    [ "$(git -C "$setup_copy" rev-list --parents -n 1 main | wc -w)" -eq 3 ]
+}
+
+task_5() {
+  echo "Task 5: scripts/setup.sh"
+  check "it's tracked" tracked scripts/setup.sh
+  check "it's executable" executable scripts/setup.sh
+  check "it's valid sh" sh -n scripts/setup.sh
+  check "it installs the root packages" setup_installed node_modules/.bin/lint-staged
+  check "it installs the frontend's" setup_installed frontend/node_modules/.bin/ng
+  check "it restores the dotnet tools" setup_restored_tools
+  check "merges into main never fast-forward" setup_config_is branch.main.mergeOptions --no-ff
+  check "commits aren't blocked on signatures" setup_config_is commit.gpgsign false
+  check "git looks for hooks where husky 9 keeps them" setup_config_is core.hooksPath .husky/_
+  check "it leaves the tree clean" setup_leaves_the_tree_clean
+  check "the hooks work after it" setup_turns_on_the_hooks
+  check "a plain merge into main creates a commit and runs the suite" setup_makes_merges_into_main_create_a_commit
+  check "it can run again" setup_can_run_again
+  check "the root notes say to run it" grep -qF 'scripts/setup.sh' CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 
 for task in "$@"; do
