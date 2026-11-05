@@ -100,13 +100,26 @@ public sealed class ChangePasswordCommandHandlerTests(PostgresFixture postgres) 
     }
 
     [Fact]
+    public async Task Handle_WhenTenWrongPasswordsArriveAtOnce_CountsEveryOneAndLocks()
+    {
+        var user = await CreateUser();
+        SignIn(user);
+
+        await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => FailInItsOwnScope()));
+
+        var reloaded = await Reload(user);
+        reloaded.LockedUntil.Should().Be(Now.AddMinutes(15), "a stolen access token mustn't get more guesses by sending them together");
+        _hasher.Verify(reloaded.PasswordHash, Password).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Handle_AfterTenWrongPasswords_LocksTheAccountAndRefusesTheRightOne()
     {
         var user = await CreateUser();
         SignIn(user);
         for (var attempt = 0; attempt < User.MaxFailedLogins; attempt++)
         {
-            await Handler.Handle(new ChangePasswordCommand(WrongPassword, NewPassword), CancellationToken.None);
+            await FailInItsOwnScope();
         }
 
         var result = await Handler.Handle(new ChangePasswordCommand(Password, NewPassword), CancellationToken.None);
@@ -178,6 +191,14 @@ public sealed class ChangePasswordCommandHandlerTests(PostgresFixture postgres) 
 
     protected override void ConfigureServices(IServiceCollection services) =>
         services.AddSingleton<IPasswordHasher>(_hasher);
+
+    private async Task FailInItsOwnScope()
+    {
+        await Task.Yield();
+        await using var scope = NewScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<ChangePasswordCommand, AuthSession>>();
+        await handler.Handle(new ChangePasswordCommand(WrongPassword, NewPassword), CancellationToken.None);
+    }
 
     private void SignIn(User user)
     {

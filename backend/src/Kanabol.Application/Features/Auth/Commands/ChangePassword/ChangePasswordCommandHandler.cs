@@ -38,9 +38,8 @@ public sealed class ChangePasswordCommandHandler(
         // A stolen access token mustn't be a way to guess the password without the limits of a login.
         if (!passwordHasher.Verify(user.PasswordHash, command.CurrentPassword))
         {
-            user.RecordFailedLogin(now);
-            await db.SaveChangesAsync(ct);
-            logger.LogWarning("User {UserId} gave a wrong current password, locked until {LockedUntil}", userId, user.LockedUntil);
+            await db.Users.CountFailedLogin(userId, now, ct);
+            logger.LogWarning("User {UserId} gave a wrong current password", userId);
             return AuthErrors.WrongCurrentPassword;
         }
 

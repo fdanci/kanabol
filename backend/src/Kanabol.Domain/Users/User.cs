@@ -7,7 +7,7 @@ public sealed class User : AuditableEntity
 {
     public const int MaxFailedLogins = 10;
 
-    private static readonly TimeSpan _lockoutDuration = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 
     public User(string email, string displayName, string passwordHash, Guid roleId, bool mustChangePassword = false)
     {
@@ -48,15 +48,10 @@ public sealed class User : AuditableEntity
 
     public bool IsLockedAt(DateTimeOffset now) => LockedUntil > now;
 
-    public void RecordFailedLogin(DateTimeOffset now)
+    public void RecordSuccessfulLogin()
     {
-        FailedLoginAttempts++;
-
-        if (FailedLoginAttempts >= MaxFailedLogins)
-        {
-            LockedUntil = now + _lockoutDuration;
-            FailedLoginAttempts = 0;
-        }
+        FailedLoginAttempts = 0;
+        LockedUntil = null;
     }
 
     public void ChangePassword(string passwordHash)
@@ -64,11 +59,5 @@ public sealed class User : AuditableEntity
         PasswordHash = passwordHash;
         MustChangePassword = false;
         RecordSuccessfulLogin();
-    }
-
-    public void RecordSuccessfulLogin()
-    {
-        FailedLoginAttempts = 0;
-        LockedUntil = null;
     }
 }

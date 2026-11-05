@@ -31,9 +31,8 @@ public sealed class LoginUserCommandHandler(
 
         if (!passwordHasher.Verify(user.PasswordHash, command.Password))
         {
-            user.RecordFailedLogin(now);
-            await db.SaveChangesAsync(ct);
-            logger.LogWarning("Login refused for {Email}: wrong password, locked until {LockedUntil}", email, user.LockedUntil);
+            await db.Users.CountFailedLogin(user.Id, now, ct);
+            logger.LogWarning("Login refused for {Email}: wrong password", email);
             return AuthErrors.InvalidCredentials;
         }
 

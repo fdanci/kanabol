@@ -134,6 +134,18 @@ public sealed class LoginUserCommandHandlerTests(PostgresFixture postgres) : Aut
     }
 
     [Fact]
+    public async Task Handle_WhenTenFailuresArriveAtOnce_CountsEveryOneAndLocks()
+    {
+        var user = await CreateUser();
+
+        await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => FailInItsOwnScope(user)));
+
+        var reloaded = await Reload(user);
+        reloaded.LockedUntil.Should().Be(Now.AddMinutes(15), "parallel guesses mustn't overwrite each other's count");
+        reloaded.FailedLoginAttempts.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Handle_AfterNineFailures_StillAcceptsTheRightPassword()
     {
         var user = await CreateUser();
@@ -226,8 +238,16 @@ public sealed class LoginUserCommandHandlerTests(PostgresFixture postgres) : Aut
     {
         for (var attempt = 0; attempt < count; attempt++)
         {
-            await Handler.Handle(new LoginUserCommand(user.Email, "alta parola complet"), CancellationToken.None);
+            await FailInItsOwnScope(user);
         }
+    }
+
+    private async Task FailInItsOwnScope(User user)
+    {
+        await Task.Yield();
+        await using var scope = NewScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<LoginUserCommand, AuthSession>>();
+        await handler.Handle(new LoginUserCommand(user.Email, "alta parola complet"), CancellationToken.None);
     }
 
     private void ShouldNotBeLogged(params string[] secrets)

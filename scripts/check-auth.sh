@@ -311,7 +311,7 @@ task_3() {
   echo "6.3 Login, refresh and logout"
   check "Docker is running" docker_is_running
   check "the controller is tracked" tracked "$api_dir/Controllers/AuthController.cs"
-  check "the entities' tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~Domain.Tests.Users' 9
+  check "the entities' tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~Domain.Tests.Users' 8
   check "the handlers' tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~LoginUserCommandHandlerTests|FullyQualifiedName~RefreshSessionCommandHandlerTests|FullyQualifiedName~LogoutUserCommandHandlerTests' 30
   check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~LoginEndpointTests|FullyQualifiedName~RefreshEndpointTests|FullyQualifiedName~LogoutEndpointTests' 12
   check "the migration keeps existing users" migration_keeps_existing_users
