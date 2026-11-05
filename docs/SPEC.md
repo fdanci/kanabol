@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.3 — 2026-11-05 (v1.2 + ce s-a stabilit la implementare: autentificarea în §4.5, modelul în §5, Docker în §13 și pipeline-ul de commit în §14).
+> Stare: v1.4 — 2026-11-05 (v1.3 + modelul de branch-uri feature → `dev` → `main`, stabilit de Florin, în §14).
 
 ---
 
@@ -999,6 +999,8 @@ Scriptul rulează pe server și scrie în `certs/` (în `.gitignore`). Prima rul
 
 Cerință: testele rulează **mereu înainte de un commit pe `main`**, pe mașina dezvoltatorului, fără CI extern. Pe celelalte branch-uri, inclusiv `dev`, rulăm doar verificări rapide ca să nu încetinim munca.
 
+Branch-uri: fiecare task se lucrează pe un branch `feature/<kebab>` (sau `fix/`, `chore/`, `docs/`, §7.5) pornit din `dev`. Când un grup din `Tasks.md` e gata, branch-ul intră în `dev`; aici fast-forward e permis, pentru că fiecare commit a trecut deja prin `pre-commit`. `dev` intră în `main` **numai după ce verificările de acceptanță ale grupului (§14.7) au trecut pe o clonă curată**, mereu cu `--no-ff`, ca merge commit-ul să ruleze suita completă. `main` conține deci doar grupuri terminate și verificate, iar `dev` e locul unde se adună munca dintre două merge-uri în `main`.
+
 ### 14.1 Tooling
 
 `package.json` la rădăcina repo (nu e frontend-ul; e doar pentru hook-uri):
@@ -1156,7 +1158,7 @@ echo "Ready. The hooks are on: docs/SPEC.md section 14 says what they run."
 ```
 
 Observații:
-- **Fast-forward nu rulează niciun hook** — de aceea forțăm `--no-ff` pe `main`. Merge commit-ul trece prin `pre-merge-commit` → `verify.sh` → suita completă.
+- **Fast-forward nu rulează niciun hook** — de aceea forțăm `--no-ff` pe `main`. Merge commit-ul trece prin `pre-merge-commit` → `verify.sh` → suita completă. Pe `dev` nu forțăm nimic: un merge fast-forward acolo aduce doar commit-uri care au trecut deja prin `pre-commit`.
 - `core.hooksPath` rămâne `.husky/_`, cum îl setează husky 9; nu-l suprascriem.
 - Testele de integrare au nevoie de **Docker Desktop pornit** (Testcontainers). Dacă nu e pornit, `scripts/require-docker.sh` refuză commit-ul pe `main` cu un mesaj clar — corect, nu sărim testele.
 - `git commit --no-verify` rămâne posibil (git nu poate interzice); `pre-push` pe `main` e plasa de siguranță.
