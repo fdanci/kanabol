@@ -141,6 +141,14 @@ task_3() {
   check "the build takes turns between tabs through navigator.locks" bundle_has kb.auth.refresh
 }
 
+# ---- 9.9
+
+task_9() {
+  echo "9.9 *kbHasPermission"
+  check "the directive is tracked" tracked "$app/shared/directives/has-permission.ts"
+  check "its specs pass" specs_pass src/app/shared/directives/has-permission.spec.ts 3
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -173,7 +181,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3
+  set -- 1 7 2 3 9
 fi
 
 for task in "$@"; do
