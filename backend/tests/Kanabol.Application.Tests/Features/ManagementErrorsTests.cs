@@ -25,9 +25,11 @@ public sealed class ManagementErrorsTests
         { UserErrors.ChangedMeanwhile, "User.ChangedMeanwhile", ErrorType.Conflict },
         { UserErrors.RoleBeyondYours, "User.RoleBeyondYours", ErrorType.Forbidden },
         { UserErrors.PermissionsBeyondYours, "User.PermissionsBeyondYours", ErrorType.Forbidden },
+        { UserErrors.OwnPasswordReset, "User.OwnPasswordReset", ErrorType.Forbidden },
         { UserErrors.RoleNotFound, "Validation", ErrorType.Validation },
         { AuthErrors.PermissionRequired, "Auth.PermissionRequired", ErrorType.Forbidden },
         { AuthErrors.SessionEnded, "Auth.SessionEnded", ErrorType.Unauthorized },
+        { AuthErrors.PasswordChangeRequired, "Auth.PasswordChangeRequired", ErrorType.Forbidden },
         { AuthErrors.SessionChangedMeanwhile, "Auth.SessionChangedMeanwhile", ErrorType.Conflict },
     };
 

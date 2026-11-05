@@ -9,6 +9,7 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
 {
     private const string Users = "/api/users";
     private const string InitialPassword = "o parola initiala buna";
+    private const string ResetPassword = "o parola noua de la admin";
     private const string SomeUser = "/api/users/019a0000-0000-7000-8000-000000000001";
 
     [Fact]
@@ -119,6 +120,40 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     }
 
     [Fact]
+    public async Task ResetPassword_WhenAllowed_Returns200AndOnlyTheNewPasswordSignsIn()
+    {
+        var token = await TokenWith(Permissions.UsersManage);
+        var user = await CreateUser(UnusedEmail());
+        var session = RefreshTokenFrom(await Login(user.Email));
+
+        var response = await Send(HttpMethod.Post, $"{Users}/{user.Id}/reset-password", token, new { initialPassword = ResetPassword });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var text = await response.Content.ReadAsStringAsync();
+        text.Should().NotContain(ResetPassword).And.NotContainEquivalentOf("passwordHash");
+        using var body = await JsonFrom(response);
+        body.RootElement.GetProperty("mustChangePassword").GetBoolean().Should().BeTrue();
+        (await Refresh(session)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await Login(user.Email)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var login = await Login(user.Email, ResetPassword);
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await login.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("mustChangePassword").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithABadPassword_Returns400WithoutEchoingIt()
+    {
+        var token = await TokenWith(Permissions.UsersManage);
+        var user = await CreateUser(UnusedEmail());
+
+        var response = await Send(HttpMethod.Post, $"{Users}/{user.Id}/reset-password", token, new { initialPassword = "scurta" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var text = await response.Content.ReadAsStringAsync();
+        text.Should().Contain("initialPassword").And.NotContain("scurta");
+    }
+
+    [Fact]
     public async Task AssignableRoles_WhenAllowed_ReturnsOnlyWhatTheCallerCanGive()
     {
         var token = await TokenWith(Permissions.UsersManage);
@@ -142,6 +177,7 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     [InlineData("PUT", SomeUser + "/role")]
     [InlineData("POST", SomeUser + "/deactivate")]
     [InlineData("POST", SomeUser + "/activate")]
+    [InlineData("POST", SomeUser + "/reset-password")]
     public async Task Endpoint_WithoutAToken_Returns401(string method, string path) =>
         (await Send(new HttpMethod(method), path, accessToken: null, BodyFor(method, path))).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -154,6 +190,7 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     [InlineData("PUT", SomeUser + "/role")]
     [InlineData("POST", SomeUser + "/deactivate")]
     [InlineData("POST", SomeUser + "/activate")]
+    [InlineData("POST", SomeUser + "/reset-password")]
     public async Task Endpoint_WithoutUsersManage_Returns403WithACode(string method, string path)
     {
         var token = await TokenWith(Permissions.RolesManage);
@@ -241,6 +278,11 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
         if (method == "POST" && path == Users)
         {
             return new { email = "ana@example.com", displayName = "Ana", roleId = Guid.CreateVersion7(), initialPassword = InitialPassword };
+        }
+
+        if (path.EndsWith("/reset-password", StringComparison.Ordinal))
+        {
+            return new { initialPassword = ResetPassword };
         }
 
         if (method != "PUT")

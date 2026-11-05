@@ -29,6 +29,7 @@ public sealed class SwaggerDocumentTests(ApiFixture api) : ApiTest(api)
     [InlineData("/api/users")]
     [InlineData("/api/users/{id}/deactivate")]
     [InlineData("/api/users/{id}/activate")]
+    [InlineData("/api/users/{id}/reset-password")]
     [InlineData("/api/roles")]
     [InlineData("/api/permissions")]
     public void Document_WhenGenerated_ListsTheEndpoint(string path) =>

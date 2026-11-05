@@ -16,6 +16,8 @@ public static class UserErrors
 
     public static readonly Error PermissionsBeyondYours = Error.Forbidden("User.PermissionsBeyondYours", "You can't change someone who has permissions you don't have.");
 
+    public static readonly Error OwnPasswordReset = Error.Forbidden("User.OwnPasswordReset", "Change your own password with your current one instead.");
+
     public static readonly Error RoleNotFound = Error.Validation(new Dictionary<string, string[]>
     {
         ["RoleId"] = ["This role doesn't exist."],
