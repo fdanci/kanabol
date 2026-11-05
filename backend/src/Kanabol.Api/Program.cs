@@ -22,7 +22,7 @@ builder.Services.AddControllers();
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDetailsEnrichment.AddTraceIds);
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddHealthChecks();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerWithBearerToken();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddJwtAuthentication();
