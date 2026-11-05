@@ -617,6 +617,7 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnName("failed_login_attempts");
 
                     b.Property<bool>("IsActive")
+                        .IsConcurrencyToken()
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
 

@@ -3,9 +3,11 @@ using Kanabol.Api.Errors;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Users;
+using Kanabol.Application.Features.Users.Commands.ActivateUser;
 using Kanabol.Application.Features.Users.Commands.ChangeUserRole;
 using Kanabol.Application.Features.Users.Commands.CreateUser;
 using Kanabol.Application.Features.Users.Commands.DeactivateUser;
+using Kanabol.Application.Features.Users.Commands.ResetUserPassword;
 using Kanabol.Application.Features.Users.Commands.UpdateUser;
 using Kanabol.Application.Features.Users.Queries.GetAssignableRoles;
 using Kanabol.Application.Features.Users.Queries.GetUserById;
@@ -74,4 +76,19 @@ public sealed class UsersController : ControllerBase
         [FromServices] ICommandHandler<DeactivateUserCommand, UserDto> handler,
         CancellationToken ct) =>
         (await handler.Handle(new DeactivateUserCommand(id), ct)).ToActionResult();
+
+    [HttpPost("{id:guid}/activate")]
+    public async Task<IActionResult> ActivateUser(
+        Guid id,
+        [FromServices] ICommandHandler<ActivateUserCommand, UserDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new ActivateUserCommand(id), ct)).ToActionResult();
+
+    [HttpPost("{id:guid}/reset-password")]
+    public async Task<IActionResult> ResetUserPassword(
+        Guid id,
+        ResetUserPasswordRequest request,
+        [FromServices] ICommandHandler<ResetUserPasswordCommand, UserDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new ResetUserPasswordCommand(id, request.InitialPassword), ct)).ToActionResult();
 }

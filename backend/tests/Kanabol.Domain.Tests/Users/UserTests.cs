@@ -39,6 +39,37 @@ public sealed class UserTests
     }
 
     [Fact]
+    public void Activate_AfterDeactivate_LeavesTheRestAlone()
+    {
+        var user = new UserBuilder().MustChangePassword().Build();
+        var (email, roleId, hash) = (user.Email, user.RoleId, user.PasswordHash);
+        user.Deactivate();
+
+        user.Activate();
+
+        user.IsActive.Should().BeTrue();
+        user.Email.Should().Be(email);
+        user.RoleId.Should().Be(roleId);
+        user.PasswordHash.Should().Be(hash);
+        user.MustChangePassword.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ResetPassword_WhenCalled_ReplacesTheHashAndMakesThemChangeIt()
+    {
+        var user = new UserBuilder().Build();
+        var (email, roleId) = (user.Email, user.RoleId);
+
+        user.ResetPassword("reset-hash");
+
+        user.PasswordHash.Should().Be("reset-hash");
+        user.MustChangePassword.Should().BeTrue();
+        user.IsActive.Should().BeTrue();
+        user.Email.Should().Be(email);
+        user.RoleId.Should().Be(roleId);
+    }
+
+    [Fact]
     public void Lockout_IsWhatTheSpecAsks()
     {
         User.MaxFailedLogins.Should().Be(10);

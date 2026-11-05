@@ -18,7 +18,7 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
     [Theory]
     [InlineData("Roles", Permissions.RolesManage, 5)]
     [InlineData("Permissions", Permissions.RolesManage, 1)]
-    [InlineData("Users", Permissions.UsersManage, 7)]
+    [InlineData("Users", Permissions.UsersManage, 9)]
     public void Controller_OnEveryAction_NeedsItsPermission(string controller, string permission, int actions)
     {
         var found = RealActions

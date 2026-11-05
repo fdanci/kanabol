@@ -66,10 +66,20 @@ public sealed class User : AuditableEntity
 
     public void Deactivate() => IsActive = false;
 
+    public void Activate() => IsActive = true;
+
     public void ChangePassword(string passwordHash)
     {
         PasswordHash = passwordHash;
         MustChangePassword = false;
+        RecordSuccessfulLogin();
+    }
+
+    /// <summary>An admin gives a new initial password. The failures so far counted against the old one, so they go too.</summary>
+    public void ResetPassword(string passwordHash)
+    {
+        PasswordHash = passwordHash;
+        MustChangePassword = true;
         RecordSuccessfulLogin();
     }
 }
