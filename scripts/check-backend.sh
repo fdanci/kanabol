@@ -2006,11 +2006,11 @@ task_15() {
 
   seeded=$(fresh_database seeded)
   password=only-for-these-checks-1
-  permissions='projects.create,projects.manage,projects.view_all,reports.view,roles.manage,tasks.archive,users.manage'
+  permissions='projects.create,projects.manage,projects.view_all,reports.view,roles.manage,tasks.archive,tasks.create,users.manage'
   check "the first start seeds a new database" seed_once "$seeded" "$password"
   check "the permissions come from the constants" query_is "$seeded" 'SELECT name FROM permissions ORDER BY name' "$permissions"
   check "there's one role, Admin, and it's a system role" query_is "$seeded" 'SELECT name, is_system FROM roles' 'Admin|True'
-  check "Admin has every permission" query_is "$seeded" 'SELECT count(*) FROM role_permissions' 7
+  check "Admin has every permission" query_is "$seeded" 'SELECT count(*) FROM role_permissions' 8
   check "there's one user" query_is "$seeded" 'SELECT count(*) FROM users' 1
   check "the user has the Admin role" query_is "$seeded" 'SELECT r.name FROM users u JOIN roles r ON r.id = u.role_id' Admin
   check "the user has to change the password" query_is "$seeded" 'SELECT must_change_password, is_active FROM users' 'True|True'
@@ -2022,7 +2022,7 @@ task_15() {
   check "the stored hash verifies against the password" hash_verifies_stored_password "$stored_hash" "$password"
 
   check "the next start needs no admin password" seed_once "$seeded"
-  check "it adds no permission" query_is "$seeded" 'SELECT count(*) FROM permissions' 7
+  check "it adds no permission" query_is "$seeded" 'SELECT count(*) FROM permissions' 8
   check "it adds no role" query_is "$seeded" 'SELECT count(*) FROM roles' 1
   check "it adds no user" query_is "$seeded" 'SELECT count(*) FROM users' 1
   check "it leaves the password alone" query_is "$seeded" 'SELECT password_hash FROM users' "$stored_hash"

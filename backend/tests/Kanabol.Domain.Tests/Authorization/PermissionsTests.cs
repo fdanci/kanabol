@@ -13,6 +13,7 @@ public sealed class PermissionsTests
             "projects.create",
             "projects.view_all",
             "projects.manage",
+            "tasks.create",
             "tasks.archive",
             "reports.view");
 

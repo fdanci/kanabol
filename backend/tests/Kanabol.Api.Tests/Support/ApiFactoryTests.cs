@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Kanabol.Domain.Authorization;
 using Kanabol.Infrastructure.Configuration;
+using Kanabol.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -42,6 +43,23 @@ public sealed class ApiFactoryTests(ApiFixture api) : ApiTest(api)
         (await db.Users.SingleAsync()).MustChangePassword.Should().BeTrue();
     }
 
+    // A database from before tasks.create existed, which is what the deployed one will be on its next start.
+    [Fact]
+    public async Task Seed_WhenAPermissionIsNewInTheCode_AddsItAndGrantsItToAdmin()
+    {
+        await using var db = Api.Postgres.CreateContext();
+        await db.Permissions.Where(permission => permission.Name == "tasks.create").ExecuteDeleteAsync();
+        await SeedAgain();
+
+        (await db.Permissions.AnyAsync(permission => permission.Name == "tasks.create")).Should().BeTrue();
+        var admin = await db.Roles.Include(role => role.RolePermissions).SingleAsync(role => role.Name == Role.AdminName);
+        var grantedNames = await db.Permissions
+            .Where(permission => admin.RolePermissions.Select(granted => granted.PermissionId).Contains(permission.Id))
+            .Select(permission => permission.Name)
+            .ToListAsync();
+        grantedNames.Should().Contain("tasks.create");
+    }
+
     [Fact]
     public async Task CreateToken_WhenGivenAUser_IsValidForTheApisSettings()
     {
@@ -76,6 +94,12 @@ public sealed class ApiFactoryTests(ApiFixture api) : ApiTest(api)
         client.DefaultRequestHeaders.Authorization!.Scheme.Should().Be("Bearer");
         var result = await ValidateAsync(client.DefaultRequestHeaders.Authorization.Parameter!, JwtOptions.Secret);
         result.ClaimsIdentity.FindFirst("sub")!.Value.Should().Be(userId.ToString());
+    }
+
+    private async Task SeedAgain()
+    {
+        await using var scope = Api.Factory.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().Seed(CancellationToken.None);
     }
 
     private async Task<TokenValidationResult> ValidateAsync(string token, string secret) =>
