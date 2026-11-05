@@ -7,6 +7,10 @@ cd "$(git rev-parse --show-toplevel)"
 branch=$(git rev-parse --abbrev-ref HEAD)
 mode=${1:-commit}
 
+if [ "$branch" = "main" ]; then
+  scripts/require-docker.sh
+fi
+
 echo "▶ $mode: lint-staged"
 # eslint, prettier and dotnet format on the staged files only. dotnet format ignores absolute paths
 # without saying so, and lint-staged sends those unless told otherwise.

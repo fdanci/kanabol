@@ -10,6 +10,16 @@ failures=0
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
+# Only task 6 needs the real Docker, so the others get one that always answers, or never does.
+stubs="$scratch/stubs"
+no_docker="$scratch/no-docker"
+mkdir -p "$stubs" "$no_docker"
+printf '#!/bin/sh\nexit 0\n' >"$stubs/docker"
+printf '#!/bin/sh\necho "Cannot connect to the Docker daemon" >&2\nexit 1\n' >"$no_docker/docker"
+chmod +x "$stubs/docker" "$no_docker/docker"
+real_path=$PATH
+PATH="$stubs:$PATH"
+
 check() { # check <description> <command...>
   description=$1
   shift
@@ -108,6 +118,7 @@ sandbox() {
       git config user.email check@example.invalid &&
       git add -A &&
       git commit -q -m 'chore: the starting point' &&
+      git tag starting-point &&
       npm ci --no-audit --no-fund >/dev/null 2>&1 &&
       cd frontend &&
       npm ci --no-audit --no-fund >/dev/null 2>&1
@@ -121,8 +132,8 @@ sandbox() {
 fresh_sandbox() {
   sandbox || return 1
   git -C "$repo" merge --abort >/dev/null 2>&1
-  git -C "$repo" checkout -q -f main &&
-    git -C "$repo" reset -q --hard &&
+  # main goes back too, since a check may have merged into it.
+  git -C "$repo" checkout -q -f -B main starting-point &&
     git -C "$repo" clean -qfd
 }
 
@@ -330,6 +341,28 @@ verify_stops_on_lint_before_the_suite() {
   verify_refuses && verify_log_has 'no-explicit-any' && verify_log_lacks 'the full suite ran'
 }
 
+verify_without_docker() {
+  verify_log="$scratch/verify.log"
+  (cd "$repo" && PATH="$no_docker:$real_path" scripts/verify.sh commit) >"$verify_log" 2>&1
+}
+
+verify_says_docker_is_down_on_main() {
+  fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '- a\n' || return 1
+  if verify_without_docker; then
+    echo "verify.sh passed"
+    return 1
+  fi
+  verify_log_has "Docker isn't running" && verify_log_lacks 'the full suite ran' && verify_log_lacks 'lint-staged'
+}
+
+verify_needs_no_docker_on_a_branch() {
+  fresh_sandbox && on_a_feature_branch && stage_in_sandbox docs/probe.md '- a\n' || return 1
+  verify_without_docker || {
+    tail -n 12 "$verify_log"
+    return 1
+  }
+}
+
 task_4() {
   echo "Task 4: scripts/verify.sh"
   check "it's tracked" tracked scripts/verify.sh
@@ -346,6 +379,11 @@ task_4() {
   check "a branch with frontend changes runs the specs" verify_runs_frontend_specs
   check "a failing spec stops it" verify_stops_on_a_failing_spec
   check "a lint error stops it before the suite" verify_stops_on_lint_before_the_suite
+  check "the Docker check is tracked" tracked scripts/require-docker.sh
+  check "the Docker check is executable" executable scripts/require-docker.sh
+  check "the Docker check is valid sh" sh -n scripts/require-docker.sh
+  check "on main, Docker being down gets a clear message before anything runs" verify_says_docker_is_down_on_main
+  check "on a branch, Docker isn't needed" verify_needs_no_docker_on_a_branch
 }
 
 hook_is() { # hook_is <hook> <text>
@@ -457,6 +495,31 @@ push_to_a_branch_skips_the_suite() {
   ! grep -q 'the full suite ran' "$push_log"
 }
 
+merge_says_docker_is_down() {
+  feature_with_a_commit && stub_full_suite || return 1
+  before=$(head_of main)
+  merge_log="$scratch/merge.log"
+  if PATH="$no_docker:$real_path" git -C "$repo" merge --no-ff --no-edit feature/probe >"$merge_log" 2>&1; then
+    echo "the merge went through"
+    return 1
+  fi
+  grep -q "Docker isn't running" "$merge_log" &&
+    ! grep -q 'the full suite ran' "$merge_log" &&
+    [ "$(head_of main)" = "$before" ]
+}
+
+push_says_docker_is_down() {
+  fresh_sandbox && stub_full_suite && remote_for_sandbox || return 1
+  push_log="$scratch/push.log"
+  if PATH="$no_docker:$real_path" git -C "$repo" push origin main >"$push_log" 2>&1; then
+    echo "the push went through"
+    return 1
+  fi
+  grep -q "Docker isn't running" "$push_log" &&
+    ! grep -q 'the full suite ran' "$push_log" &&
+    ! git -C "$scratch/remote.git" rev-parse -q --verify refs/heads/main >/dev/null
+}
+
 task_3() {
   echo "Task 3: the hooks"
   for hook in pre-commit pre-merge-commit commit-msg pre-push; do
@@ -469,7 +532,8 @@ task_3() {
   check "pre-commit runs verify.sh" hook_is pre-commit 'exec scripts/verify.sh commit'
   check "pre-merge-commit runs verify.sh" hook_is pre-merge-commit 'exec scripts/verify.sh merge'
   check "commit-msg runs commitlint" hook_is commit-msg 'npx --no -- commitlint --edit "$1"'
-  check "pre-push guards main" hook_is pre-push 'refs/heads/main) exec scripts/test-all.sh'
+  check "pre-push guards main" hook_is pre-push 'refs/heads/main)'
+  check "pre-push runs the full suite" hook_is pre-push 'exec scripts/test-all.sh'
   check "npm installs the hooks" hooks_are_installed_by_npm
   check "a bad message is refused and nothing is committed" bad_message_is_refused
   check "a commit goes through verify.sh, and what it formats gets committed" commit_goes_through_verify
@@ -478,6 +542,8 @@ task_3() {
   check "a merge into main goes through on a passing suite, as a merge commit" merge_goes_through_on_a_passing_suite
   check "a push to main needs the suite" push_to_main_needs_the_suite
   check "a push to a branch doesn't" push_to_a_branch_skips_the_suite
+  check "a merge into main says so when Docker is down" merge_says_docker_is_down
+  check "a push to main says so when Docker is down" push_says_docker_is_down
 }
 
 # A repo as a fresh clone has it, with no packages installed.
