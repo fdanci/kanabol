@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.6 — 2026-11-05 (v1.5 + corecturile lecturii cap-coadă: cheia de task `KAN-123` în §5.1 și §7.2, notificările de asignare și de comentariu în §4.3, cycle time și rapoartele pentru owneri în §5.1.1, markdown în §5.1 și §16, `chart.js` în §2, `navigator.locks` în §6.2, §18 curățat).
+> Stare: v1.7 — 2026-11-05 (v1.6 + deciziile grupului 8: cine poate da ce și contul dezactivat în §4.4, invarianta ultimului `Admin` la concurență în §4.4, §5.1 și §5.3, `ux_roles_lower_name` în §5.1 și §7.2, `check-users.sh` în §14.7).
 
 ---
 
@@ -264,6 +264,10 @@ tasks.archive       reports.view
 
 Permisiunile ajung în JWT ca claims `permission`. Pe API: `[HasPermission(Permissions.ProjectsViewAll)]` — un `IAuthorizationPolicyProvider` custom construiește politica `Permission:<name>` la cerere, fără să le înregistrăm pe fiecare în `Program.cs`.
 
+**Cine poate da ce.** Nimeni nu dă mai mult decât are. Un rol se creează, se editează sau se șterge doar de cineva care are toate permisiunile lui, cele vechi și cele noi (403 `Role.PermissionsBeyondYours`). Un utilizator primește, la creare sau la schimbarea rolului, doar un rol ale cărui permisiuni le are apelantul (403 `User.RoleBeyondYours`), iar nimeni nu editează, nu mută în alt rol și nu dezactivează pe cineva care are permisiuni în plus față de el (403 `User.PermissionsBeyondYours`). Altfel `users.manage` singur ar duce la `Admin`, iar `roles.manage` ar putea goli rolul cuiva aflat mai sus, ca apoi să-l dezactiveze. `GET /api/users/assignable-roles` întoarce rolurile pe care apelantul le poate da. Adminul are toate permisiunile, deci limita nu-l atinge.
+
+**Cont dezactivat sau retrogradat.** Administrarea utilizatorilor și a rolurilor nu se încrede în token: `CurrentPermissions` recitește din baza de date utilizatorul și permisiunile lui la fiecare cerere (401 `Auth.SessionEnded` dacă e dezactivat, 403 `Auth.PermissionRequired` dacă permisiunea a dispărut), iar dezactivarea închide sesiunile (refresh token-urile sunt revocate). Celelalte endpoint-uri se bazează pe claims din access token, deci un cont dezactivat sau retrogradat le mai poate apela până expiră token-ul, cel mult 15 minute (§4.5). Acceptat așa în v1, pe 2026-11-05.
+
 **Nivel proiect — rol pe proiect.** `ProjectMember(ProjectId, UserId, ProjectRole)` cu `ProjectRole = Owner | Member`. Verificat în handler prin `IProjectAccess`:
 - `EnsureMemberAsync(projectId, userId)` — trece dacă e membru **sau** are `projects.view_all` **sau** `projects.manage` (cine poate administra orice proiect îl poate și vedea).
 - `EnsureOwnerAsync(projectId, userId)` — trece dacă e owner **sau** are `projects.manage`.
@@ -273,7 +277,7 @@ Refuzul e un 403 ProblemDetails: `code: Auth.PermissionRequired` pentru o permis
 Invariante:
 - `Project` are mereu cel puțin un owner (verificat în `Project.RemoveMember` / `ChangeMemberRole`).
 - Rolul `Admin` (`is_system = true`) nu poate fi șters, redenumit sau lipsit de permisiuni.
-- Ultimul utilizator cu rolul `Admin` nu poate primi alt rol și nu poate fi dezactivat (verificat în handlerele `ChangeUserRole` și `DeactivateUser`).
+- Ultimul utilizator cu rolul `Admin` nu poate primi alt rol și nu poate fi dezactivat (verificat în handlerele `ChangeUserRole` și `DeactivateUser`, prin `LastAdminGuard`). O numărare nu ajunge când cererile se suprapun: `Role.HoldersVersion` crește de câte ori cineva pleacă din rol și e concurrency token, la fel `users.role_id`, deci a doua din două salvări simultane, sau una făcută pe o citire veche, primește 409 `User.ChangedMeanwhile`.
 - Utilizatorii nu se șterg, se dezactivează (`is_active = false`): rămân referențiați din istoric, comentarii și rapoarte.
 
 ### 4.5 Autentificare
@@ -332,8 +336,8 @@ Project ──< TaskItem ──< Comment
                      └──< Notification (overdue etc.)
 ```
 
-- `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol), `IsActive`, `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
-- `Role`: `Name` (unic), `IsSystem` (true doar pentru `Admin`), permisiuni prin `role_permissions`.
+- `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol; concurrency token, §4.4), `IsActive`, `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
+- `Role`: `Name` (unic indiferent de majuscule, `ux_roles_lower_name`), `IsSystem` (true doar pentru `Admin`), `HoldersVersion` (crește când cineva pleacă din rol; concurrency token care ține invarianta ultimului `Admin`, §4.4), permisiuni prin `role_permissions`.
 - `Project`: `Name`, `Key` (prefixul cheilor de task: 2–5 majuscule, unic, ex. `KAN`; nu se schimbă după creare), `Description?`, `NextTaskNumber` (contorul din care se alocă numerele de task), `ArchivedAt?`, `ArchivedById?`; deține `Members` și `Columns`.
 - `TaskItem` (nu `Task`, ca să nu se bată cu `System.Threading.Tasks.Task`): `Number` (unic în proiect, alocat crescător la creare din `Project.NextTaskNumber`, în aceeași tranzacție; `Project` are concurrency token, deci două creări simultane nu primesc același număr), `Title`, `Description` (markdown de bază, stocat ca text), `Priority` (enum `Low|Medium|High|Critical`), `DueDate?`, `AssigneeId?`, `ColumnId`, `Position`, `CompletedAt?`, `ArchivedAt?`, `ArchivedById?`. Cheia afișată e `{Project.Key}-{Number}`, ex. `KAN-123`; `GET /api/tasks/by-key/{key}` o rezolvă (UI §7.5). Numărul rămâne și după arhivare, nu se refolosește.
 - `BoardColumn`: `Name`, `Position`, `IsDone` (marchează coloana „terminat”; intrarea unui task într-o astfel de coloană setează `CompletedAt`, ieșirea îl anulează). Fără WIP limit în v1.
@@ -381,7 +385,7 @@ Un `AuditingInterceptor : SaveChangesInterceptor` completează câmpurile de aud
 
 - Un fișier `IEntityTypeConfiguration<T>` per entitate în `Infrastructure/Persistence/Configurations/`, aplicate cu `ApplyConfigurationsFromAssembly`. **Fără** data annotations pe entități (Domain rămâne curat).
 - `UseNpgsql(...).UseSnakeCaseNamingConvention()` → toate tabelele/coloanele/indexurile în `snake_case` automat.
-- Concurență optimistă: `builder.Property<uint>("Version").IsRowVersion()` pe `TaskItem`, `Project`, `BoardColumn` (mutările pe kanban concurente se rezolvă cu 409). Npgsql o mapează pe `xmin`; `UseXminAsConcurrencyToken` nu mai există în Npgsql 10.
+- Concurență optimistă: `builder.Property<uint>("Version").IsRowVersion()` pe `TaskItem`, `Project`, `BoardColumn` (mutările pe kanban concurente se rezolvă cu 409). Npgsql o mapează pe `xmin`; `UseXminAsConcurrencyToken` nu mai există în Npgsql 10. Separat, `IsConcurrencyToken()` pe `Role.HoldersVersion` și `User.RoleId` (invarianta ultimului `Admin`, §4.4) și pe `RefreshToken.RevokedAt` (rotirea refresh token-ului, §4.5).
 - Enum-uri stocate ca `text` (`HasConversion<string>()`) — lizibile în DB și în Seq, sigure la reordonare.
 - Toate datele în `timestamptz` (`DateTimeOffset` în C#). Serverul lucrează în UTC; frontend-ul afișează local.
 - `string` → `varchar(n)` explicit cu `HasMaxLength`; `Description` și `Comment.Body` → `text`.
@@ -484,7 +488,7 @@ Fiecare feature: `<feature>.routes.ts`, `<feature>-api.ts` (HTTP), `<feature>-st
 | PK | `id` (uuid v7) | |
 | FK | `<entitate>_id` | `project_id`, `assignee_id` |
 | Indexuri | `ix_<tabel>_<coloane>` (generat de EF) | `ix_task_items_project_id_column_id` |
-| Unique | `ux_<tabel>_<coloane>` | `ux_users_email`, `ux_projects_key`, `ux_task_items_project_id_number` |
+| Unique | `ux_<tabel>_<coloane>` | `ux_users_email`, `ux_roles_lower_name` (pe `lower(name)`, creat cu SQL în migrare), `ux_projects_key`, `ux_task_items_project_id_number` |
 | FK constraint | `fk_<tabel>_<tabel_referit>_<coloană>` (generat) | |
 | Timestamp-uri | `timestamptz`, sufix `_at` | `completed_at` |
 | Booleans | prefix `is_`/`has_` | `is_done`, `is_active` |
@@ -1175,8 +1179,8 @@ Observații:
 
 Fiecare grup din `Tasks.md` are verificările lui în `scripts/check-*.sh`. Nu rulează în hook-uri: se rulează toate pe o clonă curată, după `scripts/setup.sh`, înainte ca un grup să fie considerat gata, pentru că repo-ul n-are CI.
 
-- `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
-- `check-backend.sh`, `check-auth.sh` și `check-permissions.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
+- `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-users.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
+- `check-backend.sh`, `check-auth.sh`, `check-permissions.sh` și `check-users.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
 - `check-docker.sh 5` are nevoie de porturile 5432, 5341 și 5200 libere.
 
 Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-all.sh` e exact ce rulează și acolo — fără duplicare de logică.
