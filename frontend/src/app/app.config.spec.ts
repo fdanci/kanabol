@@ -2,6 +2,10 @@ import { HttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ApplicationInitStatus, ErrorHandler } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { MAT_DIALOG_DEFAULT_OPTIONS } from '@angular/material/dialog';
+import { MatIconRegistry } from '@angular/material/icon';
+import { MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS } from '@angular/material/slide-toggle';
+import { MAT_TOOLTIP_DEFAULT_OPTIONS } from '@angular/material/tooltip';
 import { appConfig } from './app.config';
 import { AuthStore } from './core/auth/auth-store';
 import { GlobalErrorHandler } from './core/logging/global-error-handler';
@@ -97,5 +101,21 @@ describe('appConfig', () => {
 
   it('hands uncaught errors to GlobalErrorHandler', () => {
     expect(TestBed.inject(ErrorHandler)).toBeInstanceOf(GlobalErrorHandler);
+  });
+
+  // docs/UI_UX_SPEC.md §6.0.3, §6.0.5 and §6.0.6.
+  it('sets the controls up as the UI spec has them', async () => {
+    await started(noSession);
+
+    expect(TestBed.inject(MatIconRegistry).getDefaultFontSetClass()).toEqual(['kb-symbols']);
+    expect(TestBed.inject(MAT_TOOLTIP_DEFAULT_OPTIONS).showDelay).toBe(500);
+    expect(TestBed.inject(MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS).hideIcon).toBe(true);
+    expect(TestBed.inject(MAT_DIALOG_DEFAULT_OPTIONS)).toMatchObject({
+      panelClass: 'kb-sheet',
+      backdropClass: 'kb-sheet-backdrop',
+      position: { top: '12vh' },
+      enterAnimationDuration: 240,
+      exitAnimationDuration: 160,
+    });
   });
 });

@@ -84,6 +84,15 @@ bundle_has() { # bundle_has <text>
   built && in_file "$1" "$scratch/bundle.js"
 }
 
+css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
+  built || return 1
+  tr -d ' 
+' <"$(ls "$scratch"/dist/browser/styles-*.css | head -n 1)" | grep -qF -- "$1" || {
+    echo "not in the built CSS: $1"
+    return 1
+  }
+}
+
 # ---- 9.1
 
 only_one_environment() {
@@ -149,6 +158,37 @@ task_9() {
   check "its specs pass" specs_pass src/app/shared/directives/has-permission.spec.ts 3
 }
 
+# ---- 9.5
+
+no_material_internals() {
+  ! grep -nE '.(mat-mdc|mdc)-' "$web/src/styles.scss" "$web"/src/styles/_*.scss
+}
+
+task_5() {
+  echo "9.5 The shape of Material's controls"
+  check "the controls behave as the UI spec has them" specs_pass src/app/app.config.spec.ts 6
+  check "the switch is 26px wide" css_has '--mat-slide-toggle-track-width:26px'
+  check "and 16px high" css_has '--mat-slide-toggle-track-height:16px'
+  check "with a 12px knob" css_has '--mat-slide-toggle-selected-handle-size:12px'
+  check "a ticked checkbox is on the accent fill" css_has '--mat-checkbox-selected-icon-color:var(--kb-fill-accent)'
+  check "with a white check" css_has '--mat-checkbox-selected-checkmark-color:#fff'
+  check "menus are translucent popovers" css_has '--mat-menu-container-color:var(--kb-glass-bg)'
+  check "with the popover shadow" css_has '--mat-menu-container-elevation-shadow:var(--kb-shadow-popover)'
+  check "and the blur" css_has '.kb-menu{-webkit-backdrop-filter:var(--kb-glass-blur);backdrop-filter:var(--kb-glass-blur)'
+  check "tooltips are on ink, which stays dark in dark" css_has '--mat-tooltip-container-color:color-mix(insrgb,var(--kb-ink)90%,transparent)'
+  check "sheets have the sheet shadow" css_has '--mat-dialog-container-elevation-shadow:var(--kb-shadow-sheet)'
+  check "and the navy veil" css_has '.kb-sheet-backdrop{background:#05206347'
+  check "kb-regular brings a button to 28px" css_has '--mat-button-filled-container-height:28px'
+  check "kb-sm brings it to 24px" css_has '--mat-button-filled-container-height:24px'
+  check "a field is 28px, sunken" css_has '.kb-field{box-sizing:border-box;width:100%;height:28px'
+  check "with its label to the left in a 160px column" css_has 'grid-template-columns:160pxminmax(0,1fr)'
+  check "a menu item lights up in tint-100, where its text stays readable" css_has '--mat-menu-item-hover-state-layer-color:var(--kb-tint-100)'
+  check "an icon button is 32px" css_has '--mat-icon-button-state-layer-size:32px'
+  check "with a 40px target" css_has '--mat-icon-button-touch-target-size:40px'
+  check "mat-icon draws with the self-hosted Material Symbols" css_has '.kb-symbols{font-family:MaterialSymbolsOutlined'
+  check "Material is styled through its tokens only" no_material_internals
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -181,7 +221,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3 9
+  set -- 1 7 2 3 9 5
 fi
 
 for task in "$@"; do
