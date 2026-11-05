@@ -89,8 +89,17 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
         (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task EnsureMemberAsync_WithManage_SucceedsWithoutBeingAMember()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
+        var project = await CreateProject();
+
+        (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
     [Theory]
-    [InlineData(Permissions.ProjectsManage)]
+    [InlineData(Permissions.ReportsView)]
     [InlineData(Permissions.UsersManage)]
     public async Task EnsureMemberAsync_WithAnotherPermission_ReturnsForbidden(string permission)
     {
@@ -248,6 +257,18 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
     public async Task EnsureMemberAsync_WhenADeactivatedUserHasViewAll_ReturnsForbidden()
     {
         var user = await CreateUser(permissions: [Permissions.ProjectsViewAll]);
+        var project = await CreateProject();
+        await Deactivate(user);
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenADeactivatedUserHasManage_ReturnsForbidden()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
         var project = await CreateProject();
         await Deactivate(user);
 

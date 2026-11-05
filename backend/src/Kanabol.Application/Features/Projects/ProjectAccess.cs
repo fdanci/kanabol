@@ -14,11 +14,15 @@ namespace Kanabol.Application.Features.Projects;
 /// </summary>
 public sealed class ProjectAccess(IAppDbContext db) : IProjectAccess
 {
+    // Whoever can manage any project can also see it (SPEC section 4.4).
+    private static readonly string[] _thoseWhoPassAsMember = [Permissions.ProjectsViewAll, Permissions.ProjectsManage];
+    private static readonly string[] _thoseWhoPassAsOwner = [Permissions.ProjectsManage];
+
     public async Task<Result> EnsureMemberAsync(Guid projectId, Guid userId, CancellationToken ct)
     {
         var membership = db.ProjectMembers.Where(member => member.ProjectId == projectId && member.UserId == userId);
 
-        return await HasAccess(userId, membership, Permissions.ProjectsViewAll, ct)
+        return await HasAccess(userId, membership, _thoseWhoPassAsMember, ct)
             ? Result.Success()
             : ProjectErrors.MemberRequired;
     }
@@ -28,17 +32,17 @@ public sealed class ProjectAccess(IAppDbContext db) : IProjectAccess
         var ownership = db.ProjectMembers.Where(
             member => member.ProjectId == projectId && member.UserId == userId && member.Role == ProjectRole.Owner);
 
-        return await HasAccess(userId, ownership, Permissions.ProjectsManage, ct)
+        return await HasAccess(userId, ownership, _thoseWhoPassAsOwner, ct)
             ? Result.Success()
             : ProjectErrors.OwnerRequired;
     }
 
-    private Task<bool> HasAccess(Guid userId, IQueryable<ProjectMember> membership, string overridingPermission, CancellationToken ct) =>
+    private Task<bool> HasAccess(Guid userId, IQueryable<ProjectMember> membership, string[] overridingPermissions, CancellationToken ct) =>
         db.Users.AnyAsync(
             user => user.Id == userId
                 && user.IsActive
                 && (membership.Any() || user.Role.RolePermissions.Any(
                     granted => db.Permissions.Any(
-                        permission => permission.Id == granted.PermissionId && permission.Name == overridingPermission))),
+                        permission => permission.Id == granted.PermissionId && overridingPermissions.Contains(permission.Name)))),
             ct);
 }

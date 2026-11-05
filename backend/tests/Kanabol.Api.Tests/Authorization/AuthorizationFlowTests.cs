@@ -199,6 +199,16 @@ public sealed class AuthorizationFlowTests(ApiFixture api) : AuthApiTest(api)
     }
 
     [Fact]
+    public async Task ProjectEndpoint_WithManage_OpensAsMemberWithoutBeingAMember()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
+        var project = await CreateProject();
+        var token = await AccessTokenFrom(await Login(user.Email));
+
+        (await GetWith(token, $"/api/test-project-access/{project.Id}/member")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
     public async Task ProjectEndpoint_WithManage_OpensAsOwnerWithoutBeingAMember()
     {
         var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
