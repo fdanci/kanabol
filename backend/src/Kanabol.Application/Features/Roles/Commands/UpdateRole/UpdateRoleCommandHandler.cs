@@ -1,0 +1,79 @@
+using Kanabol.Application.Abstractions;
+using Kanabol.Application.Abstractions.Messaging;
+using Kanabol.Application.Common;
+using Kanabol.Application.Features.Auth;
+using Kanabol.Domain.Authorization;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace Kanabol.Application.Features.Roles.Commands.UpdateRole;
+
+/// <summary>
+/// The people with this role get the change with their next token: only moving someone to another
+/// role ends their sessions (SPEC section 4.4).
+/// </summary>
+public sealed class UpdateRoleCommandHandler(
+    IAppDbContext db,
+    CurrentPermissions currentPermissions,
+    ILogger<UpdateRoleCommandHandler> logger) : ICommandHandler<UpdateRoleCommand, RoleDto>
+{
+    public async Task<Result<RoleDto>> Handle(UpdateRoleCommand command, CancellationToken ct)
+    {
+        var held = await currentPermissions.Require(Permissions.RolesManage, ct);
+        if (held.IsFailure)
+        {
+            return held.Error;
+        }
+
+        var role = await db.Roles
+            .Include(existing => existing.RolePermissions)
+            .FirstOrDefaultAsync(existing => existing.Id == command.Id, ct);
+        if (role is null)
+        {
+            return RoleErrors.NotFound;
+        }
+
+        if (role.IsSystem)
+        {
+            return RoleErrors.SystemRoleIsFixed;
+        }
+
+        // Only what's being added: editing a role doesn't require holding everything it already has.
+        var current = await db.PermissionNamesOfRole(role.Id).ToListAsync(ct);
+        if (!held.Value.Covers(command.Permissions.Except(current)))
+        {
+            return RoleErrors.PermissionsBeyondYours;
+        }
+
+        if (await db.IsNameTaken(command.Name, role.Id, ct))
+        {
+            return RoleErrors.NameTaken;
+        }
+
+        var permissionIds = await db.Permissions
+            .Where(permission => command.Permissions.Contains(permission.Name))
+            .Select(permission => permission.Id)
+            .ToListAsync(ct);
+        role.Rename(command.Name);
+        role.SetPermissions(permissionIds);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (exception.IsUniqueViolation())
+        {
+            // Either the name, or a permission another request granted this role after it was read here.
+            return await db.IsNameTaken(command.Name, role.Id, ct) ? RoleErrors.NameTaken : RoleErrors.ChangedMeanwhile;
+        }
+        catch (DbUpdateException)
+        {
+            // Another request removed a permission of this role after it was read here.
+            return RoleErrors.ChangedMeanwhile;
+        }
+
+        logger.LogInformation("Role {RoleId} now has {Permissions}", role.Id, command.Permissions);
+
+        return await db.Roles.AsNoTracking().Where(existing => existing.Id == role.Id).ToDtos(db).SingleAsync(ct);
+    }
+}

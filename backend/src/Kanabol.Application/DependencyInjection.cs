@@ -14,6 +14,7 @@ public static class DependencyInjection
     public static IServiceCollection AddApplication(this IServiceCollection services) =>
         services
             .AddScoped<SessionIssuer>()
+            .AddScoped<CurrentPermissions>()
             .AddScoped<IProjectAccess, ProjectAccess>()
             .AddHandlersFrom(typeof(DependencyInjection).Assembly);
 
