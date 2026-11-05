@@ -11,6 +11,34 @@ public sealed class UserTests
         new UserBuilder().WithEmail("  Ana.Pop@Example.COM ").Build().Email.Should().Be("ana.pop@example.com");
 
     [Fact]
+    public void Constructor_WhenTheNameHasSpacesAround_KeepsItTrimmed() =>
+        new User("ana@example.com", "  Ana Pop ", "hash", Guid.CreateVersion7()).DisplayName.Should().Be("Ana Pop");
+
+    [Fact]
+    public void UpdateProfile_WhenGivenValues_KeepsThemInTheirOneForm()
+    {
+        var user = new UserBuilder().Build();
+
+        user.UpdateProfile("  Noua@Example.COM ", " Ana Noua ");
+
+        user.Email.Should().Be("noua@example.com");
+        user.DisplayName.Should().Be("Ana Noua");
+    }
+
+    [Fact]
+    public void Deactivate_WhenCalled_LeavesTheRestAlone()
+    {
+        var user = new UserBuilder().Build();
+        var (email, roleId) = (user.Email, user.RoleId);
+
+        user.Deactivate();
+
+        user.IsActive.Should().BeFalse();
+        user.Email.Should().Be(email);
+        user.RoleId.Should().Be(roleId);
+    }
+
+    [Fact]
     public void Lockout_IsWhatTheSpecAsks()
     {
         User.MaxFailedLogins.Should().Be(10);
