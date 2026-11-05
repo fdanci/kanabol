@@ -103,6 +103,25 @@ task_1() {
   check "the production build names no host" bundle_lacks localhost
 }
 
+# ---- 9.2
+
+console_only_in_logger() {
+  ! git grep -n "console\." -- "$web/src/**/*.ts" ":!*.spec.ts" ":!$app/core/logging/logger.ts" ":!$web/src/main.ts"
+}
+
+task_2() {
+  echo "9.2 The API client, the interceptors and the logging"
+  for file in core/api/api-client.ts core/api/correlation-interceptor.ts core/api/error-interceptor.ts     core/logging/logger.ts core/logging/global-error-handler.ts shared/ui/snackbar.ts shared/models/problem-details.ts; do
+    check "$file is tracked" tracked "$app/$file"
+  done
+  check "the API client and interceptor specs pass" specs_pass "src/app/core/api/**/*.spec.ts" 15
+  check "the logging specs pass" specs_pass "src/app/core/logging/**/*.spec.ts" 4
+  check "the snackbar specs pass" specs_pass src/app/shared/ui/snackbar.spec.ts 4
+  check "the app wires them in" specs_pass src/app/app.config.spec.ts 3
+  check "the build sends the correlation header" bundle_has X-Correlation-Id
+  check "only the Logger writes to the console" console_only_in_logger
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -135,7 +154,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7
+  set -- 1 7 2
 fi
 
 for task in "$@"; do
