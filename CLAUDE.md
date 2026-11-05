@@ -21,6 +21,7 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 
 - Check the task off and move it to **Done** in `Tasks.md`.
 - Update `_Architecture.md` or `Decisions/` if the feature changed or settled something they cover.
+- Only Florin and the supervisor edit `docs/SPEC.md`, `docs/UI_UX_SPEC.md`, `_Overview.md`, `_Architecture.md`, `Decisions/` and its copies in `docs/adr/`. When implementing, write what differs from them under **Blocked** in `Tasks.md`, with a proposal.
 
 ## Naming
 

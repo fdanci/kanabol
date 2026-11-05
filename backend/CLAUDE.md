@@ -12,8 +12,10 @@ Run from `backend/`:
 - Check formatting: `dotnet format Kanabol.sln --verify-no-changes`
 - Test: `dotnet test Kanabol.sln`, with Docker Desktop running: the tests start their own PostgreSQL 17 in a container, so they don't need the local database.
 - Test back and front together, from the repo root: `scripts/test-all.sh`
+- Tests in `Kanabol.Api.Tests` can read what a real request logged through `Api.Factory.Logs`.
 - Run the structure checks, from the repo root: `scripts/check-backend.sh [task-number...]`. They need a PostgreSQL whose user may create databases, and each run works in its own databases and drops them. The connection string comes from `KANABOL_CHECK_DB`, or else from the `ConnectionStrings:Default` user secret.
 - Run the authentication checks, from the repo root: `scripts/check-auth.sh [task-number...]`. They run the auth tests, and start the real API on a database of their own, under the same conditions as the structure checks.
+- Run the permission checks, from the repo root: `scripts/check-permissions.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -65,6 +67,9 @@ In Docker and production, settings come from environment variables:
 - Code checks permissions, never role names.
 - Visibility across all projects comes from the global `projects.view_all` permission, not from a role.
 - Access is checked on every request. The frontend only hides what isn't available.
+- `[HasPermission(Permissions.X)]` on an action or a controller closes it to tokens without that permission, with a 403 `Auth.PermissionRequired`. Several of them all have to hold.
+- `IProjectAccess` answers from the database, about the user it's asked about, and refuses deactivated users. It doesn't check that the project exists, so a handler loads the project or task first.
+- Tests reach paths no real endpoint has yet through sample controllers in the test project. `scripts/check-permissions.sh` makes sure they aren't in what ships.
 
 ## Authentication
 

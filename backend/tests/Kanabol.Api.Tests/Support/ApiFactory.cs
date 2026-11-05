@@ -8,12 +8,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using Serilog.Core;
 
 namespace Kanabol.Api.Tests.Support;
 
 /// <summary>The real API on the test container, with settings that only exist here.</summary>
 public sealed class ApiFactory(string connectionString) : WebApplicationFactory<Program>
 {
+    /// <summary>What the API has logged, across every test that shares this factory.</summary>
+    public RecordingLogSink Logs { get; } = new();
+
     /// <summary>A token like the ones the API will issue, signed with the settings it's running with.</summary>
     public string CreateToken(Guid userId, params string[] permissions)
     {
@@ -48,6 +52,10 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
         builder.UseSetting("Admin:InitialPassword", "only-for-these-tests");
 
         // Controllers that only exist in the tests, to reach paths no real endpoint has yet.
-        builder.ConfigureServices(services => services.AddControllers().AddApplicationPart(typeof(ApiFactory).Assembly));
+        builder.ConfigureServices(services =>
+        {
+            services.AddControllers().AddApplicationPart(typeof(ApiFactory).Assembly);
+            services.AddSingleton<ILogEventSink>(Logs);
+        });
     }
 }

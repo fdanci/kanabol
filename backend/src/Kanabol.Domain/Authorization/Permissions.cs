@@ -7,6 +7,7 @@ public static class Permissions
     public const string ProjectsCreate = "projects.create";
     public const string ProjectsViewAll = "projects.view_all";
     public const string ProjectsManage = "projects.manage";
+    public const string TasksCreate = "tasks.create";
     public const string TasksArchive = "tasks.archive";
     public const string ReportsView = "reports.view";
 
@@ -17,6 +18,7 @@ public static class Permissions
         ProjectsCreate,
         ProjectsViewAll,
         ProjectsManage,
+        TasksCreate,
         TasksArchive,
         ReportsView,
     ];

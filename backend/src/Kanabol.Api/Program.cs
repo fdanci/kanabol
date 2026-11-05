@@ -1,4 +1,5 @@
 using Kanabol.Api.Authentication;
+using Kanabol.Api.Authorization;
 using Kanabol.Api.Errors;
 using Kanabol.Api.Logging;
 using Kanabol.Application;
@@ -25,6 +26,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddJwtAuthentication();
+builder.Services.AddPermissionAuthorization();
 builder.Services.AddLoginRateLimit();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);

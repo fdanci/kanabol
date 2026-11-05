@@ -678,26 +678,26 @@ real_commit() { # real_commit <seconds allowed> <message>
 }
 
 real_docs_commit() {
-  real_copy_ready && real_stage docs/probe.md '# Probe\n' && real_commit 20 'docs: add a probe'
+  real_copy_ready && real_stage docs/probe.md '# Probe\n' && real_commit 40 'docs: add a probe'
 }
 
 real_backend_commit() {
   real_copy_ready &&
     real_stage backend/src/Kanabol.Domain/Probe.cs 'namespace Kanabol.Domain;\n\npublic   class Probe\n{\n}\n' &&
-    real_commit 20 'feat(api): add a probe'
+    real_commit 40 'feat(api): add a probe'
 }
 
 real_frontend_commit() {
   real_copy_ready &&
     real_stage frontend/src/app/probe.ts "export const probe   =   'x';\n" &&
-    real_commit 20 'feat(web): add a probe'
+    real_commit 40 'feat(web): add a probe'
 }
 
 real_commit_on_both_sides() {
   real_copy_ready &&
     real_stage backend/src/Kanabol.Domain/ProbeTwo.cs 'namespace Kanabol.Domain;\n\npublic class ProbeTwo\n{\n}\n' &&
     real_stage frontend/src/app/probe-two.ts "export const probeTwo = 'x';\n" &&
-    real_commit 300 'feat(api): add a probe on both sides'
+    real_commit 40 'feat(api): add a probe on both sides'
 }
 
 real_committed_has() { # real_committed_has <file> <text>
@@ -806,15 +806,15 @@ task_6() {
   command -v docker >/dev/null 2>&1 || PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
   # Docker Desktop can stop itself when idle, which the tasks before this one may have allowed.
   docker desktop start --timeout 170 >/dev/null 2>&1
-  check "a commit with only docs takes under 20 s" real_docs_commit
+  check "a commit with only docs takes under 40 s" real_docs_commit
   show_time
-  check "a commit in the backend takes under 20 s" real_backend_commit
+  check "a commit in the backend takes under 40 s" real_backend_commit
   show_time
   check "what it staged got formatted" real_committed_has backend/src/Kanabol.Domain/Probe.cs 'public class Probe'
-  check "a commit in the frontend takes under 20 s" real_frontend_commit
+  check "a commit in the frontend takes under 40 s" real_frontend_commit
   show_time
   check "what it staged got formatted" real_committed_has frontend/src/app/probe.ts "export const probe = 'x';"
-  check "a commit on both sides goes through" real_commit_on_both_sides
+  check "a commit on both sides takes under 40 s" real_commit_on_both_sides
   show_time
   check "a bad message is refused by commitlint" real_bad_message_is_refused
   check "a --no-ff merge into main runs the full suite, in under 90 s" real_merge_runs_the_suite

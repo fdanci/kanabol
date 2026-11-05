@@ -2,7 +2,7 @@
 
 > Specificație vizuală și de interacțiune pentru frontend-ul Angular 22 + Angular Material 22. Complementară cu `SPEC.md` (arhitectură); unde se contrazic, pentru vizual câștigă acest fișier.
 >
-> Stare: v1.3 — 2026-11-05 (v1.2 + contrast AA: `--kb-fill-*` sub textul alb și verdele `#1c7a26`, §2). Tema derivă din culorile aplicației interne existente la firmă (screenshot „SDG Platformă Web”, eșantionat pixel cu pixel), ca trecerea colegilor la Kanabol să fie familiară. Ce era inconsistent acolo e corectat aici, nu copiat. **Forma** (colțuri, borduri, umbre, dialoguri, controale) urmează limbajul aplicațiilor macOS — nu culorile lui, ci proporțiile și materialele.
+> Stare: v1.5 — 2026-11-05 (v1.4 + lectura cap-coadă: `--kb-ink` pentru tooltip și snackbar în dark, animația meniurilor în §8, zona de click a butoanelor-iconiță în §3.3, §6.4 și §9, căutarea globală scoasă din v1, tab „Rapoarte” pe proiect în §7.3, markdown sanitizat în §7.5, mărunțișuri în §0, §2.3, §6.0.4, §7.4, §13). Tema derivă din culorile aplicației interne existente la firmă (screenshot „SDG Platformă Web”, eșantionat pixel cu pixel), ca trecerea colegilor la Kanabol să fie familiară. Ce era inconsistent acolo e corectat aici, nu copiat. **Forma** (colțuri, borduri, umbre, dialoguri, controale) urmează limbajul aplicațiilor macOS — nu culorile lui, ci proporțiile și materialele.
 
 ![Paleta Kanabol](images/kanabol-palette.png)
 
@@ -23,7 +23,7 @@
 | Layout | navbar 52px (toolbar translucid), sidebar 240px source-list (colapsabil la 56px), conținut max 1440px |
 | Densitate Material | `-1` (compact) |
 | Dark mode | suportat prin `prefers-color-scheme` + toggle manual; aceeași semantică de tokens |
-| Iconițe | Material Symbols Outlined, self-hosted, greutate 400, mărime 20/24 |
+| Iconițe | Material Symbols Outlined, self-hosted, greutate 400; 16px în controale, 20px în liste, 48px în empty states (§12) |
 | Logo | **Ganteră cu discuri-carduri** (concept #02), mark + wordmark „Kanabol” în Inter 700; fișiere în `Atasamente/logo/` și `frontend/public/brand/` (§14) |
 | Limbă | UI în română, sentence case, fără majuscule decorative |
 
@@ -45,10 +45,10 @@
 
 | Token | Hex | Sursă în screenshot | Folosire |
 |---|---|---|---|
-| `--kb-navy-900` | `#052063` | titlu „Platformă Web”, h1 „Panou principal” | titluri, text pe butoane primare, text puternic |
+| `--kb-navy-900` | `#052063` | titlu „Platformă Web”, h1 „Panou principal” | titluri, text pe butoanele bezel, text puternic |
 | `--kb-brand-800` | `#122d94` | logo SDG | logo, navbar brand, grafice (serie principală) |
 | `--kb-accent-600` | `#135bf7` | clopoțel + badge notificări | link-uri, element activ în sidebar, focus ring, iconițe interactive, badge-uri |
-| `--kb-sky-300` | `#91c4fb` | butoanele „Încarcă fișier”, „Actualizare…” | fundal buton primar, selecție pe kanban, highlight rând |
+| `--kb-sky-300` | `#91c4fb` | butoanele „Încarcă fișier”, „Actualizare…” | selecție pe kanban, highlight rând, chip „Owner”; nu e fundal de buton: butonul default e `--kb-fill-accent` (§3.3) |
 | `--kb-tint-100` | `#ecf4fc` | fundal element activ sidebar | hover/activ în liste și meniuri, fundal chip neutru |
 | `--kb-surface-50` | `#f5f8ff` | fundalul paginii | fundal aplicație |
 | `--kb-surface-0` | `#ffffff` | carduri, navbar, sidebar | carduri, dialoguri, tabele, câmpuri |
@@ -74,7 +74,7 @@ Fundaluri pline sub text alb: `--kb-fill-accent #135bf7` și `--kb-fill-danger #
 | Text | Fundal | Raport | Verdict |
 |---|---|---|---|
 | navy `#052063` | alb | 15.1 | AAA |
-| navy `#052063` | sky-300 `#91c4fb` (buton primar) | 8.3 | AAA — **de aceea textul butonului e navy, nu alb** |
+| navy `#052063` | sky-300 `#91c4fb` (selecție, highlight, chip „Owner”) | 8.3 | AAA |
 | alb | sky-300 `#91c4fb` | 1.8 | ✗ interzis |
 | accent `#135bf7` | alb | 5.4 | AA — ok pentru link-uri și iconițe |
 | accent `#135bf7` | tint-100 `#ecf4fc` | 4.9 | AA — element activ în sidebar |
@@ -105,9 +105,11 @@ Aceiași tokens semantici, valori diferite. Nu inversăm pur și simplu; păstr�
 | `--kb-text-500` | `#6f7b96` |
 | `--kb-accent-600` | `#5b93ff` (mai deschis, 5.5:1 pe `#161f36`) |
 | `--kb-fill-accent` / `--kb-fill-danger` / `--kb-fill-shade` | la fel ca în light: `#135bf7` / `#b42318` / `#052063` (textul alb ar avea doar 3.0:1 pe accentul din dark și 2.8:1 pe danger) |
-| `--kb-sky-300` (buton primar) | `#3d6fc9` cu text `#eef2ff` |
+| `--kb-sky-300` (selecție, highlight) | `#3d6fc9` cu text `#eef2ff` |
 | `--kb-info-bg` / `--kb-info-text` | `#113a45` / `#9fdcea` |
 | success / warning / danger | `#4ade80` / `#fbbf24` / `#f87171` pe fundaluri `#0f2a16` / `#2d1f05` / `#2d0f0d` |
+| `--kb-archived-400` | `#55617d` |
+| `--kb-ink` | la fel ca în light, `#052063`: fundalul tooltip-urilor și al snackbar-ului, care au text alb în ambele teme (`navy-900` nu se poate folosi acolo, devine aproape alb în dark) |
 
 Activare: `@media (prefers-color-scheme: dark)` + `html[data-theme="dark"]`; toggle în meniul utilizatorului, memorat în `localStorage` (`kb.theme`). Material primește `color-scheme: light dark` și își schimbă tokens-urile sincron.
 
@@ -144,6 +146,7 @@ Activare: `@media (prefers-color-scheme: dark)` + `html[data-theme="dark"]`; tog
   --kb-fill-accent: #135bf7;
   --kb-fill-danger: #b42318;
   --kb-fill-shade: #052063; /* le închide la hover, la apăsare și pe bordură */
+  --kb-ink: #052063; /* fundal închis sub text alb în ambele teme: tooltip, snackbar */
 
   /* Focus: halo mac-like, 4px, semitransparent */
   --kb-focus-ring: 0 0 0 4px color-mix(in srgb, var(--kb-accent-600) 30%, transparent);
@@ -304,7 +307,7 @@ Pachete: `@angular/material`, `@angular/cdk`, `@fontsource-variable/inter`, `mat
 | Bezel / standard | `matButton="outlined"` + clasă `kb-bezel` | alb, bordură border-300, umbră bezel, text navy |
 | Text / inline | `matButton` | text accent-600, fără bordură, hover fundal tint-100 |
 | Distructiv | `matButton="filled"` + clasă `kb-danger` | fill-danger cu același tratament ca default; **mereu** după dialog de confirmare |
-| Iconiță (toolbar) | `matIconButton` | 28×28 în toolbar, 32×32 în conținut; fundal transparent, hover fundal tint-100, rază 6px |
+| Iconiță (toolbar) | `matIconButton` | vizual 28×28 în toolbar, 32×32 în conținut, cu zona de click mereu minim 40×40 prin padding transparent (§9); fundal transparent, hover fundal tint-100, rază 6px |
 
 Nu folosim `matButton="elevated"` sau `"tonal"` — un singur limbaj de butoane.
 
@@ -332,7 +335,7 @@ Reguli: sentence case peste tot („Actualizare conturi”, nu „Actualizare Co
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ toolbar 52px, translucid: [≡] [logo Kanabol] [(🔍 Caută…)]   [🔔3] [◯ email ▾] │
+│ toolbar 52px, translucid: [≡] [logo Kanabol]                 [🔔3] [◯ email ▾] │
 ├──────────┬───────────────────────────────────────────────────┤
 │ source   │ page header: h1 + breadcrumb        [acțiune default] │
 │ list     │───────────────────────────────────────────────────│
@@ -343,7 +346,7 @@ Reguli: sentence case peste tot („Actualizare conturi”, nu „Actualizare Co
 └──────────┴───────────────────────────────────────────────────┘
 ```
 
-- **Navbar (toolbar)**: vezi §6.0.8. Stânga: buton colapsare sidebar (iconiță `dock_to_left`), logo = lockup din §14 (mark 24px înălțime + wordmark „Kanabol” în brand-800, 17px/700, tracking −0.015em, gap 8px), link spre Panou principal. Centru-stânga: căutare globală pill (320px, placeholder „Caută…”, `⌘K`/`Ctrl+K` afișat ca hint în dreapta câmpului). Dreapta: clopoțel cu badge, meniu utilizator.
+- **Navbar (toolbar)**: vezi §6.0.8. Stânga: buton colapsare sidebar (iconiță `dock_to_left`), logo = lockup din §14 (mark 24px înălțime + wordmark „Kanabol” în brand-800, 17px/700, tracking −0.015em, gap 8px), link spre Panou principal. Dreapta: clopoțel cu badge, meniu utilizator. Căutarea globală (`Ctrl+K`) nu e în v1; board-ul are căutare locală după titlu (§7.4).
 - **Sidebar (source list)**: vezi §6.0.7. Grupuri: „Lucru” (Panou principal, Proiectele mele, Task-urile mele, Notificări), „Administrare” (Utilizatori, Roluri, Rapoarte — vizibile doar cu permisiune), jos: versiune (`caption`, text-500). Stare memorată în `localStorage` (`kb.sidebar`).
 - **Page header**: h1 `kb-display`, sub el breadcrumb (`caption`, „Acasă › Proiecte › Kanabol v1”, separator `›`, ultimul element text-700 fără link). În dreapta, pe aceeași linie cu h1, butonul default al paginii (ex. „Task nou”) și, opțional, un segmented control (Board / Listă). Padding 24px 24px 16px.
 - **Conținut**: fundal surface-50, padding 0 24px 24px, `max-width: var(--kb-content-max)`, centrat. Board-ul kanban ignoră max-width (full-bleed cu scroll orizontal).
@@ -429,7 +432,7 @@ Material primește aceste stiluri prin overrides (§3.2) și, acolo unde tokens-
 
 - Înălțime 28px (regular), text 13px, padding 0 8px, fundal alb, bordură border-300, raza 6px, `inner-highlight` inversat (`inset 0 1px 1px rgba(5,32,99,.06)` — câmpurile sunt ușor „scobite”, butoanele ușor „bombate”).
 - Focus: bordura devine accent-600 + halo.
-- **Etichete la stânga, aliniate dreapta**, pe aceeași linie cu câmpul (stil formular mac/Settings): coloana de etichete 160px, text-600, 13px, urmată de `:`. Sub 720px etichetele trec deasupra câmpului. Material `mat-form-field` cu etichetă flotantă se folosește doar în dialogurile de creare rapidă (un singur câmp); formularele reale folosesc layout-ul de mai sus cu `matInput` fără `mat-form-field` (clasa `kb-field`).
+- **Etichete la stânga, aliniate dreapta**, pe aceeași linie cu câmpul (stil formular mac/Settings): coloana de etichete 160px, text-600, 13px, urmată de `:`. Sub 768px (§10) etichetele trec deasupra câmpului. Material `mat-form-field` cu etichetă flotantă se folosește doar în dialogurile de creare rapidă (un singur câmp); formularele reale folosesc layout-ul de mai sus cu `matInput` fără `mat-form-field` (clasa `kb-field`).
 - **Grupuri de formular** („inset grouped”): câmpurile înrudite stau într-un container alb cu raza 10px, bordură border-200, separatoare border-200 între rânduri (rânduri de 36px), ca în Settings pe mac. Titlul grupului deasupra containerului, `caption` 600 text-600.
 - Select: bezel cu chevron dublu (`unfold_more`) la dreapta; lista deschisă e un popover (§6.0.6).
 - Search: pill (raza 999px), iconiță `search` 16px la stânga, buton `cancel` la dreapta când are text, înălțime 28px, fundal `color-mix(navy 5%, surface-0)`, fără bordură, bordură accent la focus.
@@ -452,7 +455,7 @@ Dialogurile modale sunt **sheets**: nu au bară de titlu separată, nu au „×�
 - Item de meniu: 28px înălțime, raza 6px, padding 0 10px, iconiță 16px + text 13px; hover = fundal fill-accent cu text alb (comportamentul mac), nu tint. Separator: 1px border-200 cu margine 6px vertical. Item distructiv: text danger-600, pe hover fundal fill-danger cu text alb.
 - Popover-urile ancorate la un buton (ex. filtre pe board, picker de asignat) au **săgeată** 12px spre elementul-sursă, aceeași culoare cu fundalul, decupată cu `clip-path`. Meniurile din `⋮` nu au săgeată.
 - Animație: 160ms, `scale(0.96) → 1` din punctul de ancorare (`transform-origin`), opacitate.
-- Tooltip: fundal navy-900 90%, text alb 12px, raza 6px, padding 4px 8px, fără săgeată, apare la 500ms.
+- Tooltip: fundal `--kb-ink` la 90% (nu navy-900, care devine deschis în dark), text alb 12px, raza 6px, padding 4px 8px, fără săgeată, apare la 500ms.
 
 #### 6.0.7 Sidebar = source list
 
@@ -460,7 +463,7 @@ Sidebar-ul urmează „source list”-ul din Finder/Mail: translucid (`kb-glass`
 
 #### 6.0.8 Navbar = toolbar
 
-Navbar-ul e o bară de unelte: translucidă, 52px (nu 64; mac-ul e mai scund), fără umbră, linie `border-200` jos. Butoanele din ea sunt iconițe 28×28 cu raza 6px fără bordură; hover fundal `color-mix(navy 6%, transparent)`. Căutarea e pill (§6.0.4). Meniul utilizatorului: avatar 24px (inițiale pe tint-100) + email 13px + chevron, într-un buton bezel fără bordură la repaus (bordura apare la hover). Selectorul de an din aplicația veche nu există în Kanabol.
+Navbar-ul e o bară de unelte: translucidă, 52px (nu 64; mac-ul e mai scund), fără umbră, linie `border-200` jos. Butoanele din ea sunt iconițe 28×28 cu raza 6px fără bordură și zonă de click 40×40 invizibilă (§9); hover fundal `color-mix(navy 6%, transparent)`. Meniul utilizatorului: avatar 24px (inițiale pe tint-100) + email 13px + chevron, într-un buton bezel fără bordură la repaus (bordura apare la hover). Selectorul de an din aplicația veche nu există în Kanabol.
 
 #### 6.0.9 Tabele și liste
 
@@ -481,21 +484,21 @@ Chips: 22px înălțime, raza pill, 12px/500, padding 0 8px, fundal de stare, **
 
 - Scrollbars: overlay subțiri, 8px, thumb `color-mix(navy 25%, transparent)` raza pill, apar la hover pe container (`scrollbar-width: thin; scrollbar-color`).
 - Separatoare: 1px border-200, niciodată mai groase; secțiunile se separă prin **spațiu** (24px), nu prin linii, cu excepția listelor.
-- Iconițele rămân Material Symbols (nu SF Symbols), dar la 16px în controale, 20px în liste, 24px doar în empty states și în sidebar colapsat.
+- Iconițele rămân Material Symbols (nu SF Symbols), dar la 16px în controale și în sidebar-ul deschis, 20px în liste și în sidebar-ul colapsat (§6.0.7), 48px doar în empty states (§6.8).
 
 ### 6.1 Banner / Alert (inline)
 Fundal + text de stare, bordură 1px în culoarea stării la 30% + rază 10px, padding 12px 16px, iconiță 20px la stânga, opțional buton „Închide”. Variante: info (info-bg/info-text, iconiță `info`), success, warning, danger. Folosit pentru context persistent (ex. „Acest proiect e arhivat”), **nu** pentru feedback la acțiuni — pentru asta e snackbar-ul.
 
 ### 6.2 Snackbar
-`MatSnackBar`, jos-stânga, 4 s (8 s pentru erori), fundal navy-900 la 92% cu `kb-glass`, text alb, rază 10px, `shadow-popover`, acțiune în sky-300. Eroare: prefix iconiță `error` danger și textul „Cod: `a1b2c3`” (ultimele 6 caractere din correlation id, mono) + acțiune „Copiază” (copiază id-ul complet). O singură snackbar vizibilă; următoarea o înlocuiește.
+`MatSnackBar`, jos-stânga, 4 s (8 s pentru erori), fundal `--kb-ink` la 92% cu `kb-glass` (nu navy-900, care devine deschis în dark), text alb, rază 10px, `shadow-popover`, acțiune în sky-300. Eroare: prefix iconiță `error` danger și textul „Cod: `a1b2c3`” (ultimele 6 caractere din correlation id, mono) + acțiune „Copiază” (copiază id-ul complet). O singură snackbar vizibilă; următoarea o înlocuiește.
 
 ### 6.3 Formulare
 Formă și layout în §6.0.4 (etichete la stânga aliniate dreapta, grupuri inset, câmpuri 28px). Grid: un grup de formular ocupă 100% până la 640px lățime; la formulare late, două grupuri unul lângă altul (gap 24px) la ≥ 960px. Eroarea apare la `blur` sau la submit. Butoanele formularului: jos-dreapta, „Anulează” (bezel) + „Salvează” (default); `Enter` trimite (în afara textarea), `Esc` anulează în dialog. Câmpuri obligatorii marcate cu `*` după etichetă; nu marcăm opționalele.
 
-Upload: zonă de drop 100% × 120px, bordură 1px dashed border-300, rază 10px, fundal `color-mix(navy 3%, surface-0)`, iconiță `upload` 24px + „Trage fișiere aici sau **alege**”; la dragover bordura devine accent-600 solidă și fundal tint-100. Sub ea, lista fișierelor ca rânduri de 36px într-un grup inset, cu progres (bară 3px pill accent-600) și buton `close` 16px.
+Upload: zonă de drop 100% × 120px, bordură 1px dashed border-300, rază 10px, fundal `color-mix(navy 3%, surface-0)`, iconiță `upload` 20px + „Trage fișiere aici sau **alege**”; la dragover bordura devine accent-600 solidă și fundal tint-100. Sub ea, lista fișierelor ca rânduri de 36px într-un grup inset, cu progres (bară 3px pill accent-600) și buton `close` 16px.
 
 ### 6.4 Tabele
-Formă în §6.0.9 (zebra, 32/40px, header sticky, selecție accent). `mat-table` cu `kb-table`. Coloane numerice aliniate dreapta, `tabular-nums`. Acțiuni pe rând într-un meniu `⋮` la capăt (buton iconiță 24px vizibil la hover pe rând), apar doar cu permisiune. Paginare `mat-paginator` 25/50/100 ca bară de 36px sub tabel, sortare pe header cu chevron 12px. Pe < 768px tabelele devin liste de carduri (fiecare rând un card cu 2–3 câmpuri cheie).
+Formă în §6.0.9 (zebra, 32/40px, header sticky, selecție accent). `mat-table` cu `kb-table`. Coloane numerice aliniate dreapta, `tabular-nums`. Acțiuni pe rând într-un meniu `⋮` la capăt (buton iconiță 32×32 vizibil la hover pe rând, mărimea admisă în rânduri dense de §9), apar doar cu permisiune. Paginare `mat-paginator` 25/50/100 ca bară de 36px sub tabel, sortare pe header cu chevron 12px. Pe < 768px tabelele devin liste de carduri (fiecare rând un card cu 2–3 câmpuri cheie).
 
 ### 6.5 Chips / badge-uri
 Formă în §6.0.11 (22px, pill, fără bordură). Opțional punct 6px la stânga.
@@ -532,18 +535,18 @@ Pagină fără shell: fundal surface-50, card 400px centrat, logo + „Kanabol�
 Grid 12 coloane, gap 16px. Rând 1: 4 stat tiles (Task-urile mele deschise / Întârziate / Finalizate săptămâna asta / Proiecte active) — card cu caption + număr 28px/600 navy + delta caption. Rând 2: „Task-urile mele” (tabel compact 8 rânduri, col 8) + „Notificări recente” (col 4). Rând 3: „Proiectele mele” (carduri 280px cu nume, owner, progres bară 4px sky-300, număr task-uri).
 
 ### 7.3 Proiecte
-Listă ca tabel (Nume, Owner, Membri (avatare suprapuse max 4 + „+N”), Task-uri deschise, Întârziate, Actualizat). Click pe rând → board. Buton default „Proiect nou” (sheet 600px). Pagina proiectului are segmented control în header: **Board** / Listă / Membri / Setări (coloane, arhivare).
+Listă ca tabel (Nume, Owner, Membri (avatare suprapuse max 4 + „+N”), Task-uri deschise, Întârziate, Actualizat). Click pe rând → board. Buton default „Proiect nou” (sheet 600px). Pagina proiectului are segmented control în header: **Board** / Listă / Membri / Rapoarte / Setări (coloane, arhivare). „Rapoarte” apare pentru ownerii proiectului și pentru cine are `reports.view`, cu filtrul de proiect fixat pe proiectul curent (SPEC §5.1.1); e singura intrare la rapoarte pentru un owner fără permisiune.
 
 ### 7.4 Board (kanban)
 - Container full-bleed, scroll orizontal, padding 24px, coloane cu gap 16px.
 - **Coloană**: lățime 300px, fundal `color-mix(in srgb, var(--kb-navy-900) 4%, var(--kb-surface-50))`, rază 10px, padding 10px. Header: nume `kb-subtitle` + count chip (text-600 pe `#eef0f3`) + meniu `⋮` (redenumește, mută, marchează „done”, șterge dacă e goală). Coloana `is_done` are iconiță `check_circle` success-600 lângă nume. Scroll vertical intern, max-height = viewport − header. Jos: buton text „+ Task” (permisiune `tasks.create` + membru).
-- **Card task**: alb, bordură border-200, rază 8px (concentric cu coloana de 10px și padding 10px → 8px e deja generos; minim admis 6px), padding 10px 12px, gap 6px vertical. Rând 1: cheie `KAN-123` (mono caption text-500) + chip prioritate dreapta. Rând 2: titlu `body-strong`, max 2 linii. Rând 3: chip deadline (dacă există) + iconițe cu count (`chat_bubble` comentarii, `attach_file` atașamente) + avatar asignat 24px dreapta. Hover: umbră `shadow-1`, bordură border-300. Click: deschide panoul de detalii (§6.0.5, slide din dreapta). Neasignat: avatar gol cu bordură dashed.
+- **Card task**: alb, bordură border-200, rază 8px (concentric cu coloana de 10px și padding 10px → 8px e deja generos; minimul din §6.0.1 e 4px), padding 10px 12px, gap 6px vertical. Rând 1: cheie `KAN-123` (mono caption text-500) + chip prioritate dreapta. Rând 2: titlu `body-strong`, max 2 linii. Rând 3: chip deadline (dacă există) + iconițe cu count (`chat_bubble` comentarii, `attach_file` atașamente) + avatar asignat 24px dreapta. Hover: umbră `shadow-1`, bordură border-300. Click: deschide panoul de detalii (§6.0.5, slide din dreapta). Neasignat: avatar gol cu bordură dashed.
 - **Drag & drop** (CDK): la pickup cardul capătă `shadow-drag`, rotație 1.5°, scale 1.02; placeholder = contur dashed border-300 pe fundal tint-100 de aceeași înălțime; coloana țintă validă primește bordură 2px accent-600. Animație de reordonare 200 ms. **Tastatură**: card focusat → `Space` ridică, `←/→` schimbă coloana, `↑/↓` poziția, `Space` lasă, `Esc` anulează; anunț `aria-live` („Mutat în «In progress», poziția 2 din 5”).
 - Update de la alt utilizator (SignalR): cardul se mută cu animație și pulsează o dată cu fundal tint-100 (600 ms); nu afișăm toast pentru fiecare mutare.
 - Filtre deasupra board-ului: chips „Ale mele”, „Întârziate”, asignat (avatar picker), prioritate; căutare locală după titlu. Filtrele active se reflectă în URL (`?assignee=…`).
 
 ### 7.5 Detalii task (panou 920px, slide din dreapta)
-Două coloane: stânga (620px) — titlu editabil inline (click → input, `Enter` salvează, `Esc` anulează), descriere (editor text simplu cu markdown de bază, buton „Editează”), tabs **Comentarii** / Atașamente / Istoric. Dreapta (300px, fundal surface-50) — proprietăți ca listă etichetă/valoare, fiecare editabilă în loc: Stare (coloană), Asignat, Prioritate, Deadline, Creat de / la, Actualizat la. Jos-dreapta: meniu `⋮` cu „Arhivează” (danger). Comentariu: avatar + nume + timp relativ (tooltip cu data completă), text, acțiuni „Editează” doar pe ale tale. Istoric: timeline verticală, punct 8px accent-600, „**Florin** a schimbat *Prioritate*: Medium → High · acum 2 ore”. URL-ul `/tasks/KAN-123` deschide direct dialogul peste board.
+Două coloane: stânga (620px) — titlu editabil inline (click → input, `Enter` salvează, `Esc` anulează), descriere (editor text simplu cu markdown de bază, buton „Editează”; randarea trece prin sanitizare, HTML brut nu se afișează, SPEC §16), tabs **Comentarii** / Atașamente / Istoric. Dreapta (300px, fundal surface-50) — proprietăți ca listă etichetă/valoare, fiecare editabilă în loc: Stare (coloană), Asignat, Prioritate, Deadline, Creat de / la, Actualizat la. Jos-dreapta: meniu `⋮` cu „Arhivează” (danger). Comentariu: avatar + nume + timp relativ (tooltip cu data completă), text, acțiuni „Editează” doar pe ale tale. Istoric: timeline verticală, punct 8px accent-600, „**Florin** a schimbat *Prioritate*: Medium → High · acum 2 ore”. URL-ul `/tasks/KAN-123` deschide direct dialogul peste board.
 
 ### 7.6 Notificări
 Panou (`mat-menu` 400px) din clopoțel: listă ultimele 10, necitite cu fundal tint-100 și punct accent; click → task + marcare citit; „Marchează toate ca citite”; link „Vezi toate” → pagină cu listă completă și filtre.
@@ -561,8 +564,9 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 | Caz | Durată / easing |
 |---|---|
 | Hover, focus, chips | 120 ms, `--kb-ease` |
-| Deschidere meniu, tooltip, snackbar | 200 ms, fade + translate 4px |
-| Dialog | 200 ms fade + scale 0.98→1; închidere 120 ms |
+| Meniu, popover, select deschis | 160 ms, `scale(0.96) → 1` din punctul de ancorare + opacitate (§6.0.6) |
+| Tooltip, snackbar | 200 ms, fade + translate 4px |
+| Sheet (dialog) | 240 ms `--kb-ease`, `translateY(-16px) → 0` + opacitate; închidere 160 ms (§6.0.5) |
 | Reordonare kanban, sidebar collapse | 200 ms |
 | Pulsare update remote | 600 ms, o singură dată |
 | Skeleton shimmer | 1.2 s loop |
@@ -580,7 +584,7 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 - Dialogurile blochează focusul (Material o face) și revin focusul pe elementul declanșator.
 - Formulare: erorile legate de câmp prin `aria-describedby`; la submit cu erori, focus pe primul câmp invalid.
 - Nu transmitem stare doar prin culoare: prioritatea și deadline-ul au iconiță + text.
-- Mărimi de click minim 40×40 pentru butoane-iconiță; 32px admis în rândurile dense de tabel.
+- Zona de click minim 40×40 pentru butoane-iconiță, chiar dacă vizual au 28 sau 32px (padding transparent, §3.3); 32×32 admis în rândurile dense de tabel.
 - `lang="ro"` pe `<html>`; `prefers-reduced-motion` respectat.
 
 ---
@@ -589,10 +593,10 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 
 | Lățime | Comportament |
 |---|---|
-| ≥ 1280 | Layout complet, sidebar 260px |
-| 960–1279 | Sidebar colapsat implicit (64px), tabele complete |
+| ≥ 1280 | Layout complet, sidebar 240px (§5) |
+| 960–1279 | Sidebar colapsat implicit (56px, §6.0.7), tabele complete |
 | 768–959 | Sidebar ca drawer (overlay) din butonul ≡; dialogurile 90% lățime; detalii task pe o coloană |
-| < 768 | Nu e țintă în v1 (SPEC: fără mobil). Nu trebuie să fie frumos, dar nu trebuie să fie rupt: tabele → carduri, board scroll orizontal cu coloane 280px, navbar fără căutare (iconiță) |
+| < 768 | Nu e țintă în v1 (SPEC: fără mobil). Nu trebuie să fie frumos, dar nu trebuie să fie rupt: tabele → carduri, board scroll orizontal cu coloane 280px |
 
 ---
 
@@ -610,7 +614,7 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 
 ## 12. Iconițe
 
-Material Symbols Outlined, self-hosted, `font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20`. Mărimi: 20px în butoane/liste, 24px în navbar/sidebar, 48px în empty states. Activ/selectat: `FILL 1`. Set fix pentru navigație: `dashboard`, `folder`, `task_alt`, `notifications`, `group`, `admin_panel_settings`, `bar_chart`, `settings`, `logout`.
+Material Symbols Outlined, self-hosted, `font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20`. Mărimi: 16px în controale, butoane și sidebar-ul deschis (18px în butoanele `large`), 20px în liste, bannere și sidebar-ul colapsat, 48px în empty states (§6.0.3, §6.0.7, §6.0.12, §6.8). Activ/selectat: `FILL 1`. Set fix pentru navigație: `dashboard`, `folder`, `task_alt`, `notifications`, `group`, `admin_panel_settings`, `bar_chart`, `settings`, `logout`.
 
 ---
 
@@ -622,7 +626,7 @@ src/
 └── styles/
     ├── _tokens.scss            # §2.4
     ├── _typography.scss        # clasele kb-display … kb-mono
-    ├── _utilities.scss         # .kb-stack, .kb-row, .kb-truncate, .kb-visually-hidden
+    ├── _utilities.scss         # .kb-bezel, .kb-default, .kb-danger, .kb-glass, .kb-floating (§6.0.2) + .kb-stack, .kb-row, .kb-truncate, .kb-visually-hidden
     └── theme/
         └── _theme-colors.scss  # generat, nu se editează
 ```

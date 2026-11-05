@@ -1,12 +1,12 @@
 # 0008. Husky și lint-staged la commit
 
 ## Decizie
-Verificările rulează local, în hook-uri git (Husky și lint-staged), fără server de CI. Suita completă rulează la commit sau merge pe `main`, iar merge-ul în `main` e mereu `--no-ff`.
+Verificările rulează local, în hook-uri git (Husky și lint-staged), fără server de CI. Munca merge feature branch → `dev` → `main`. Suita completă rulează la commit sau merge pe `main`, iar merge-ul în `main` e mereu `--no-ff` și se face doar după ce verificările de acceptanță ale grupului au trecut pe o clonă curată.
 
 ## Motiv
 - Nu există runner, iar testele trebuie să ruleze mereu înainte de un commit pe `main`.
 - Fast-forward nu rulează niciun hook, de aceea `--no-ff` e obligatoriu.
-- Pe feature branches rulează doar verificări rapide, ca să nu încetinească munca.
+- Pe feature branches și pe `dev` rulează doar verificări rapide, ca să nu încetinească munca. `dev` adună grupurile terminate între două merge-uri în `main`, deci `main` conține doar muncă verificată.
 - `git commit --no-verify` rămâne posibil, așa că `pre-push` pe `main` e plasa de siguranță.
 
 ## Alternative
