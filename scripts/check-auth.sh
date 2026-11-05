@@ -240,7 +240,10 @@ admin_signs_in() {
   }
   admin_token=$(body_field accessToken)
   admin_refresh=$(refresh_cookie)
-  [ -n "$admin_token" ] && [ -n "$admin_refresh" ]
+  [ -n "$admin_token" ] && [ -n "$admin_refresh" ] || {
+    echo "no token in the answer"
+    return 1
+  }
   in_file '"mustChangePassword":true' "$scratch/body"
 }
 
@@ -360,8 +363,8 @@ forced_change_works() {
     cat "$scratch/body"
     return 1
   }
-  in_file '"mustChangePassword":false' "$scratch/body"
   admin_password=$new_admin_password
+  in_file '"mustChangePassword":false' "$scratch/body"
 }
 
 earlier_sessions_are_over() {

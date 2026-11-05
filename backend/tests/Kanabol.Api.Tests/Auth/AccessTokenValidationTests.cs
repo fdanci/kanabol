@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using Kanabol.Api.Tests.Support;
 using Kanabol.Infrastructure.Configuration;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -60,14 +61,13 @@ public sealed class AccessTokenValidationTests(ApiFixture api) : AuthApiTest(api
         (await GetWith(token)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    // The test key is too short to sign with anything stronger, so a token can't show this one.
     [Fact]
-    public async Task Endpoint_WithAnotherSigningAlgorithm_Returns401()
+    public void JwtBearer_WhenConfigured_AcceptsOnlyHs256()
     {
-        var token = CreateToken(descriptor => descriptor.SigningCredentials = new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtOptions.Secret + new string('x', 48))),
-            SecurityAlgorithms.HmacSha512));
+        var bearer = Api.Factory.Services.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get(JwtBearerDefaults.AuthenticationScheme);
 
-        (await GetWith(token)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        bearer.TokenValidationParameters.ValidAlgorithms.Should().ContainSingle(SecurityAlgorithms.HmacSha256);
     }
 
     [Fact]

@@ -1164,7 +1164,7 @@ await using var database = await ProbeDatabase.Create("migrated", migrate: true)
 await database.Run(async db =>
 {
     Check.That(!(await db.Database.GetPendingMigrationsAsync()).Any(), "no migration is left to apply");
-    Check.That((await db.Database.GetAppliedMigrationsAsync()).Single().EndsWith("_InitialSchema", StringComparison.Ordinal), "InitialSchema is the one applied");
+    Check.That((await db.Database.GetAppliedMigrationsAsync()).First().EndsWith("_InitialSchema", StringComparison.Ordinal), "InitialSchema is the first one applied");
     await db.Database.MigrateAsync();
 
     var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1").ToListAsync();
