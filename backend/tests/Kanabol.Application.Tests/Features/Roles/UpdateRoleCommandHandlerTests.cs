@@ -183,6 +183,20 @@ public sealed class UpdateRoleCommandHandlerTests(PostgresFixture postgres) : Ma
         (await PermissionNamesOf(role.Id)).Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")]
+    public async Task Handle_WithANameTheRulesRefuse_ReturnsTheFieldsError(string name)
+    {
+        await SignInWith(Permissions.RolesManage);
+        var role = await CreateRole("Analist");
+
+        var result = await Handler.Handle(new UpdateRoleCommand(role.Id, name, []), CancellationToken.None);
+
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Name");
+    }
+
     [Fact]
     public async Task Handle_WithAnUnknownPermission_ReturnsTheFieldsError()
     {

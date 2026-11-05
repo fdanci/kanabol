@@ -89,6 +89,30 @@ public sealed class CreateRoleCommandHandlerTests(PostgresFixture postgres) : Ma
     }
 
     [Fact]
+    public async Task Handle_WhenOnlyAnOldTokenHasRolesManage_LogsWhoAndWhat()
+    {
+        var caller = await SignInWith();
+
+        await Handler.Handle(new CreateRoleCommand("Analist", []), CancellationToken.None);
+
+        Logs.Entries.Should().Contain(entry => entry.Level == Microsoft.Extensions.Logging.LogLevel.Warning
+            && entry.Message.Contains(caller.Id.ToString(), StringComparison.Ordinal)
+            && entry.Message.Contains(Permissions.RolesManage, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Handle_WhenTheCallerIsDeactivated_LogsWho()
+    {
+        var caller = await SignInWith(Permissions.RolesManage);
+        await Deactivate(caller);
+
+        await Handler.Handle(new CreateRoleCommand("Analist", []), CancellationToken.None);
+
+        Logs.Entries.Should().Contain(entry => entry.Level == Microsoft.Extensions.Logging.LogLevel.Warning
+            && entry.Message.Contains(caller.Id.ToString(), StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Handle_WhenTheCallerIsDeactivated_ReturnsSessionEnded()
     {
         var manager = await SignInWith(Permissions.RolesManage);

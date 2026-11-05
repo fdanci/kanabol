@@ -181,6 +181,39 @@ public sealed class CreateUserCommandHandlerTests(PostgresFixture postgres) : Ma
     }
 
     [Fact]
+    public async Task Handle_WithAnEmailLongerThan320_ReturnsTheFieldsError()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var role = await CreateRole("Analist");
+
+        var result = await Handler.Handle(Command(new string('a', 309) + "@example.com", role.Id), CancellationToken.None);
+
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Email");
+    }
+
+    [Fact]
+    public async Task Handle_WithAnEmailOf320_Succeeds()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var role = await CreateRole("Analist");
+
+        var result = await Handler.Handle(Command(new string('a', 308) + "@example.com", role.Id), CancellationToken.None);
+
+        result.Value.Email.Should().HaveLength(320);
+    }
+
+    [Fact]
+    public async Task Handle_WithADisplayNameLongerThan200_ReturnsTheFieldsError()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var role = await CreateRole("Analist");
+
+        var result = await Handler.Handle(new CreateUserCommand("ana@example.com", new string('A', 201), role.Id, InitialPassword), CancellationToken.None);
+
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("DisplayName");
+    }
+
+    [Fact]
     public async Task Handle_WithAnEmptyDisplayName_ReturnsTheFieldsError()
     {
         await SignInWith(Permissions.UsersManage);

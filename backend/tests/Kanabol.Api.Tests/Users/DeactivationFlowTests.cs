@@ -113,10 +113,12 @@ public sealed class DeactivationFlowTests(ApiFixture api) : ManagementApiTest(ap
         var user = await CreateUser(UnusedEmail());
         var token = await DeactivateThroughTheApi(user);
 
-        using var body = await JsonFrom(await Send(HttpMethod.Get, $"/api/users/{user.Id}", token));
+        using var body = await JsonFrom(await Send(HttpMethod.Get, "/api/users?pageSize=100", token));
 
-        body.RootElement.GetProperty("email").GetString().Should().Be(user.Email);
-        body.RootElement.GetProperty("isActive").GetBoolean().Should().BeFalse();
+        var listed = body.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetGuid() == user.Id);
+        listed.GetProperty("email").GetString().Should().Be(user.Email);
+        listed.GetProperty("isActive").GetBoolean().Should().BeFalse();
     }
 
     // Their name stays on what they did, so the address can't go to someone new.

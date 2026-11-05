@@ -355,9 +355,9 @@ task_1() {
   echo "8.1 Roles"
   check "Docker is running" docker_is_running
   check "the controller is tracked" tracked "$api_dir/Controllers/RolesController.cs"
-  check "the entity's tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~RoleTests' 8
-  check "the handlers' tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~Features.Roles' 52
-  check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~RolesEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 36
+  check "the entity's tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~RoleTests' 9
+  check "the handlers' tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~Features.Roles|FullyQualifiedName~ManagementErrorsTests' 88
+  check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~RolesEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 37
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
   check "the roles come as a page" roles_answer_with_a_page
   check "the permissions are listed, with tasks.create" permissions_are_listed
@@ -476,9 +476,21 @@ old_token_no_longer_manages() {
   code_is 403 Auth.PermissionRequired "$(as "$ana_token" POST /api/users "{\"email\":\"inca.unul@example.com\",\"displayName\":\"Altul\",\"roleId\":\"$manager_role\",\"initialPassword\":\"$initial_password\"}")"
 }
 
+permissions_in() { # permissions_in <token>: its permission claims, sorted, on one line
+  printf '%s' "$1" | node -e '
+    let token = "";
+    process.stdin.on("data", (part) => (token += part));
+    process.stdin.on("end", () => {
+      const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+      console.log([].concat(payload.permission ?? []).sort().join(" "));
+    });
+  ' | tr -d '\r'
+}
+
 next_login_has_the_new_permissions() {
   is 200 "$(login ana.pop@example.com "$ana_password")" || return 1
   ana_token=$(body_field accessToken)
+  is 'reports.view tasks.create' "$(permissions_in "$ana_token")" || return 1
   code_is 403 Auth.PermissionRequired "$(as "$ana_token" GET /api/users)"
 }
 
@@ -486,8 +498,8 @@ task_2() {
   echo "8.2 Users"
   check "the controller is tracked" tracked "$api_dir/Controllers/UsersController.cs"
   check "the entity's tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~Domain.Tests.Users.UserTests' 7
-  check "the handlers' tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~Features.Users' 69
-  check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~UsersEndpointTests' 26
+  check "the handlers' tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~Features.Users' 125
+  check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~UsersEndpointTests|FullyQualifiedName~ModelValidationTests' 34
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
   [ -n "${manager_role:-}" ] || task_1 >/dev/null
   check "a user is created with an initial password, with their Location" creates_ana
@@ -505,6 +517,8 @@ task_2() {
   check "changing the role ends the user's sessions" role_change_ends_the_sessions
   check "a token from before doesn't manage users any more" old_token_no_longer_manages
   check "the next login has the new role's permissions" next_login_has_the_new_permissions
+  check "the initial password isn't in the log" log_lacks "$initial_password"
+  check "nor the one chosen after it" log_lacks "$ana_password"
 }
 
 # ---- 8.3
@@ -571,7 +585,7 @@ migration_keeps_existing_roles() {
 task_3() {
   echo "8.3 The last admin"
   check "the guard is tracked" tracked backend/src/Kanabol.Application/Features/Users/LastAdminGuard.cs
-  check "its tests pass, with the requests that race" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~LastAdminTests' 14
+  check "its tests pass, with the requests that race and the ones that read a user before a change" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~LastAdminTests|FullyQualifiedName~ConcurrentChangesTests' 23
   check "the migration keeps existing roles" migration_keeps_existing_roles
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
   [ -n "${analyst_role:-}" ] || task_1 >/dev/null
@@ -591,6 +605,16 @@ creates_and_signs_in_bob() {
   bob_token=$(body_field accessToken)
   bob_refresh=$(refresh_cookie)
   is 200 "$(as "$bob_token" GET /api/users)"
+}
+
+bob_moves_role() {
+  is 200 "$(as "$admin_token" PUT "/api/users/$bob_id/role" "{\"roleId\":\"$analyst_role\"}")" || return 1
+  in_file '"roleName":"Analist senior"' "$scratch/body" || return 1
+  is 200 "$(as "$admin_token" PUT "/api/users/$bob_id/role" "{\"roleId\":\"$manager_role\"}")" || return 1
+  is 200 "$(login bob@example.com "$bob_password")" || return 1
+  bob_token=$(body_field accessToken)
+  bob_refresh=$(refresh_cookie)
+  [ -n "$bob_token" ] && [ -n "$bob_refresh" ]
 }
 
 bob_is_deactivated() {
@@ -653,6 +677,7 @@ task_4() {
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
   [ -n "${manager_role:-}" ] || task_1 >/dev/null
   check "a user with users.manage signs in" creates_and_signs_in_bob
+  check "they move to another role and back, and sign in again" bob_moves_role
   check "they are deactivated" bob_is_deactivated
   check "their row stays" row_stays
   check "their sessions are over" sessions_are_over
@@ -662,8 +687,10 @@ task_4() {
   check "the first password isn't in the log" log_lacks "$admin_password"
   check "nor the new one" log_lacks "$new_admin_password"
   check "nor an initial password" log_lacks "$initial_password"
-  check "nor one chosen later" log_lacks "$ana_password"
-  check "nor a token" log_lacks "${bob_token:-no token}"
+  check "nor one chosen later" log_lacks "$bob_password"
+  check "nor an access token" log_lacks "${bob_token:-no token}"
+  check "nor a refresh token" log_lacks "${bob_refresh:-no token}"
+  check "nor the admin's token" log_lacks "$admin_token"
   check "a role change is logged" log_has "moved to role"
   check "a deactivation is logged" log_has "deactivated, which ended"
   check "no password is stored as text" passwords_stay_out_of_the_database

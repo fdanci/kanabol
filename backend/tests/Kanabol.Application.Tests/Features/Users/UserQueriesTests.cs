@@ -7,6 +7,7 @@ using Kanabol.Application.Features.Users.Queries.GetUserById;
 using Kanabol.Application.Features.Users.Queries.GetUsers;
 using Kanabol.Domain.Authorization;
 using Kanabol.Tests.Shared.Database;
+using Microsoft.EntityFrameworkCore;
 
 namespace Kanabol.Application.Tests.Features.Users;
 
@@ -46,6 +47,34 @@ public sealed class UserQueriesTests(PostgresFixture postgres) : ManagementHandl
 
         result.Value.Number.Should().Be(2);
         result.Value.Items.Should().ContainSingle().Which.Email.Should().Be("manager@example.com");
+    }
+
+    [Fact]
+    public async Task GetUsers_WithMoreRowsThanFit_ReturnsOnlyAPage()
+    {
+        await SignInWith(Permissions.UsersManage);
+        await CreateUser("alfa@example.com");
+        await CreateUser("beta@example.com");
+
+        var result = await Users.Handle(new GetUsersQuery(1, 2), CancellationToken.None);
+
+        result.Value.TotalCount.Should().Be(3);
+        result.Value.Items.Select(user => user.Email).Should().Equal("alfa@example.com", "beta@example.com");
+    }
+
+    [Fact]
+    public async Task GetUserById_ForALockedUser_SaysUntilWhen()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var user = await CreateUser();
+        await using (var db = Postgres.CreateContext())
+        {
+            await db.Users.Where(existing => existing.Id == user.Id).ExecuteUpdateAsync(set => set.SetProperty(existing => existing.LockedUntil, Now.AddMinutes(15)));
+        }
+
+        var result = await UserById.Handle(new GetUserByIdQuery(user.Id), CancellationToken.None);
+
+        result.Value.LockedUntil.Should().Be(Now.AddMinutes(15));
     }
 
     [Theory]

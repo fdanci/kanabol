@@ -52,6 +52,17 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     }
 
     [Fact]
+    public async Task Get_WithoutPaging_UsesTheFirstPageOf50()
+    {
+        var token = await TokenWith(Permissions.UsersManage);
+
+        using var body = await JsonFrom(await Send(HttpMethod.Get, Users, token));
+
+        body.RootElement.GetProperty("page").GetInt32().Should().Be(1);
+        body.RootElement.GetProperty("pageSize").GetInt32().Should().Be(50);
+    }
+
+    [Fact]
     public async Task Put_WhenAllowed_Returns200WithTheUser()
     {
         var token = await TokenWith(Permissions.UsersManage);

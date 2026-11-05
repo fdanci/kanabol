@@ -52,6 +52,44 @@ public sealed class RoleQueriesTests(PostgresFixture postgres) : ManagementHandl
     }
 
     [Fact]
+    public async Task GetRoles_WithMoreRowsThanFit_ReturnsOnlyAPage()
+    {
+        await SignInWith(Permissions.RolesManage);
+        await CreateRole("Alfa");
+        await CreateRole("Beta");
+        await CreateRole("Gama");
+
+        var result = await Roles.Handle(new GetRolesQuery(1, 2), CancellationToken.None);
+
+        result.Value.TotalCount.Should().Be(4);
+        result.Value.Items.Select(role => role.Name).Should().Equal("Alfa", "Beta");
+    }
+
+    // Deactivated holders count: they're why the role can't be deleted.
+    [Fact]
+    public async Task GetRoles_WithADeactivatedHolder_CountsThem()
+    {
+        await SignInWith(Permissions.RolesManage);
+        var holder = await CreateUser("zeta@example.com");
+        await Deactivate(holder);
+
+        var result = await RoleById.Handle(new GetRoleByIdQuery(holder.RoleId), CancellationToken.None);
+
+        result.Value.UserCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetRoleById_WhenAllowed_ListsThePermissionsInOrder()
+    {
+        await SignInWith(Permissions.RolesManage);
+        var role = await CreateRole("Analist", Permissions.UsersManage, Permissions.ReportsView, Permissions.TasksArchive);
+
+        var result = await RoleById.Handle(new GetRoleByIdQuery(role.Id), CancellationToken.None);
+
+        result.Value.Permissions.Should().Equal(Permissions.ReportsView, Permissions.TasksArchive, Permissions.UsersManage);
+    }
+
+    [Fact]
     public async Task GetRoles_ForAPagePastTheEnd_ReturnsNoItemsAndTheCount()
     {
         await SignInWith(Permissions.RolesManage);
