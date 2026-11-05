@@ -23,6 +23,9 @@ public sealed class Role : AuditableEntity
 
     public bool IsSystem { get; private set; }
 
+    /// <summary>Changes when someone stops holding this role, so two such changes at once can't both save.</summary>
+    public int HoldersVersion { get; private set; }
+
     public IReadOnlyCollection<RolePermission> RolePermissions => _rolePermissions;
 
     public void Rename(string name)
@@ -50,6 +53,8 @@ public sealed class Role : AuditableEntity
             _rolePermissions.Add(new RolePermission(Id, permissionId));
         }
     }
+
+    public void RecordHolderLeaving() => HoldersVersion++;
 
     /// <summary>Handlers refuse this with an error first, so getting here means one of them forgot.</summary>
     private void EnsureNotSystem()

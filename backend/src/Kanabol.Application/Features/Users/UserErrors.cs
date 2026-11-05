@@ -8,6 +8,8 @@ public static class UserErrors
 
     public static readonly Error EmailTaken = Error.Conflict("User.EmailTaken", "A user with this email already exists.");
 
+    public static readonly Error LastAdmin = Error.Conflict("User.LastAdmin", "This is the last active user with the Admin role.");
+
     public static readonly Error ChangedMeanwhile = Error.Conflict("User.ChangedMeanwhile", "This user changed at the same moment. Try again.");
 
     public static readonly Error RoleBeyondYours = Error.Forbidden("User.RoleBeyondYours", "You can't give someone a role with permissions you don't have.");

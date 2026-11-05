@@ -12,6 +12,7 @@ namespace Kanabol.Application.Features.Users.Commands.DeactivateUser;
 public sealed class DeactivateUserCommandHandler(
     IAppDbContext db,
     CurrentPermissions currentPermissions,
+    LastAdminGuard lastAdmin,
     ILogger<DeactivateUserCommandHandler> logger) : ICommandHandler<DeactivateUserCommand, UserDto>
 {
     public async Task<Result<UserDto>> Handle(DeactivateUserCommand command, CancellationToken ct)
@@ -35,8 +36,23 @@ public sealed class DeactivateUserCommandHandler(
 
         if (target.IsActive)
         {
+            var leaving = await lastAdmin.AllowLeaving(target, ct);
+            if (leaving.IsFailure)
+            {
+                return leaving.Error;
+            }
+
             target.Deactivate();
-            await db.SaveChangesAsync(ct);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return UserErrors.ChangedMeanwhile;
+            }
+
             logger.LogInformation("User {TargetUserId} deactivated", target.Id);
         }
 

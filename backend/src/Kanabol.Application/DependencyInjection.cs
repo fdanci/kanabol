@@ -5,6 +5,7 @@ using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common.Decorators;
 using Kanabol.Application.Features.Auth;
 using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Features.Users;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kanabol.Application;
@@ -15,6 +16,7 @@ public static class DependencyInjection
         services
             .AddScoped<SessionIssuer>()
             .AddScoped<CurrentPermissions>()
+            .AddScoped<LastAdminGuard>()
             .AddScoped<IProjectAccess, ProjectAccess>()
             .AddHandlersFrom(typeof(DependencyInjection).Assembly);
 

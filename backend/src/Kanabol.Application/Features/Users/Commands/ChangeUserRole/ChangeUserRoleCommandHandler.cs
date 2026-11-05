@@ -16,6 +16,7 @@ namespace Kanabol.Application.Features.Users.Commands.ChangeUserRole;
 public sealed class ChangeUserRoleCommandHandler(
     IAppDbContext db,
     CurrentPermissions currentPermissions,
+    LastAdminGuard lastAdmin,
     IClock clock,
     ILogger<ChangeUserRoleCommandHandler> logger) : ICommandHandler<ChangeUserRoleCommand, UserDto>
 {
@@ -62,6 +63,12 @@ public sealed class ChangeUserRoleCommandHandler(
 
     private async Task<Error?> MoveToRole(User target, Guid roleId, CancellationToken ct)
     {
+        var leaving = await lastAdmin.AllowLeaving(target, ct);
+        if (leaving.IsFailure)
+        {
+            return leaving.Error;
+        }
+
         var now = clock.UtcNow;
         var liveTokens = await db.RefreshTokens.Where(token => token.UserId == target.Id && token.RevokedAt == null).ToListAsync(ct);
 
