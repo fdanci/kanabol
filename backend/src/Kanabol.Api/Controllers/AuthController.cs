@@ -7,6 +7,7 @@ using Kanabol.Application.Features.Auth.Commands.ChangePassword;
 using Kanabol.Application.Features.Auth.Commands.LoginUser;
 using Kanabol.Application.Features.Auth.Commands.LogoutUser;
 using Kanabol.Application.Features.Auth.Commands.RefreshSession;
+using Kanabol.Application.Features.Auth.Queries.GetCurrentUser;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -61,6 +62,13 @@ public sealed class AuthController : ControllerBase
         [FromServices] ICommandHandler<ChangePasswordCommand, AuthSession> handler,
         CancellationToken ct) =>
         SessionResult(await handler.Handle(new ChangePasswordCommand(request.CurrentPassword, request.NewPassword), ct));
+
+    [AllowedBeforePasswordChange]
+    [HttpGet("me")]
+    public async Task<IActionResult> Me(
+        [FromServices] IQueryHandler<GetCurrentUserQuery, CurrentUserDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new GetCurrentUserQuery(), ct)).ToActionResult();
 
     private IActionResult SessionResult(Result<AuthSession> result)
     {

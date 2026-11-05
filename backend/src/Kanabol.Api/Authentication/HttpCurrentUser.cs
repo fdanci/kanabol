@@ -9,9 +9,9 @@ public sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentUse
 
     public bool IsAuthenticated => Principal?.Identity?.IsAuthenticated == true;
 
-    public Guid Id => Guid.TryParse(Principal?.FindFirstValue("sub"), out var id)
+    public Guid Id => Guid.TryParse(Principal?.FindFirstValue(AuthClaims.Subject), out var id)
         ? id
         : throw new InvalidOperationException("The current request has no authenticated user.");
 
-    public bool HasPermission(string permission) => Principal?.HasClaim("permission", permission) == true;
+    public bool HasPermission(string permission) => Principal?.HasClaim(AuthClaims.Permission, permission) == true;
 }
