@@ -1,8 +1,10 @@
 using System.Reflection;
 using FluentValidation;
+using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common.Decorators;
 using Kanabol.Application.Features.Auth;
+using Kanabol.Application.Features.Projects;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kanabol.Application;
@@ -10,7 +12,10 @@ namespace Kanabol.Application;
 public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services) =>
-        services.AddScoped<SessionIssuer>().AddHandlersFrom(typeof(DependencyInjection).Assembly);
+        services
+            .AddScoped<SessionIssuer>()
+            .AddScoped<IProjectAccess, ProjectAccess>()
+            .AddHandlersFrom(typeof(DependencyInjection).Assembly);
 
     public static IServiceCollection AddHandlersFrom(this IServiceCollection services, Assembly assembly)
     {

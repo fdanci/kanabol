@@ -1,0 +1,291 @@
+using Kanabol.Application.Abstractions;
+using Kanabol.Application.Common;
+using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Tests.Features.Auth;
+using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Projects;
+using Kanabol.Domain.Users;
+using Kanabol.Tests.Shared.Builders;
+using Kanabol.Tests.Shared.Database;
+using Microsoft.EntityFrameworkCore;
+
+namespace Kanabol.Application.Tests.Features.Projects;
+
+/// <summary>SPEC section 4.4: a member or projects.view_all passes as a member, an owner or projects.manage as an owner.</summary>
+public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTest(postgres)
+{
+    private IProjectAccess Access => Get<IProjectAccess>();
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheUserIsAMember_Succeeds()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.WithMember(user));
+
+        (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheUserIsAnOwner_Succeeds()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(user));
+
+        (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheUserIsNotAMember_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject();
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+        result.Error.Type.Should().Be(ErrorType.Forbidden);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheUserIsAMemberOfAnotherProject_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        await CreateProject(builder => builder.WithMember(user));
+        var project = await CreateProject();
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenAnotherUserIsTheMember_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var other = await CreateUser("other@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(other));
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WithViewAll_SucceedsWithoutBeingAMember()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsViewAll]);
+        var project = await CreateProject();
+
+        (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(Permissions.ProjectsManage)]
+    [InlineData(Permissions.UsersManage)]
+    public async Task EnsureMemberAsync_WithAnotherPermission_ReturnsForbidden(string permission)
+    {
+        var user = await CreateUser(permissions: [permission]);
+        var project = await CreateProject();
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenTheUserIsAnOwner_Succeeds()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(user));
+
+        (await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenTheUserIsOnlyAMember_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.WithMember(user));
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+        result.Error.Type.Should().Be(ErrorType.Forbidden);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenTheUserOwnsAnotherProject_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        await CreateProject(builder => builder.OwnedBy(user));
+        var project = await CreateProject(builder => builder.WithMember(user));
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WithManage_SucceedsWithoutBeingAMember()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
+        var project = await CreateProject();
+
+        (await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WithViewAll_ReturnsForbidden()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsViewAll]);
+        var project = await CreateProject(builder => builder.WithMember(user));
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    // The answer is about the user asked about, which isn't always the one making the request.
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheCallerHasViewAll_DoesNotCountForTheUserAskedAbout()
+    {
+        var caller = await CreateUser("caller@example.com", permissions: [Permissions.ProjectsViewAll]);
+        var user = await CreateUser();
+        var project = await CreateProject();
+        SignIn(caller, Permissions.ProjectsViewAll);
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenTheCallerHasManage_DoesNotCountForTheUserAskedAbout()
+    {
+        var caller = await CreateUser("caller@example.com", permissions: [Permissions.ProjectsManage]);
+        var user = await CreateUser();
+        var project = await CreateProject();
+        SignIn(caller, Permissions.ProjectsManage);
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    // The database decides: a token can still show a permission the role has since lost.
+    [Fact]
+    public async Task EnsureMemberAsync_WhenOnlyAnOldTokenStillHasViewAll_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject();
+        SignIn(user, Permissions.ProjectsViewAll);
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenAMemberIsDeactivated_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.WithMember(user));
+        await Deactivate(user);
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenADeactivatedUserHasViewAll_ReturnsForbidden()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsViewAll]);
+        var project = await CreateProject();
+        await Deactivate(user);
+
+        var result = await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenAnOwnerIsDeactivated_ReturnsForbidden()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(user));
+        await Deactivate(user);
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenADeactivatedUserHasManage_ReturnsForbidden()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
+        var project = await CreateProject();
+        await Deactivate(user);
+
+        var result = await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheUserDoesNotExist_ReturnsForbidden()
+    {
+        var project = await CreateProject();
+
+        var result = await Access.EnsureMemberAsync(project.Id, Guid.CreateVersion7(), CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    // Only the access question is answered here. Whether the project exists is for the handler to
+    // find out first, and someone without access learns nothing about it from the answer.
+    [Fact]
+    public async Task EnsureMemberAsync_WhenTheProjectDoesNotExist_AnswersAsForAnyOtherProject()
+    {
+        var plainUser = await CreateUser();
+        var seesAll = await CreateUser("seesall@example.com", permissions: [Permissions.ProjectsViewAll]);
+        var missing = Guid.CreateVersion7();
+
+        (await Access.EnsureMemberAsync(missing, plainUser.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.MemberRequired);
+        (await Access.EnsureMemberAsync(missing, seesAll.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    // Restoring an archived project needs its owner to still count as one.
+    [Fact]
+    public async Task EnsureOwnerAsync_WhenTheProjectIsArchived_StillRecognizesItsOwner()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(user));
+        await using (var db = Postgres.CreateContext())
+        {
+            await db.Projects
+                .Where(existing => existing.Id == project.Id)
+                .ExecuteUpdateAsync(set => set.SetProperty(existing => existing.ArchivedAt, Now));
+        }
+
+        (await Access.EnsureOwnerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    private async Task<Project> CreateProject(Func<ProjectBuilder, ProjectBuilder>? configure = null)
+    {
+        var project = (configure ?? (builder => builder))(new ProjectBuilder()).Build();
+
+        await using var db = Postgres.CreateContext();
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+        return project;
+    }
+
+    private void SignIn(User user, params string[] permissions)
+    {
+        CurrentUser.IsAuthenticated.Returns(true);
+        CurrentUser.Id.Returns(user.Id);
+        CurrentUser.HasPermission(Arg.Is<string>(permission => permissions.Contains(permission))).Returns(true);
+    }
+}
