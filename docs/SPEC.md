@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.5 — 2026-11-05 (v1.4 + deciziile lui Florin din Blocked: `tasks.create`, `projects.manage` ca membru și forma refuzului în §4.4; limita de 40 s și `check-permissions.sh` în §14).
+> Stare: v1.6 — 2026-11-05 (v1.5 + corecturile lecturii cap-coadă: cheia de task `KAN-123` în §5.1 și §7.2, notificările de asignare și de comentariu în §4.3, cycle time și rapoartele pentru owneri în §5.1.1, markdown în §5.1 și §16, `chart.js` în §2, `navigator.locks` în §6.2, §18 curățat).
 
 ---
 
@@ -21,7 +21,7 @@
 | Productivitate | 3 metrici: task-uri finalizate pe perioadă, lead/cycle time, întârziate + rata de respectare a deadline-ului |
 | WIP limit | Nu în v1 |
 | Frontend | Angular 22, standalone, **Signals + servicii** (fără store extern), Angular Material + CDK |
-| Real-time | SignalR din v1, hub per proiect, alimentat de domain events |
+| Real-time | SignalR din v1, un singur hub cu grupuri per proiect și per utilizator, alimentat de domain events |
 | i18n | Cod/DB/API în engleză, UI în română prin `@angular/localize` (sursă `ro`) |
 | Loguri | **Serilog** structurat (JSON) → consolă + **Seq** în Docker, `CorrelationId` pe fiecare request |
 | Teste back | xUnit + NSubstitute + FluentAssertions + Testcontainers (Postgres real) |
@@ -59,9 +59,9 @@ Constrângeri care au ghidat deciziile:
 | Angular Material + CDK | 22.x | aceeași versiune cu Angular |
 | Seq | ultimul `datalust/seq` | gratuit pentru un singur utilizator |
 
-Pachete NuGet cheie: `Npgsql.EntityFrameworkCore.PostgreSQL`, `EFCore.NamingConventions`, `FluentValidation`, `Serilog.AspNetCore`, `Serilog.Sinks.Seq`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore` (sau `Microsoft.AspNetCore.OpenApi` + Scalar), `Scrutor` (decoratori), `Testcontainers.PostgreSql`, `Respawn`, `xunit`, `NSubstitute`, `FluentAssertions`.
+Pachete NuGet cheie: `Npgsql.EntityFrameworkCore.PostgreSQL`, `EFCore.NamingConventions`, `FluentValidation`, `Serilog.AspNetCore`, `Serilog.Sinks.Seq`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `Scrutor` (decoratori), `Testcontainers.PostgreSql`, `Respawn`, `xunit`, `NSubstitute`, `FluentAssertions`.
 
-Pachete npm cheie: `@angular/*`, `@angular/material`, `@angular/cdk`, `@angular/localize`, `@microsoft/signalr`, `angular-eslint`, `typescript-eslint`, `prettier`, `vitest`, `husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`.
+Pachete npm cheie: `@angular/*`, `@angular/material`, `@angular/cdk`, `@angular/localize`, `@microsoft/signalr`, `chart.js` (fără wrapper Angular: un component `kb-chart` peste `<canvas>`, pentru rapoarte), `angular-eslint`, `typescript-eslint`, `prettier`, `vitest`, `husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`.
 
 **Evităm**: MediatR și AutoMapper (ambele au trecut pe licență comercială în 2025), Moq (incidentul SponsorLink), Karma (abandonat de Angular), NgRx clasic (prea mult boilerplate pentru un singur dev).
 
@@ -245,7 +245,8 @@ Reguli:
 | **Strategy** | `IPasswordHasher`, `IFileStorage` | Înlocuibile fără a atinge Application |
 | **Aggregate** (ușor) | `TaskItem` deține `Comments`, `Attachments`, `History`; `Project` deține `Members`, `Columns` | Invariantele se aplică într-un singur loc |
 | **Specification** | **nu** în v1 | Filtrele de query stau în handler; dacă apar duplicate, extragem metode de extensie `IQueryable` |
-| **Background service** | `OverdueTasksWorker : BackgroundService` cu `PeriodicTimer` (la 15 min): task-uri cu `due_date < now`, neterminate, nearhivate, fără notificare `TaskOverdue` deja emisă → creează `Notification` pentru asignat și pentru owner-ii proiectului → `NotificationCreatedEvent` → SignalR | Alerte deadline in-app, fără scheduler extern |
+| **Background service** | `OverdueTasksWorker : BackgroundService` cu `PeriodicTimer` (la 15 min): task-uri cu `due_date < now`, neterminate, nearhivate, fără notificare `TaskOverdue` deja emisă → creează `Notification` pentru asignat și pentru owner-ii proiectului → `NotificationCreatedEvent` → SignalR. O singură notificare per task, nu se repetă zilnic | Alerte deadline in-app, fără scheduler extern |
+| **Domain event handlers** pentru notificări | `TaskAssignedEvent` → `Notification(TaskAssigned)` pentru noul asignat, dacă nu e el cel care a făcut asignarea; `CommentAddedEvent` → `Notification(CommentAdded)` pentru asignat și pentru creatorul task-ului, fără autorul comentariului; ambele → `NotificationCreatedEvent` → SignalR `user:{id}` | Clopoțelul e util din prima zi, nu doar la întârzieri |
 
 ### 4.4 Autorizare
 
@@ -257,7 +258,7 @@ projects.view_all   projects.manage     tasks.create
 tasks.archive       reports.view
 ```
 
-`tasks.create` se verifică pe lângă apartenența la proiect: creezi task-uri doar în proiectele în care ești membru și doar dacă rolul tău are permisiunea (UI §7.4). Un rol poate deci vedea un proiect fără să poată adăuga task-uri în el.
+`tasks.create` se verifică pe lângă apartenența la proiect: creezi task-uri doar în proiectele în care ești membru și doar dacă rolul tău are permisiunea (UI §7.4). Apartenența e cea reală, un rând în `project_members`, nu cea derivată din `projects.view_all` sau `projects.manage`: cine administrează un proiect străin se adaugă întâi ca membru. Un rol poate deci vedea un proiect fără să poată adăuga task-uri în el.
 
 **Un utilizator are exact un rol** (`users.role_id`, NOT NULL). Rolul grupează permisiuni (`role_permissions`). Dacă cineva are nevoie de drepturi combinate, adminul creează un rol nou — nu atribuim mai multe roluri aceleiași persoane. Schimbarea rolului invalidează refresh token-urile utilizatorului (permisiunile din JWT se reîmprospătează la următorul login/refresh).
 
@@ -333,21 +334,22 @@ Project ──< TaskItem ──< Comment
 
 - `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol), `IsActive`, `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
 - `Role`: `Name` (unic), `IsSystem` (true doar pentru `Admin`), permisiuni prin `role_permissions`.
-- `TaskItem` (nu `Task`, ca să nu se bată cu `System.Threading.Tasks.Task`): `Title`, `Description`, `Priority` (enum `Low|Medium|High|Critical`), `DueDate?`, `AssigneeId?`, `ColumnId`, `Position`, `CompletedAt?`, `ArchivedAt?`, `ArchivedById?`.
+- `Project`: `Name`, `Key` (prefixul cheilor de task: 2–5 majuscule, unic, ex. `KAN`; nu se schimbă după creare), `Description?`, `NextTaskNumber` (contorul din care se alocă numerele de task), `ArchivedAt?`, `ArchivedById?`; deține `Members` și `Columns`.
+- `TaskItem` (nu `Task`, ca să nu se bată cu `System.Threading.Tasks.Task`): `Number` (unic în proiect, alocat crescător la creare din `Project.NextTaskNumber`, în aceeași tranzacție; `Project` are concurrency token, deci două creări simultane nu primesc același număr), `Title`, `Description` (markdown de bază, stocat ca text), `Priority` (enum `Low|Medium|High|Critical`), `DueDate?`, `AssigneeId?`, `ColumnId`, `Position`, `CompletedAt?`, `ArchivedAt?`, `ArchivedById?`. Cheia afișată e `{Project.Key}-{Number}`, ex. `KAN-123`; `GET /api/tasks/by-key/{key}` o rezolvă (UI §7.5). Numărul rămâne și după arhivare, nu se refolosește.
 - `BoardColumn`: `Name`, `Position`, `IsDone` (marchează coloana „terminat”; intrarea unui task într-o astfel de coloană setează `CompletedAt`, ieșirea îl anulează). Fără WIP limit în v1.
 - `TaskHistoryEntry`: `Field`, `OldValue`, `NewValue`, `ChangedById`, `ChangedAt`. Entitatea `TaskItem` o adaugă singură în metodele de modificare (`Rename`, `ChangeDescription`, `MoveTo`, `Assign`, `SetPriority`, `SetDueDate`, `Archive`, `Restore`) — istoricul e garantat, nu depinde de handler.
-- `Notification`: `UserId`, `Type` (enum `TaskOverdue|TaskAssigned|CommentAdded`), `TaskId?`, `Message`, `CreatedAt`, `ReadAt?`. Livrate exclusiv in-app (listă + clopoțel + push prin SignalR). **Nu** definim `IEmailSender` sau alt canal în v1; dacă apare nevoia, se adaugă atunci ca un consumer suplimentar al acelorași domain events.
+- `Notification`: `UserId`, `Type` (enum `TaskOverdue|TaskAssigned|CommentAdded`), `TaskId?`, `Message`, `CreatedAt`, `ReadAt?`. Cine le produce e în §4.3: worker-ul pentru `TaskOverdue`, handlerele de domain events pentru celelalte două. Livrate exclusiv in-app (listă + clopoțel + push prin SignalR). **Nu** definim `IEmailSender` sau alt canal în v1; dacă apare nevoia, se adaugă atunci ca un consumer suplimentar al acelorași domain events.
 
 **Arhivare, nu ștergere.** `DELETE /api/tasks/{id}` arhivează (`ArchivedAt = now`), nu șterge rânduri. Global query filter `HasQueryFilter(t => t.ArchivedAt == null)` pe `TaskItem`; comentariile, atașamentele și istoricul rămân intacte și intră în rapoarte. Admin (permisiunea `tasks.archive`) vede task-urile arhivate cu `?includeArchived=true` (handler cu `IgnoreQueryFilters()`) și le poate restaura (`POST /api/tasks/{id}/restore`). Nu există hard delete în API; curățarea fizică (dacă va fi vreodată nevoie) e o operațiune de DBA, nu o funcție de produs. Proiectele urmează aceeași regulă (`archived_at` pe `projects`).
 
 ### 5.1.1 Productivitate (feature `Reports`)
 
-Nu e entitate; sunt trei queries read-only, filtrabile pe interval (`from`, `to`), pe proiect și pe utilizator, cu permisiunea `reports.view` (sau owner pe proiectul respectiv):
+Nu e entitate; sunt trei queries read-only, filtrabile pe interval (`from`, `to`), pe proiect și pe utilizator. Pagina globală de rapoarte cere `reports.view`. Owner-ul unui proiect le vede fără permisiune, dar doar pentru proiectul lui, din tab-ul „Rapoarte” al paginii de proiect (UI §7.3): query-urile acceptă deci fie `reports.view`, fie owner pe `projectId`-ul din filtru, care devine obligatoriu în al doilea caz.
 
 | Metrică | Definiție | Sursă |
 |---|---|---|
 | **Task-uri finalizate** | Număr de task-uri cu `completed_at` în interval, grupate pe asignat și pe proiect; serie pe săptămână/lună | `task_items.completed_at`, `assignee_id` |
-| **Lead time / cycle time** | Lead: `completed_at − created_at`. Cycle: timpul petrecut în coloanele dintre prima intrare într-o coloană „în lucru” și `completed_at`. Plus timp mediu per coloană. Raportate ca medie și mediană | `task_history_entries` cu `field = 'ColumnId'` (reconstruim intervalele de ședere per coloană) |
+| **Lead time / cycle time** | Lead: `completed_at − created_at`. Cycle: de la prima ieșire a task-ului din prima coloană a board-ului (poziția 0, de obicei „De făcut”) până la `completed_at`; un task creat direct în altă coloană pornește de la `created_at`. Nu există marcaj de coloană „în lucru”, regula e poziția. Plus timp mediu per coloană. Raportate ca medie și mediană | `task_history_entries` cu `field = 'ColumnId'` (reconstruim intervalele de ședere per coloană) |
 | **Deadline** | Task-uri întârziate (`due_date < now` și neterminate), task-uri finalizate după deadline, rata de respectare = finalizate la timp / finalizate cu deadline | `due_date`, `completed_at` |
 
 Toate exclud task-urile arhivate înainte de finalizare. Calculul se face în EF cu proiecții și `GroupBy`; dacă query-ul pe istoric devine lent, se materializează într-o tabelă `task_column_stays` (`task_id, column_id, entered_at, left_at`) întreținută din evenimentul `TaskMovedEvent` — decizie amânată până apar date reale.
@@ -431,7 +433,7 @@ Fiecare feature: `<feature>.routes.ts`, `<feature>-api.ts` (HTTP), `<feature>-st
 | **Resource API pentru citiri** | `resource()` / `httpResource()` pentru încărcări dependente de un parametru (ex. board-ul proiectului curent); stare `loading/error` gratis |
 | **Optimistic update** | Mutarea unui card actualizează semnalul imediat, apoi apelează API; la eroare face rollback și arată snackbar |
 | **Facade API** | `*-api.ts` este singurul loc cu `HttpClient` pentru feature; întoarce `Observable<Dto>` tipat |
-| **Interceptori funcționali** | `authInterceptor` (Bearer + refresh la 401, o singură dată, cu coadă), `correlationInterceptor` (`X-Correlation-Id`), `errorInterceptor` (ProblemDetails → mesaj) |
+| **Interceptori funcționali** | `authInterceptor` (Bearer + refresh la 401, o singură dată, cu coadă; refresh-ul e serializat și între taburi cu `navigator.locks`, altfel două taburi pornite odată declanșează detecția de refolosire din §4.5), `correlationInterceptor` (`X-Correlation-Id`), `errorInterceptor` (ProblemDetails → mesaj) |
 | **Route guards funcționali** | `authGuard`, `permissionGuard('projects.view_all')` |
 | **Directivă `*kbHasPermission`** | Ascunde elemente din UI; **nu** e securitate, backend-ul verifică oricum |
 | **`@defer`** pentru widget-uri grele (rapoarte, editor de descriere) |
@@ -482,7 +484,7 @@ Fiecare feature: `<feature>.routes.ts`, `<feature>-api.ts` (HTTP), `<feature>-st
 | PK | `id` (uuid v7) | |
 | FK | `<entitate>_id` | `project_id`, `assignee_id` |
 | Indexuri | `ix_<tabel>_<coloane>` (generat de EF) | `ix_task_items_project_id_column_id` |
-| Unique | `ux_<tabel>_<coloane>` | `ux_users_email` |
+| Unique | `ux_<tabel>_<coloane>` | `ux_users_email`, `ux_projects_key`, `ux_task_items_project_id_number` |
 | FK constraint | `fk_<tabel>_<tabel_referit>_<coloană>` (generat) | |
 | Timestamp-uri | `timestamptz`, sufix `_at` | `completed_at` |
 | Booleans | prefix `is_`/`has_` | `is_done`, `is_active` |
@@ -1200,6 +1202,7 @@ Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-a
 - [ ] Validare de input în toate commands (FluentValidation); EF parametrizat → fără SQL injection.
 - [ ] Atașamente: extensii permise, dimensiune max, nume generat, `Content-Disposition: attachment`, nu se execută niciodată din `wwwroot`.
 - [ ] Backend verifică permisiunea și accesul la proiect la fiecare request; UI doar ascunde.
+- [ ] Markdown-ul din descrieri și comentarii se randează în client printr-un parser cu sanitizare: HTML brut eliminat, fără script sau atribute `on*`, linkurile cu `rel="noopener noreferrer"`; niciodată `innerHTML` nefiltrat sau `bypassSecurityTrust*`.
 - [ ] Health endpoint `/health` fără date sensibile; Swagger doar în Development.
 - [ ] Backup zilnic `pg_dump` (cron pe server) + volumul de atașamente.
 
@@ -1233,7 +1236,7 @@ Format recomandat pentru fiecare: `Decizie / Motiv / Alternative / Legate`, ca c
 Toate întrebările din v1.0 au fost închise pe 2026-11-04 (vezi §0 și §17). Rămân pentru momentul implementării, fără impact pe arhitectură:
 
 - Hostname-ul/IP-ul intern al serverului (le primește `scripts/make-certs.sh`, §13.4).
-- Intervalul exact al `OverdueTasksWorker` (propus 15 min) și dacă notificarea de întârziere se repetă zilnic sau o singură dată.
+- Intervalul exact al `OverdueTasksWorker` (propus 15 min). Că notificarea se emite o singură dată per task e decis în §4.3.
 - Lista de extensii permise la atașamente.
 
 ---
