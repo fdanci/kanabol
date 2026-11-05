@@ -66,6 +66,8 @@ public sealed class User : AuditableEntity
 
     public void Deactivate() => IsActive = false;
 
+    public void Activate() => IsActive = true;
+
     public void ChangePassword(string passwordHash)
     {
         PasswordHash = passwordHash;

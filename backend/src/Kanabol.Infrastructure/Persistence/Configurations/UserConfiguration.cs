@@ -13,10 +13,11 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.DisplayName).HasMaxLength(User.MaxDisplayNameLength);
         builder.Property(user => user.PasswordHash).HasMaxLength(256);
 
-        // A request that read someone in one role must not write over a move it didn't see: a save that
-        // touches the row checks the role is still the one it read (see LastAdminGuard). IsActive will
-        // need the same once users can be reactivated.
+        // A request that read someone in one role, or deactivated, must not write over a move or a
+        // reactivation it didn't see: a save that touches the row checks both are still what it read.
+        // LastAdminGuard lets a deactivated admin leave the role freely, which is only safe this way.
         builder.Property(user => user.RoleId).IsConcurrencyToken();
+        builder.Property(user => user.IsActive).IsConcurrencyToken();
 
         builder.HasOne(user => user.Role).WithMany().HasForeignKey(user => user.RoleId).OnDelete(DeleteBehavior.Restrict);
     }

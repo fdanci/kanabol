@@ -2,6 +2,7 @@ using Kanabol.Application.Common;
 using Kanabol.Application.Features.Auth;
 using Kanabol.Application.Features.Auth.Commands.LoginUser;
 using Kanabol.Application.Features.Users;
+using Kanabol.Application.Features.Users.Commands.ActivateUser;
 using Kanabol.Application.Features.Users.Commands.ChangeUserRole;
 using Kanabol.Application.Features.Users.Commands.DeactivateUser;
 using Kanabol.Application.Features.Users.Commands.UpdateUser;
@@ -61,6 +62,50 @@ public sealed class ConcurrentChangesTests(PostgresFixture postgres) : Managemen
         result.Error.Should().Be(UserErrors.ChangedMeanwhile);
         await ShouldHaveOneActiveAdmin(admin.RoleId);
         (await Reload(user)).RoleId.Should().Be(admin.RoleId);
+    }
+
+    // B is read deactivated, so taking B out of Admin counts for nothing. Then B comes back, and the
+    // last other admin leaves counting on B: the first request mustn't take B away after that.
+    [Fact]
+    public async Task ChangeRole_OfADeactivatedAdminWhoIsReactivatedMeanwhile_IsRefused()
+    {
+        var admin = await CreateAdmin();
+        var other = await CreateAdmin("b@example.com");
+        await Deactivate(other);
+        var role = await CreateRole("Analist");
+        SignIn(admin);
+
+        var result = await PausedAtClockCall(
+            1,
+            () => HandleInOwnScope<ChangeUserRoleCommand, UserDto>(new ChangeUserRoleCommand(other.Id, role.Id)),
+            async () =>
+            {
+                (await HandleInOwnScope<ActivateUserCommand, UserDto>(new ActivateUserCommand(other.Id))).IsSuccess.Should().BeTrue();
+                (await HandleInOwnScope<DeactivateUserCommand, UserDto>(new DeactivateUserCommand(admin.Id))).IsSuccess.Should().BeTrue();
+            });
+
+        result.Error.Should().Be(UserErrors.ChangedMeanwhile);
+        await ShouldHaveOneActiveAdmin(admin.RoleId);
+        (await Reload(other)).RoleId.Should().Be(admin.RoleId);
+    }
+
+    // A manager may bring B back while B is in a role they cover, but not once an admin put B above them.
+    [Fact]
+    public async Task Activate_ByAManager_OfAUserPutAboveThemMeanwhile_IsRefused()
+    {
+        var admin = await CreateAdmin();
+        var manager = await SignInWith(Permissions.UsersManage);
+        var user = await CreateUser("b@example.com");
+        await Deactivate(user);
+
+        var result = await PausedAtClockCall(
+            1,
+            () => HandleInOwnScope<ActivateUserCommand, UserDto>(new ActivateUserCommand(user.Id), manager),
+            async () =>
+                (await HandleInOwnScope<ChangeUserRoleCommand, UserDto>(new ChangeUserRoleCommand(user.Id, admin.RoleId), admin)).IsSuccess.Should().BeTrue());
+
+        result.Error.Should().Be(UserErrors.ChangedMeanwhile);
+        (await Reload(user)).IsActive.Should().BeFalse();
     }
 
     // A manager may move B while B is in a role they cover, but not once an admin put B above them.

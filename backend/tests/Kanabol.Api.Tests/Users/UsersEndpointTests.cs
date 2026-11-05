@@ -105,6 +105,20 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     }
 
     [Fact]
+    public async Task Activate_WhenAllowed_Returns200()
+    {
+        var token = await TokenWith(Permissions.UsersManage);
+        var user = await CreateUser(UnusedEmail());
+        (await Send(HttpMethod.Post, $"{Users}/{user.Id}/deactivate", token)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var response = await Send(HttpMethod.Post, $"{Users}/{user.Id}/activate", token);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = await JsonFrom(response);
+        body.RootElement.GetProperty("isActive").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
     public async Task AssignableRoles_WhenAllowed_ReturnsOnlyWhatTheCallerCanGive()
     {
         var token = await TokenWith(Permissions.UsersManage);
@@ -127,6 +141,7 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     [InlineData("PUT", SomeUser)]
     [InlineData("PUT", SomeUser + "/role")]
     [InlineData("POST", SomeUser + "/deactivate")]
+    [InlineData("POST", SomeUser + "/activate")]
     public async Task Endpoint_WithoutAToken_Returns401(string method, string path) =>
         (await Send(new HttpMethod(method), path, accessToken: null, BodyFor(method, path))).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -138,6 +153,7 @@ public sealed class UsersEndpointTests(ApiFixture api) : ManagementApiTest(api)
     [InlineData("PUT", SomeUser)]
     [InlineData("PUT", SomeUser + "/role")]
     [InlineData("POST", SomeUser + "/deactivate")]
+    [InlineData("POST", SomeUser + "/activate")]
     public async Task Endpoint_WithoutUsersManage_Returns403WithACode(string method, string path)
     {
         var token = await TokenWith(Permissions.RolesManage);
