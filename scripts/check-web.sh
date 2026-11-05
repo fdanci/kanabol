@@ -122,6 +122,25 @@ task_2() {
   check "only the Logger writes to the console" console_only_in_logger
 }
 
+# ---- 9.3
+
+token_stays_out_of_storage() {
+  ! git grep -n -e localStorage -e sessionStorage -e indexedDB -e document.cookie -- "$app/core/auth" ":!*.spec.ts"
+}
+
+task_3() {
+  echo "9.3 The session, its refresh and the guards"
+  for file in auth-store.ts auth-api.ts auth-interceptor.ts auth-guard.ts permission-guard.ts permissions.ts; do
+    check "core/auth/$file is tracked" tracked "$app/core/auth/$file"
+  done
+  check "the store's specs pass, with two tabs taking turns" specs_pass src/app/core/auth/auth-store.spec.ts 15
+  check "the interceptor's specs pass" specs_pass src/app/core/auth/auth-interceptor.spec.ts 9
+  check "the guards' specs pass" specs_pass src/app/core/auth/guards.spec.ts 7
+  check "the app restores the session before the first page" specs_pass src/app/app.config.spec.ts 5
+  check "the access token goes in no storage" token_stays_out_of_storage
+  check "the build takes turns between tabs through navigator.locks" bundle_has kb.auth.refresh
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -154,7 +173,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2
+  set -- 1 7 2 3
 fi
 
 for task in "$@"; do

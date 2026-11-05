@@ -10,6 +10,8 @@ import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import { correlationInterceptor } from './core/api/correlation-interceptor';
 import { errorInterceptor } from './core/api/error-interceptor';
+import { authInterceptor } from './core/auth/auth-interceptor';
+import { AuthStore } from './core/auth/auth-store';
 import { ThemeStore } from './core/layout/theme-store';
 import { GlobalErrorHandler } from './core/logging/global-error-handler';
 
@@ -20,10 +22,14 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes),
     // The first one sees a request first and its answer last, so errorInterceptor only hears what's
     // left once the interceptors after it are done.
-    provideHttpClient(withInterceptors([correlationInterceptor, errorInterceptor])),
+    provideHttpClient(
+      withInterceptors([correlationInterceptor, errorInterceptor, authInterceptor]),
+    ),
     provideAppInitializer(() => {
       // Creating the store applies the saved theme, before anything renders.
       inject(ThemeStore);
     }),
+    // The guards decide on the first page, so the session comes back from its cookie before it.
+    provideAppInitializer(() => inject(AuthStore).restore()),
   ],
 };
