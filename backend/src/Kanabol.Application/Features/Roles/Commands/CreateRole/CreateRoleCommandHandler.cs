@@ -50,6 +50,7 @@ public sealed class CreateRoleCommandHandler(
 
         logger.LogInformation("Role {RoleId} created with {Permissions}", role.Id, command.Permissions);
 
-        return await db.Roles.AsNoTracking().Where(existing => existing.Id == role.Id).ToDtos(db).SingleAsync(ct);
+        var created = await db.Roles.AsNoTracking().Where(existing => existing.Id == role.Id).ToDtos(db).FirstOrDefaultAsync(ct);
+        return created is null ? RoleErrors.NotFound : created;
     }
 }

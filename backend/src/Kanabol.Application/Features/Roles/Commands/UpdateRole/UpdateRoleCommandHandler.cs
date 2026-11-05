@@ -61,19 +61,25 @@ public sealed class UpdateRoleCommandHandler(
         {
             await db.SaveChangesAsync(ct);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The role, or one of its permissions, was removed by another request after it was read here.
+            return await db.Roles.AnyAsync(existing => existing.Id == role.Id, ct) ? RoleErrors.ChangedMeanwhile : RoleErrors.NotFound;
+        }
         catch (DbUpdateException exception) when (exception.IsUniqueViolation())
         {
             // Either the name, or a permission another request granted this role after it was read here.
             return await db.IsNameTaken(command.Name, role.Id, ct) ? RoleErrors.NameTaken : RoleErrors.ChangedMeanwhile;
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException exception) when (exception.IsForeignKeyViolation())
         {
-            // Another request removed a permission of this role after it was read here.
-            return RoleErrors.ChangedMeanwhile;
+            return RoleErrors.NotFound;
         }
 
         logger.LogInformation("Role {RoleId} now has {Permissions}", role.Id, command.Permissions);
 
-        return await db.Roles.AsNoTracking().Where(existing => existing.Id == role.Id).ToDtos(db).SingleAsync(ct);
+        // With nothing to change, the save sends nothing, so this is where a role deleted meanwhile shows.
+        var updated = await db.Roles.AsNoTracking().Where(existing => existing.Id == role.Id).ToDtos(db).FirstOrDefaultAsync(ct);
+        return updated is null ? RoleErrors.NotFound : updated;
     }
 }

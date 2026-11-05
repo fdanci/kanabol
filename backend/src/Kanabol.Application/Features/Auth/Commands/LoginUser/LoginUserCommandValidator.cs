@@ -1,4 +1,5 @@
 using FluentValidation;
+using Kanabol.Application.Common;
 
 namespace Kanabol.Application.Features.Auth.Commands.LoginUser;
 
@@ -8,7 +9,7 @@ public sealed class LoginUserCommandValidator : AbstractValidator<LoginUserComma
 
     public LoginUserCommandValidator()
     {
-        RuleFor(command => command.Email).NotEmpty().MaximumLength(MaximumEmailLength);
+        RuleFor(command => command.Email).NotEmpty().MaximumLength(MaximumEmailLength).HasNoHiddenCharacters();
         RuleFor(command => command.Password).NotEmpty().MaximumLength(PasswordPolicy.MaximumLength);
     }
 }
