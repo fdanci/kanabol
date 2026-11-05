@@ -1,7 +1,7 @@
 #!/bin/sh
 # Acceptance checks for the commit pipeline (group 5 in the project's Tasks.md).
 # Usage: scripts/check-pipeline.sh [task-number...]    (no arguments: every task)
-# Exits non-zero if any check fails. Needs the packages scripts/setup.sh installs.
+# Exits non-zero if any check fails. Needs the packages scripts/setup.sh installs, and task 6 needs Docker.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -645,8 +645,188 @@ task_5() {
   check "the root notes say to run it" grep -qF 'scripts/setup.sh' CLAUDE.md
 }
 
+# The real hooks and the real suite, in a throwaway repo with a local remote.
+real_copy_ready() {
+  real="$scratch/real"
+  real_remote="$scratch/real-remote.git"
+  [ -d "$real/.git" ] && return 0
+  bare_copy "$real" || return 1
+  git init -q --bare "$real_remote" && git -C "$real" remote add origin "$real_remote" || return 1
+  (cd "$real" && scripts/setup.sh) >"$scratch/real-setup.log" 2>&1 || {
+    tail -n 12 "$scratch/real-setup.log"
+    rm -rf "$real"
+    return 1
+  }
+  git -C "$real" checkout -q -b feature/probe
+}
+
+real_stage() { # real_stage <file> <content, with printf escapes>
+  mkdir -p "$real/$(dirname "$1")" && printf '%b' "$2" >"$real/$1" && git -C "$real" add -- "$1"
+}
+
+real_commit() { # real_commit <seconds allowed> <message>
+  started=$(date +%s)
+  git -C "$real" commit -m "$2" >"$scratch/real-commit.log" 2>&1 || {
+    tail -n 12 "$scratch/real-commit.log"
+    return 1
+  }
+  took=$(($(date +%s) - started))
+  [ "$took" -lt "$1" ] || {
+    echo "it took $took s"
+    return 1
+  }
+}
+
+real_docs_commit() {
+  real_copy_ready && real_stage docs/probe.md '# Probe\n' && real_commit 20 'docs: add a probe'
+}
+
+real_backend_commit() {
+  real_copy_ready &&
+    real_stage backend/src/Kanabol.Domain/Probe.cs 'namespace Kanabol.Domain;\n\npublic   class Probe\n{\n}\n' &&
+    real_commit 20 'feat(api): add a probe'
+}
+
+real_frontend_commit() {
+  real_copy_ready &&
+    real_stage frontend/src/app/probe.ts "export const probe   =   'x';\n" &&
+    real_commit 20 'feat(web): add a probe'
+}
+
+real_commit_on_both_sides() {
+  real_copy_ready &&
+    real_stage backend/src/Kanabol.Domain/ProbeTwo.cs 'namespace Kanabol.Domain;\n\npublic class ProbeTwo\n{\n}\n' &&
+    real_stage frontend/src/app/probe-two.ts "export const probeTwo = 'x';\n" &&
+    real_commit 300 'feat(api): add a probe on both sides'
+}
+
+real_committed_has() { # real_committed_has <file> <text>
+  git -C "$real" show "HEAD:$1" | grep -qF -- "$2"
+}
+
+real_bad_message_is_refused() {
+  real_copy_ready && real_stage docs/bad.md '# Bad\n' || return 1
+  before=$(git -C "$real" rev-parse HEAD)
+  if git -C "$real" commit -m 'added some things' >"$scratch/real-commit.log" 2>&1; then
+    echo "the commit went through"
+    return 1
+  fi
+  grep -q 'type may not be empty' "$scratch/real-commit.log" || {
+    tail -n 12 "$scratch/real-commit.log"
+    return 1
+  }
+  git -C "$real" reset -q HEAD docs/bad.md && rm -f "$real/docs/bad.md"
+  [ "$(git -C "$real" rev-parse HEAD)" = "$before" ]
+}
+
+real_suite_ran() { # real_suite_ran <log>
+  sed -e 's/\x1b\[[0-9;]*m//g' "$1" >"$1.plain"
+  grep -q 'all green' "$1.plain" &&
+    [ "$(grep -c '^Passed!' "$1.plain")" -eq 3 ] &&
+    grep -qE 'Tests +[0-9]+ passed' "$1.plain" || {
+    tail -n 12 "$1.plain"
+    return 1
+  }
+}
+
+real_merge_runs_the_suite() {
+  real_copy_ready && git -C "$real" checkout -q main || return 1
+  started=$(date +%s)
+  git -C "$real" merge --no-ff --no-edit feature/probe >"$scratch/real-merge.log" 2>&1 || {
+    tail -n 12 "$scratch/real-merge.log"
+    return 1
+  }
+  took=$(($(date +%s) - started))
+  real_suite_ran "$scratch/real-merge.log" || return 1
+  [ "$(git -C "$real" rev-list --parents -n 1 main | wc -w)" -eq 3 ] || {
+    echo "main doesn't end in a merge commit"
+    return 1
+  }
+  [ "$took" -lt 90 ] || {
+    echo "it took $took s"
+    return 1
+  }
+}
+
+failing_application_test='namespace Kanabol.Application.Tests;\n\npublic sealed class FailingTests\n{\n    [Fact]\n    public void Always_WhenRun_Fails() => 1.Should().Be(2);\n}\n'
+
+real_branch_lets_a_failing_application_test_through() {
+  real_copy_ready || return 1
+  git -C "$real" checkout -q -b feature/failing main &&
+    real_stage backend/tests/Kanabol.Application.Tests/FailingTests.cs "$failing_application_test" &&
+    real_commit 300 'test(api): add a test that fails' &&
+    git -C "$real" checkout -q main
+}
+
+real_merge_refuses_a_failing_test() {
+  real_copy_ready || return 1
+  before=$(git -C "$real" rev-parse main)
+  if git -C "$real" merge --no-ff --no-edit feature/failing >"$scratch/real-merge.log" 2>&1; then
+    echo "the merge went through"
+    return 1
+  fi
+  grep -q 'Always_WhenRun_Fails' "$scratch/real-merge.log" || {
+    tail -n 12 "$scratch/real-merge.log"
+    return 1
+  }
+  git -C "$real" merge --abort || return 1
+  [ "$(git -C "$real" rev-parse main)" = "$before" ]
+}
+
+real_push_runs_the_suite() {
+  real_copy_ready || return 1
+  git -C "$real" push origin main >"$scratch/real-push.log" 2>&1 || {
+    tail -n 12 "$scratch/real-push.log"
+    return 1
+  }
+  real_suite_ran "$scratch/real-push.log" &&
+    [ "$(git -C "$real_remote" rev-parse refs/heads/main)" = "$(git -C "$real" rev-parse main)" ]
+}
+
+real_push_catches_a_skipped_hook() {
+  real_copy_ready || return 1
+  before=$(git -C "$real_remote" rev-parse refs/heads/main) || return 1
+  real_stage backend/tests/Kanabol.Application.Tests/FailingTests.cs "$failing_application_test" &&
+    git -C "$real" commit -q --no-verify -m 'test(api): add a test that fails' || return 1
+  if git -C "$real" push origin main >"$scratch/real-push.log" 2>&1; then
+    echo "the push went through"
+    return 1
+  fi
+  grep -q 'Always_WhenRun_Fails' "$scratch/real-push.log" &&
+    [ "$(git -C "$real_remote" rev-parse refs/heads/main)" = "$before" ]
+}
+
+show_time() {
+  printf '        %s s\n' "${took:-?}"
+}
+
+task_6() {
+  echo "Task 6: the real hooks and the real suite, in a throwaway repo"
+  PATH=$real_path
+  command -v docker >/dev/null 2>&1 || PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
+  # Docker Desktop can stop itself when idle, which the tasks before this one may have allowed.
+  docker desktop start --timeout 170 >/dev/null 2>&1
+  check "a commit with only docs takes under 20 s" real_docs_commit
+  show_time
+  check "a commit in the backend takes under 20 s" real_backend_commit
+  show_time
+  check "what it staged got formatted" real_committed_has backend/src/Kanabol.Domain/Probe.cs 'public class Probe'
+  check "a commit in the frontend takes under 20 s" real_frontend_commit
+  show_time
+  check "what it staged got formatted" real_committed_has frontend/src/app/probe.ts "export const probe = 'x';"
+  check "a commit on both sides goes through" real_commit_on_both_sides
+  show_time
+  check "a bad message is refused by commitlint" real_bad_message_is_refused
+  check "a --no-ff merge into main runs the full suite, in under 90 s" real_merge_runs_the_suite
+  show_time
+  check "a branch's fast checks don't run the application tests" real_branch_lets_a_failing_application_test_through
+  check "a merge into main refuses what they let through" real_merge_refuses_a_failing_test
+  check "a push to main runs the full suite and reaches the remote" real_push_runs_the_suite
+  check "a push to main catches a commit made with --no-verify" real_push_catches_a_skipped_hook
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do
