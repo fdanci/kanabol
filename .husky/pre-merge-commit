@@ -1,0 +1,3 @@
+#!/bin/sh
+# git merge --no-ff creates a commit, but doesn't call pre-commit.
+exec scripts/verify.sh merge

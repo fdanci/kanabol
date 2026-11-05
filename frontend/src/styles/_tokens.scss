@@ -1,0 +1,125 @@
+// Every value here comes from docs/UI_UX_SPEC.md, section 2.4. Components only use var(--kb-*).
+:root {
+  --kb-navy-900: #052063;
+  --kb-brand-800: #122d94;
+  --kb-accent-600: #135bf7;
+  --kb-sky-300: #91c4fb;
+  --kb-tint-100: #ecf4fc;
+  --kb-surface-50: #f5f8ff;
+  --kb-surface-0: #ffffff;
+  --kb-info-bg: #c9f2fb;
+  --kb-info-text: #39727f;
+  --kb-success-600: #1c7a26;
+  --kb-success-bg: #e6f4e8;
+  --kb-warning-600: #b54708;
+  --kb-warning-bg: #fdf0e6;
+  --kb-danger-600: #b42318;
+  --kb-danger-bg: #fbe9e7;
+  --kb-text-900: #052063;
+  --kb-text-700: #394561;
+  --kb-text-600: #616971;
+  --kb-text-500: #787f86;
+  --kb-border-300: #c6c9d0;
+  --kb-border-200: #e5e8ee;
+  --kb-archived-400: #9da9b8;
+
+  /* Fundaluri pline sub text alb. Rămân la fel în dark, unde accent-600 și danger-600 devin deschise. */
+  --kb-fill-accent: #135bf7;
+  --kb-fill-danger: #b42318;
+  --kb-fill-shade: #052063; /* le închide la hover, la apăsare și pe bordură */
+
+  /* Focus: halo mac-like, 4px, semitransparent */
+  --kb-focus-ring: 0 0 0 4px color-mix(in srgb, var(--kb-accent-600) 30%, transparent);
+
+  /* Umbre stratificate (ambient + contact), ca ferestrele/popover-urile mac */
+  --kb-shadow-bezel: 0 0.5px 1px rgba(5, 32, 99, 0.1), 0 1px 2px rgba(5, 32, 99, 0.06);
+  --kb-shadow-1: 0 1px 2px rgba(5, 32, 99, 0.06), 0 2px 6px rgba(5, 32, 99, 0.05);
+  --kb-shadow-2: 0 2px 6px rgba(5, 32, 99, 0.08), 0 8px 24px rgba(5, 32, 99, 0.1);
+  --kb-shadow-popover:
+    0 0 0 0.5px rgba(5, 32, 99, 0.12), 0 4px 10px rgba(5, 32, 99, 0.1),
+    0 16px 40px rgba(5, 32, 99, 0.14);
+  --kb-shadow-sheet:
+    0 0 0 0.5px rgba(5, 32, 99, 0.12), 0 12px 32px rgba(5, 32, 99, 0.18),
+    0 32px 80px rgba(5, 32, 99, 0.16);
+  --kb-shadow-drag: 0 12px 28px rgba(5, 32, 99, 0.22), 0 2px 6px rgba(5, 32, 99, 0.12);
+
+  /* Highlight interior pe controale (linia de 1px mai deschisă de sus, ca bezel-ul mac) */
+  --kb-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --kb-inner-highlight-on-accent: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+
+  /* Materiale translucide (sidebar, navbar, meniuri) */
+  --kb-glass-bg: rgba(255, 255, 255, 0.72);
+  --kb-glass-blur: saturate(180%) blur(20px);
+
+  --kb-radius-xs: 4px; /* checkbox, badge-uri mici */
+  --kb-radius-sm: 6px; /* butoane, câmpuri, selecție în sidebar */
+  --kb-radius-md: 10px; /* carduri, grupuri de formular */
+  --kb-radius-lg: 12px; /* dialoguri, sheets, popovers, meniuri */
+  --kb-radius-pill: 999px;
+
+  --kb-space-1: 4px;
+  --kb-space-2: 8px;
+  --kb-space-3: 12px;
+  --kb-space-4: 16px;
+  --kb-space-6: 24px;
+  --kb-space-8: 32px;
+  --kb-space-12: 48px;
+
+  --kb-navbar-h: 52px;
+  --kb-sidebar-w: 240px;
+  --kb-sidebar-w-collapsed: 56px;
+  --kb-content-max: 1440px;
+
+  --kb-font: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --kb-font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  --kb-dur-fast: 120ms;
+  --kb-dur-base: 200ms;
+  --kb-dur-slow: 320ms;
+  --kb-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@mixin dark {
+  --kb-surface-50: #0f1629;
+  --kb-surface-0: #161f36;
+  --kb-tint-100: #1e2a4a;
+  --kb-border-200: #273252;
+  --kb-border-300: #344166;
+  --kb-text-900: #eef2ff;
+  --kb-text-700: #cdd5e8;
+  --kb-text-600: #9aa6c2;
+  --kb-text-500: #6f7b96;
+  --kb-accent-600: #5b93ff;
+  --kb-sky-300: #3d6fc9;
+  --kb-navy-900: #eef2ff;
+  --kb-info-bg: #113a45;
+  --kb-info-text: #9fdcea;
+  --kb-success-600: #4ade80;
+  --kb-success-bg: #0f2a16;
+  --kb-warning-600: #fbbf24;
+  --kb-warning-bg: #2d1f05;
+  --kb-danger-600: #f87171;
+  --kb-danger-bg: #2d0f0d;
+  --kb-archived-400: #55617d;
+  --kb-shadow-bezel: 0 0.5px 1px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --kb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --kb-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --kb-shadow-popover:
+    0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 4px 10px rgba(0, 0, 0, 0.4),
+    0 16px 40px rgba(0, 0, 0, 0.5);
+  --kb-shadow-sheet:
+    0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 12px 32px rgba(0, 0, 0, 0.5),
+    0 32px 80px rgba(0, 0, 0, 0.5);
+  --kb-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --kb-glass-bg: rgba(22, 31, 54, 0.72);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  @include dark;
+}

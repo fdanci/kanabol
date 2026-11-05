@@ -1,0 +1,4 @@
+{
+  "backend/**/*.cs": ["dotnet format backend/Kanabol.sln --include"],
+  "*.{md,yaml,yml}": ["prettier --write"]
+}

@@ -1,0 +1,22 @@
+# Production: docker compose -f compose.yaml -f compose.prod.yaml up -d
+# It runs tagged images. KANABOL_VERSION picks another tag than the default one.
+services:
+  postgres:
+    restart: unless-stopped
+
+  seq:
+    restart: unless-stopped
+
+  api:
+    build: !reset null
+    image: kanabol-api:${KANABOL_VERSION:-v0.1.0}
+    restart: unless-stopped
+
+  web:
+    build: !reset null
+    image: kanabol-web:${KANABOL_VERSION:-v0.1.0}
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro

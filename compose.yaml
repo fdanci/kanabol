@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: kanabol
+      POSTGRES_USER: kanabol
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanabol -d kanabol"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  seq:
+    image: datalust/seq:latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_ADMINPASSWORDHASH: ${SEQ_ADMIN_HASH}
+    volumes: [seqdata:/data]
+
+  api:
+    build: ./backend
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: Host=postgres;Database=kanabol;Username=kanabol;Password=${POSTGRES_PASSWORD}
+      Jwt__Secret: ${JWT_SECRET}
+      # Needed only when the database is new: that first start creates the admin user.
+      Admin__InitialPassword: ${ADMIN_INITIAL_PASSWORD}
+      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
+      Storage__Root: /data/attachments
+      Database__MigrateOnStartup: "true"
+    volumes: [attachments:/data/attachments]
+    depends_on:
+      postgres: { condition: service_healthy }
+      seq: { condition: service_started }
+
+  web:
+    build: ./frontend
+    depends_on: [api]
+
+volumes:
+  pgdata:
+  seqdata:
+  attachments:

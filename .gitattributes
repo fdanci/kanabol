@@ -1,0 +1,7 @@
+# Always check out LF, whatever core.autocrlf says. .editorconfig requires it, so
+# dotnet format and Prettier would otherwise reject a fresh checkout on Windows.
+* text=auto eol=lf
+
+# Shell scripts break on CRLF, so they stay LF even if the rule above changes.
+scripts/** text eol=lf
+.husky/** text eol=lf

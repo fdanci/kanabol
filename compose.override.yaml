@@ -1,0 +1,16 @@
+# Development settings, which docker compose loads by itself. Usually only the first two services
+# run here, with the API and Angular on the host: docker compose up postgres seq
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+
+  seq:
+    # Inside the container, 80 serves the UI and takes logs, while 5341 only takes logs.
+    # So both the UI and the local API's logs use localhost:5341.
+    ports: ["127.0.0.1:5341:80"]
+
+  api:
+    ports: ["127.0.0.1:8080:8080"]
+
+  web:
+    ports: ["127.0.0.1:4200:80"]

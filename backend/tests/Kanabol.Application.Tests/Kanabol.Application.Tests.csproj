@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kanabol.Application\Kanabol.Application.csproj" />
+    <ProjectReference Include="..\..\src\Kanabol.Infrastructure\Kanabol.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Not a project of its own: it needs the test libraries, and each assembly needs its own collection. -->
+    <Compile Include="..\Shared\Database\*.cs" LinkBase="Shared\Database" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Respawn" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+</Project>

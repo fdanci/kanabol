@@ -1,0 +1,152 @@
+@use '@angular/material' as mat;
+@use './styles/theme/theme-colors' as kb;
+@use './styles/tokens';
+@use './styles/typography';
+@use './styles/utilities';
+@use '@fontsource-variable/inter';
+@use 'material-symbols/outlined.css';
+
+html {
+  color-scheme: light dark;
+
+  @include mat.theme(
+    (
+      color: (
+        primary: kb.$primary-palette,
+        tertiary: kb.$tertiary-palette,
+        theme-type: color-scheme,
+      ),
+      typography: (
+        plain-family: var(--kb-font),
+        brand-family: var(--kb-font),
+        bold-weight: 600,
+        medium-weight: 500,
+        regular-weight: 400,
+      ),
+      density: -1,
+    )
+  );
+
+  // Aliniem system tokens Material la brand (light; dark-ul vine din paleta generată)
+  @include mat.theme-overrides(
+    (
+      surface: var(--kb-surface-0),
+      surface-container-lowest: var(--kb-surface-0),
+      surface-container-low: var(--kb-surface-50),
+      surface-container: var(--kb-tint-100),
+      outline-variant: var(--kb-border-200),
+      outline: var(--kb-border-300),
+      on-surface: var(--kb-text-700),
+      on-surface-variant: var(--kb-text-600),
+      primary: var(--kb-accent-600),
+      primary-container: var(--kb-sky-300),
+      on-primary-container: var(--kb-navy-900),
+      corner-small: var(--kb-radius-sm),
+      corner-medium: var(--kb-radius-md),
+      corner-large: var(--kb-radius-md),
+    )
+  );
+
+  // Butoane mac-like: "filled" = default (fill-accent + alb), "outlined" = bezel (alb + bordură + umbră)
+  @include mat.button-overrides(
+    (
+      filled-container-color: var(--kb-fill-accent),
+      filled-label-text-color: #ffffff,
+      filled-container-shape: var(--kb-radius-sm),
+      filled-container-height: 32px,
+      outlined-container-shape: var(--kb-radius-sm),
+      outlined-container-height: 32px,
+      outlined-outline-color: var(--kb-border-300),
+      outlined-label-text-color: var(--kb-text-900),
+      text-container-shape: var(--kb-radius-sm),
+      text-container-height: 32px,
+      text-label-text-color: var(--kb-accent-600),
+    )
+  );
+  @include mat.card-overrides(
+    (
+      elevated-container-color: var(--kb-surface-0),
+      elevated-container-shape: var(--kb-radius-md),
+      outlined-outline-color: var(--kb-border-200),
+      outlined-container-shape: var(--kb-radius-md),
+    )
+  );
+  @include mat.dialog-overrides(
+    (
+      container-shape: var(--kb-radius-lg),
+      container-color: var(--kb-surface-0),
+    )
+  );
+  @include mat.menu-overrides(
+    (
+      container-shape: var(--kb-radius-lg),
+      container-color: var(--kb-surface-0),
+    )
+  );
+  @include mat.form-field-overrides(
+    (
+      outlined-outline-color: var(--kb-border-300),
+      outlined-focus-outline-color: var(--kb-accent-600),
+      outlined-container-shape: var(--kb-radius-sm),
+      container-text-size: 13px,
+      container-height: 32px,
+    )
+  );
+  @include mat.slide-toggle-overrides(
+    (
+      selected-track-color: var(--kb-accent-600),
+      track-shape: var(--kb-radius-pill),
+    )
+  );
+  @include mat.sidenav-overrides(
+    (
+      container-background-color: var(--kb-surface-0),
+      container-divider-color: var(--kb-border-200),
+    )
+  );
+  @include mat.toolbar-overrides(
+    (
+      container-background-color: var(--kb-surface-0),
+      container-text-color: var(--kb-navy-900),
+    )
+  );
+}
+
+// Material's colors follow color-scheme, so the toggle in the user menu has to set it as well.
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--kb-font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kb-text-700);
+  background: var(--kb-surface-50);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--kb-accent-600);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--kb-focus-ring);
+  border-radius: var(--kb-radius-sm);
+}
