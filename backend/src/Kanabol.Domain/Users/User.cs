@@ -6,13 +6,15 @@ namespace Kanabol.Domain.Users;
 public sealed class User : AuditableEntity
 {
     public const int MaxFailedLogins = 10;
+    public const int MaxEmailLength = 320;
+    public const int MaxDisplayNameLength = 200;
 
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 
     public User(string email, string displayName, string passwordHash, Guid roleId, bool mustChangePassword = false)
     {
         Email = NormalizeEmail(email);
-        DisplayName = displayName;
+        DisplayName = displayName.Trim();
         PasswordHash = passwordHash;
         RoleId = roleId;
         MustChangePassword = mustChangePassword;
@@ -53,6 +55,16 @@ public sealed class User : AuditableEntity
         FailedLoginAttempts = 0;
         LockedUntil = null;
     }
+
+    public void UpdateProfile(string email, string displayName)
+    {
+        Email = NormalizeEmail(email);
+        DisplayName = displayName.Trim();
+    }
+
+    public void ChangeRole(Guid roleId) => RoleId = roleId;
+
+    public void Deactivate() => IsActive = false;
 
     public void ChangePassword(string passwordHash)
     {
