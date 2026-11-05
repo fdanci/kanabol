@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.4 — 2026-11-05 (v1.3 + modelul de branch-uri feature → `dev` → `main`, stabilit de Florin, în §14).
+> Stare: v1.5 — 2026-11-05 (v1.4 + deciziile lui Florin din Blocked: `tasks.create`, `projects.manage` ca membru și forma refuzului în §4.4; limita de 40 s și `check-permissions.sh` în §14).
 
 ---
 
@@ -253,17 +253,21 @@ Reguli:
 
 ```
 users.manage        roles.manage        projects.create
-projects.view_all   projects.manage     tasks.archive
-reports.view
+projects.view_all   projects.manage     tasks.create
+tasks.archive       reports.view
 ```
+
+`tasks.create` se verifică pe lângă apartenența la proiect: creezi task-uri doar în proiectele în care ești membru și doar dacă rolul tău are permisiunea (UI §7.4). Un rol poate deci vedea un proiect fără să poată adăuga task-uri în el.
 
 **Un utilizator are exact un rol** (`users.role_id`, NOT NULL). Rolul grupează permisiuni (`role_permissions`). Dacă cineva are nevoie de drepturi combinate, adminul creează un rol nou — nu atribuim mai multe roluri aceleiași persoane. Schimbarea rolului invalidează refresh token-urile utilizatorului (permisiunile din JWT se reîmprospătează la următorul login/refresh).
 
 Permisiunile ajung în JWT ca claims `permission`. Pe API: `[HasPermission(Permissions.ProjectsViewAll)]` — un `IAuthorizationPolicyProvider` custom construiește politica `Permission:<name>` la cerere, fără să le înregistrăm pe fiecare în `Program.cs`.
 
 **Nivel proiect — rol pe proiect.** `ProjectMember(ProjectId, UserId, ProjectRole)` cu `ProjectRole = Owner | Member`. Verificat în handler prin `IProjectAccess`:
-- `EnsureMemberAsync(projectId, userId)` — trece dacă e membru **sau** are `projects.view_all`.
+- `EnsureMemberAsync(projectId, userId)` — trece dacă e membru **sau** are `projects.view_all` **sau** `projects.manage` (cine poate administra orice proiect îl poate și vedea).
 - `EnsureOwnerAsync(projectId, userId)` — trece dacă e owner **sau** are `projects.manage`.
+
+Refuzul e un 403 ProblemDetails: `code: Auth.PermissionRequired` pentru o permisiune lipsă (numele permisiunii apare doar în log, la `Warning`, nu în răspuns), `Project.MemberRequired` / `Project.OwnerRequired` pentru rolul pe proiect. `IProjectAccess` răspunde din baza de date, despre `userId`-ul primit, nu din claims: refuză utilizatorii dezactivați, nu verifică dacă proiectul există (handlerul răspunde 404 înainte) și păstrează owner-ii unui proiect arhivat.
 
 Invariante:
 - `Project` are mereu cel puțin un owner (verificat în `Project.RemoveMember` / `ChangeMemberRole`).
@@ -1162,15 +1166,15 @@ Observații:
 - `core.hooksPath` rămâne `.husky/_`, cum îl setează husky 9; nu-l suprascriem.
 - Testele de integrare au nevoie de **Docker Desktop pornit** (Testcontainers). Dacă nu e pornit, `scripts/require-docker.sh` refuză commit-ul pe `main` cu un mesaj clar — corect, nu sărim testele.
 - `git commit --no-verify` rămâne posibil (git nu poate interzice); `pre-push` pe `main` e plasa de siguranță.
-- Durată estimată pe `main`: build ~15 s + container Postgres ~8 s + teste; țintim < 90 s total. Pe feature branches < 20 s.
+- Durată estimată pe `main`: build ~15 s + container Postgres ~8 s + teste; țintim < 90 s total. Pe feature branches limita e 40 s: un commit care atinge și backend, și frontend durează 21–22 s, unul pe o singură parte 14–18 s.
 - Pe Windows, hook-urile rulează prin `sh` din Git for Windows; scripturile sunt POSIX sh (fără bash-isme) și au `eol=lf` prin `.gitattributes`.
 
 ### 14.7 Verificări de acceptanță
 
 Fiecare grup din `Tasks.md` are verificările lui în `scripts/check-*.sh`. Nu rulează în hook-uri: se rulează toate pe o clonă curată, după `scripts/setup.sh`, înainte ca un grup să fie considerat gata, pentru că repo-ul n-are CI.
 
-- `check-tests.sh`, `check-auth.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
-- `check-backend.sh` și `check-auth.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
+- `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
+- `check-backend.sh`, `check-auth.sh` și `check-permissions.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
 - `check-docker.sh 5` are nevoie de porturile 5432, 5341 și 5200 libere.
 
 Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-all.sh` e exact ce rulează și acolo — fără duplicare de logică.
