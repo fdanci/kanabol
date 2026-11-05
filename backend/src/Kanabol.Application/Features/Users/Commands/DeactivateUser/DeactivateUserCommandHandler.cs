@@ -8,11 +8,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Application.Features.Users.Commands.DeactivateUser;
 
-/// <summary>Users are never deleted: they stay referenced from history, comments and reports (SPEC section 4.4).</summary>
+/// <summary>
+/// Users are never deleted: they stay referenced from history, comments and reports (SPEC section 4.4).
+/// Their sessions end in the same save, as when their role changes.
+/// </summary>
 public sealed class DeactivateUserCommandHandler(
     IAppDbContext db,
     CurrentPermissions currentPermissions,
     LastAdminGuard lastAdmin,
+    IClock clock,
     ILogger<DeactivateUserCommandHandler> logger) : ICommandHandler<DeactivateUserCommand, UserDto>
 {
     public async Task<Result<UserDto>> Handle(DeactivateUserCommand command, CancellationToken ct)
@@ -42,7 +46,11 @@ public sealed class DeactivateUserCommandHandler(
                 return leaving.Error;
             }
 
+            var now = clock.UtcNow;
+            var liveTokens = await db.RefreshTokens.Where(token => token.UserId == target.Id && token.RevokedAt == null).ToListAsync(ct);
+
             target.Deactivate();
+            liveTokens.ForEach(token => token.Revoke(now));
 
             try
             {
@@ -53,7 +61,7 @@ public sealed class DeactivateUserCommandHandler(
                 return UserErrors.ChangedMeanwhile;
             }
 
-            logger.LogInformation("User {TargetUserId} deactivated", target.Id);
+            logger.LogInformation("User {TargetUserId} deactivated, which ended {SessionCount} tokens", target.Id, liveTokens.Count);
         }
 
         return await db.Users.AsNoTracking().Where(user => user.Id == target.Id).ToDtos().SingleAsync(ct);

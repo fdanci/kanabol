@@ -4,6 +4,7 @@ using Kanabol.Application.Features.Auth;
 using Kanabol.Application.Features.Users;
 using Kanabol.Application.Features.Users.Commands.DeactivateUser;
 using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Users;
 using Kanabol.Tests.Shared.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,21 @@ public sealed class DeactivateUserCommandHandlerTests(PostgresFixture postgres) 
         saved.IsActive.Should().BeFalse();
         saved.Email.Should().Be(user.Email);
         saved.RoleId.Should().Be(user.RoleId);
+    }
+
+    [Fact]
+    public async Task Handle_WhenAllowed_EndsOnlyThatUsersSessions()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var user = await CreateUser();
+        var other = await CreateUser("other@example.com");
+        await AddLiveToken(user);
+        await AddLiveToken(other);
+
+        await Handler.Handle(new DeactivateUserCommand(user.Id), CancellationToken.None);
+
+        (await RefreshTokensOf(user)).Should().OnlyContain(token => token.IsRevoked && token.RevokedAt == Now);
+        (await RefreshTokensOf(other)).Should().OnlyContain(token => !token.IsRevoked);
     }
 
     [Fact]
@@ -100,5 +116,12 @@ public sealed class DeactivateUserCommandHandlerTests(PostgresFixture postgres) 
 
         await using var db = Postgres.CreateContext();
         (await db.Users.SingleAsync(existing => existing.Id == other.Id)).IsActive.Should().BeTrue();
+    }
+
+    private async Task AddLiveToken(User user)
+    {
+        await using var db = Postgres.CreateContext();
+        db.RefreshTokens.Add(new RefreshToken(user.Id, Guid.CreateVersion7(), Guid.NewGuid().ToString("N"), Now.AddDays(7), Now));
+        await db.SaveChangesAsync();
     }
 }
