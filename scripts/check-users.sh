@@ -1,5 +1,5 @@
 #!/bin/sh
-# Acceptance checks for users and roles (group 8 in the project's Tasks.md).
+# Acceptance checks for users and roles (groups 8 and 8b in the project's Tasks.md).
 # The test projects hold the rules, so these checks run them, and add what they can't see: the real
 # API process in Production on a real PostgreSQL, with its real seed, its logs and its answers, and
 # the real one in Development with its Swagger.
@@ -30,6 +30,11 @@ new_admin_password='alta parola pentru verificari'
 initial_password='o parola initiala pentru ana'
 ana_password='parola noua aleasa de ana'
 bob_password='parola noua aleasa de bob'
+cora_password='parola aleasa de cora'
+eva_password='parola aleasa de eva'
+eva_new_password='alta parola aleasa de eva'
+finn_password='parola aleasa de finn'
+reset_password='o parola noua data de admin'
 
 check() { # check <description> <command...>
   description=$1
@@ -708,8 +713,267 @@ api_still_answers() {
   is 200 "$(send GET /health)"
 }
 
+# ---- 8b, shared
+
+in_db() { # in_db <statement>: its rows, as sql prints them
+  sql "$(connection_to "$check_db")" "$1" | tr -d '\r'
+}
+
+# A token minted now: the one from the start of the run may be past its 15 minutes by here, and task 3
+# may have handed the role on. Whoever holds it by now has changed their password to this one.
+admin_signs_in_again() {
+  api_is_up || return 1
+  admin_is_ready || return 1
+  admin_email_now=$(in_db "select u.email from users u join roles r on r.id = u.role_id where r.is_system and u.is_active and not u.must_change_password order by u.created_at limit 1")
+  is 200 "$(login "$admin_email_now" "$new_admin_password")" || return 1
+  admin_token=$(body_field accessToken)
+  admin_id=$(in_db "select id from users where email = '$admin_email_now'")
+  [ -n "$admin_token" ] && [ -n "$admin_id" ]
+}
+
+signs_in_and_changes() { # signs_in_and_changes <email> <password>: leaves the token in signed_token, the cookie in signed_refresh
+  is 200 "$(login "$1" "$initial_password")" || return 1
+  forced=$(body_field accessToken)
+  is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$2\"}")" || {
+    cat "$scratch/body"
+    return 1
+  }
+  signed_token=$(body_field accessToken)
+  signed_refresh=$(refresh_cookie)
+  [ -n "$signed_token" ] && [ -n "$signed_refresh" ]
+}
+
+dev_api_is_up() {
+  [ -n "$dev_pid" ] && return 0
+  start_api Development "$check_db" "$dev_port" "$scratch/dev-api.log" || return 1
+  dev_pid=$started_pid
+}
+
+swagger_lists() { # swagger_lists <path>
+  dev_api_is_up || return 1
+  curl -sS --max-time 30 -o "$scratch/swagger.json" "http://127.0.0.1:$dev_port/swagger/v1/swagger.json" || return 1
+  in_file "\"$1\"" "$scratch/swagger.json"
+}
+
+# ---- 8b.1
+
+creates_and_signs_in_cora() {
+  is 201 "$(create_user cora@example.com Cora "$manager_role")" || return 1
+  cora_id=$(body_field id)
+  signs_in_and_changes cora@example.com "$cora_password" || return 1
+  cora_token=$signed_token
+  cora_refresh=$signed_refresh
+}
+
+cora_is_deactivated() {
+  is 200 "$(as "$admin_token" POST "/api/users/$cora_id/deactivate")" || return 1
+  is False "$(in_db "select is_active from users where id = '$cora_id'")"
+}
+
+cora_cannot_bring_herself_back() {
+  code_is 401 Auth.SessionEnded "$(as "$cora_token" POST "/api/users/$cora_id/activate")" || return 1
+  is False "$(in_db "select is_active from users where id = '$cora_id'")"
+}
+
+cora_is_reactivated() {
+  is 200 "$(as "$admin_token" POST "/api/users/$cora_id/activate")" || {
+    cat "$scratch/body"
+    return 1
+  }
+  in_file '"isActive":true' "$scratch/body" || return 1
+  is "True|$manager_role" "$(in_db "select is_active, role_id from users where id = '$cora_id'")"
+}
+
+cora_signs_in_with_her_password() {
+  is 200 "$(login cora@example.com "$cora_password")" || return 1
+  in_file '"mustChangePassword":false' "$scratch/body" || return 1
+  cora_token=$(body_field accessToken)
+  is 200 "$(as "$cora_token" GET /api/users)"
+}
+
+her_old_session_stays_ended() {
+  code_is 401 Auth.InvalidRefreshToken "$(send POST /api/auth/refresh -H "Cookie: refresh_token=$cora_refresh")"
+}
+
+activating_again_changes_nothing() {
+  is 200 "$(as "$admin_token" POST "/api/users/$cora_id/activate")" || return 1
+  in_file '"isActive":true' "$scratch/body"
+}
+
+a_manager_brings_back_someone_like_them() {
+  is 201 "$(create_user dan@example.com Dan "$manager_role")" || return 1
+  dan_id=$(body_field id)
+  is 200 "$(as "$admin_token" POST "/api/users/$dan_id/deactivate")" || return 1
+  is 200 "$(as "$cora_token" POST "/api/users/$dan_id/activate")" || {
+    cat "$scratch/body"
+    return 1
+  }
+  is True "$(in_db "select is_active from users where id = '$dan_id'")"
+}
+
+no_one_brings_back_who_is_above_them() {
+  is 201 "$(create_user admin.trei@example.com 'Al treilea' "$(admin_role_id)")" || return 1
+  third_id=$(body_field id)
+  is 200 "$(as "$admin_token" POST "/api/users/$third_id/deactivate")" || return 1
+  code_is 403 User.PermissionsBeyondYours "$(as "$cora_token" POST "/api/users/$third_id/activate")" || return 1
+  is False "$(in_db "select is_active from users where id = '$third_id'")"
+}
+
+a_missing_user_is_not_found() {
+  code_is 404 User.NotFound "$(as "$admin_token" POST /api/users/019a0000-0000-7000-8000-00000000abcd/activate)"
+}
+
+task_5() {
+  echo "8b.1 Reactivation"
+  check "the entity's test passes" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~Domain.Tests.Users.UserTests.Activate' 1
+  check "the handler's tests pass, with the requests that race" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~Features.Users.ActivateUserCommandHandlerTests|FullyQualifiedName~ReactivatedMeanwhile|FullyQualifiedName~ConcurrentChangesTests.Activate_' 12
+  check "the endpoint's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReactivationFlowTests|FullyQualifiedName~UsersEndpointTests.Activate' 6
+  check "the real API runs in Production, and the admin signs in again" admin_signs_in_again
+  [ -n "${manager_role:-}" ] || task_1 >/dev/null
+  check "a user with users.manage signs in" creates_and_signs_in_cora
+  check "they are deactivated" cora_is_deactivated
+  check "their token, still valid, can't bring them back" cora_cannot_bring_herself_back
+  check "an admin brings them back, in the same role" cora_is_reactivated
+  check "they sign in with the password they had" cora_signs_in_with_her_password
+  check "the session from before stays ended" her_old_session_stays_ended
+  check "bringing back someone active changes nothing" activating_again_changes_nothing
+  check "a manager brings back someone in a role they hold" a_manager_brings_back_someone_like_them
+  check "nobody brings back someone above them" no_one_brings_back_who_is_above_them
+  check "a missing user is a 404" a_missing_user_is_not_found
+  check "a reactivation is logged" log_has "reactivated"
+  check "the password chosen isn't in the log" log_lacks "$cora_password"
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
+# ---- 8b.2
+
+reset() { # reset <token> <user id> <password>
+  as "$1" POST "/api/users/$2/reset-password" "{\"initialPassword\":\"$3\"}"
+}
+
+password_hash_of() {
+  in_db "select password_hash from users where id = '$1'"
+}
+
+creates_and_signs_in_eva() {
+  is 201 "$(create_user eva@example.com Eva "$manager_role")" || return 1
+  eva_id=$(body_field id)
+  signs_in_and_changes eva@example.com "$eva_password" || return 1
+  eva_token=$signed_token
+  eva_refresh=$signed_refresh
+}
+
+eva_gets_a_new_password() {
+  is 200 "$(reset "$admin_token" "$eva_id" "$reset_password")" || {
+    cat "$scratch/body"
+    return 1
+  }
+  in_file '"mustChangePassword":true' "$scratch/body" || return 1
+  ! in_file "$reset_password" "$scratch/body" && ! grep -qi 'passwordHash' "$scratch/body"
+}
+
+her_sessions_are_over() {
+  is 0 "$(in_db "select count(*) from refresh_tokens where user_id = '$eva_id' and revoked_at is null")" || return 1
+  is 401 "$(send POST /api/auth/refresh -H "Cookie: refresh_token=$eva_refresh")"
+}
+
+her_old_password_is_refused() {
+  code_is 401 Auth.InvalidCredentials "$(login eva@example.com "$eva_password")"
+}
+
+her_old_token_no_longer_manages() {
+  code_is 403 Auth.PasswordChangeRequired "$(as "$eva_token" POST /api/users "{\"email\":\"de.la.eva@example.com\",\"displayName\":\"Nou\",\"roleId\":\"$manager_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
+  is 0 "$(in_db "select count(*) from users where email = 'de.la.eva@example.com'")"
+}
+
+she_signs_in_with_the_new_one_and_changes_it() {
+  is 200 "$(login eva@example.com "$reset_password")" || return 1
+  in_file '"mustChangePassword":true' "$scratch/body" || return 1
+  forced=$(body_field accessToken)
+  code_is 403 Auth.PasswordChangeRequired "$(as "$forced" GET /api/users)" || return 1
+  is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$reset_password\",\"newPassword\":\"$eva_new_password\"}")" || return 1
+  eva_token=$(body_field accessToken)
+  is 200 "$(as "$eva_token" GET /api/users)"
+}
+
+a_locked_account_is_unlocked() {
+  is 201 "$(create_user finn@example.com Finn "$manager_role")" || return 1
+  finn_id=$(body_field id)
+  signs_in_and_changes finn@example.com "$finn_password" || return 1
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    is 401 "$(login finn@example.com "nu e parola lui $attempt")" || return 1
+  done
+  is 401 "$(login finn@example.com "$finn_password")" || return 1
+  is True "$(in_db "select locked_until > now() from users where id = '$finn_id'")" || return 1
+  is 200 "$(reset "$admin_token" "$finn_id" "$reset_password")" || return 1
+  is '0|True' "$(in_db "select failed_login_attempts, locked_until is null from users where id = '$finn_id'")" || return 1
+  is 200 "$(login finn@example.com "$reset_password")"
+}
+
+no_one_resets_who_is_above_them() {
+  before=$(password_hash_of "$admin_id")
+  code_is 403 User.PermissionsBeyondYours "$(reset "$eva_token" "$admin_id" "$reset_password")" || return 1
+  is "$before" "$(password_hash_of "$admin_id")" || return 1
+  is False "$(in_db "select must_change_password from users where id = '$admin_id'")"
+}
+
+no_one_resets_their_own() {
+  before=$(password_hash_of "$admin_id")
+  code_is 403 User.OwnPasswordReset "$(reset "$admin_token" "$admin_id" "$reset_password")" || return 1
+  is "$before" "$(password_hash_of "$admin_id")"
+}
+
+a_common_password_is_refused_again() {
+  before=$(password_hash_of "$eva_id")
+  is 400 "$(reset "$admin_token" "$eva_id" password123)" || return 1
+  in_file '"initialPassword"' "$scratch/body" || return 1
+  ! in_file password123 "$scratch/body" || return 1
+  is "$before" "$(password_hash_of "$eva_id")"
+}
+
+a_deactivated_user_stays_deactivated() {
+  is 200 "$(as "$admin_token" POST "/api/users/$finn_id/deactivate")" || return 1
+  is 200 "$(reset "$admin_token" "$finn_id" "$eva_new_password")" || return 1
+  in_file '"isActive":false' "$scratch/body" || return 1
+  code_is 401 Auth.InvalidCredentials "$(login finn@example.com "$eva_new_password")"
+}
+
+task_6() {
+  echo "8b.2 Password reset"
+  check "the entity's test passes" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~Domain.Tests.Users.UserTests.ResetPassword' 1
+  check "the handler's tests pass, with the requests that race" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ResetUserPasswordCommandHandlerTests|FullyQualifiedName~ConcurrentChangesTests.ResetPassword_|FullyQualifiedName~ManagementErrorsTests' 33
+  check "the endpoint's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~PasswordResetFlowTests|FullyQualifiedName~UsersEndpointTests.ResetPassword' 9
+  check "every users action still needs users.manage, and Swagger lists them" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~EndpointPermissionsTests|FullyQualifiedName~SwaggerDocumentTests|FullyQualifiedName~UsersEndpointTests.Endpoint_' 32
+  check "the real API runs in Production, and the admin signs in again" admin_signs_in_again
+  [ -n "${manager_role:-}" ] || task_1 >/dev/null
+  check "a user with users.manage signs in" creates_and_signs_in_eva
+  check "an admin gives them a new password, which the answer doesn't show" eva_gets_a_new_password
+  check "their sessions are over" her_sessions_are_over
+  check "their old password no longer signs in" her_old_password_is_refused
+  check "their token from before no longer manages users" her_old_token_no_longer_manages
+  check "the new one signs in, and has to be changed first" she_signs_in_with_the_new_one_and_changes_it
+  check "a reset unlocks a locked account" a_locked_account_is_unlocked
+  check "nobody resets someone above them" no_one_resets_who_is_above_them
+  check "nobody resets their own" no_one_resets_their_own
+  check "a common password is refused, without echoing it" a_common_password_is_refused_again
+  check "a deactivated user stays deactivated" a_deactivated_user_stays_deactivated
+  check "a reset is logged" log_has "had their password reset"
+  check "the new password isn't in the log" log_lacks "$reset_password"
+  check "nor the ones chosen before and after it" log_lacks "$eva_password"
+  check "nor the last one" log_lacks "$eva_new_password"
+  check "no password is stored as text" passwords_stay_out_of_the_database_after_resets
+  check "the log has no unhandled exception" no_errors_in_the_log
+  check "Swagger lists the reactivation in Development" swagger_lists '/api/users/{id}/activate'
+  check "and the reset" swagger_lists '/api/users/{id}/reset-password'
+  stop_dev_api
+}
+
+passwords_stay_out_of_the_database_after_resets() {
+  is 0 "$(in_db "select count(*) from users where password_hash like '%$reset_password%' or password_hash like '%$eva_new_password%'")"
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do
