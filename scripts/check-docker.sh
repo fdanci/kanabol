@@ -471,6 +471,47 @@ api_through_web_is_real() { # 404 as the API's ProblemDetails, not nginx's page
   is '404 application/problem+json' "$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$web_url/api/no-such-thing" | sed 's/;.*//')"
 }
 
+refused_login_through_web() { # refused_login_through_web [curl arguments...]: prints the status
+  curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d '{"email":"nobody@example.com","password":"not the right one"}' "$@" "$web_url/api/auth/login"
+}
+
+web_login_sets_the_cookie() {
+  curl -sS -o /dev/null -D "$scratch/login-headers.txt" -H 'Content-Type: application/json' \
+    -d '{"email":"admin@kanabol.local","password":"check-admin-password"}' "$web_url/api/auth/login"
+  grep -q '^HTTP/1.1 200' "$scratch/login-headers.txt" || {
+    cat "$scratch/login-headers.txt"
+    return 1
+  }
+  for attribute in 'refresh_token=' 'path=/api/auth' 'secure' 'samesite=strict' 'httponly'; do
+    tr -d '\r' <"$scratch/login-headers.txt" | grep -i '^set-cookie:' | grep -qi "$attribute" || {
+      echo "the cookie has no $attribute"
+      return 1
+    }
+  done
+}
+
+# The cookie's login above was the first of this client's five.
+web_limits_a_client_whatever_it_claims() {
+  for attempt in 2 3 4 5; do
+    is 401 "$(refused_login_through_web -H "X-Forwarded-For: 203.0.113.$attempt")" || return 1
+  done
+  is 429 "$(refused_login_through_web -H 'X-Forwarded-For: 203.0.113.99')"
+}
+
+# Inside the web container, nginx sees another client, while the API still only ever talks to nginx.
+web_limits_each_client_apart() {
+  answer=$(stack exec -T web wget -S -q -O /dev/null --header 'Content-Type: application/json' \
+    --post-data '{"email":"nobody@example.com","password":"not the right one"}' http://127.0.0.1/api/auth/login 2>&1)
+  case "$answer" in
+    *' 401 '*) ;;
+    *)
+      echo "$answer"
+      return 1
+      ;;
+  esac
+}
+
 stack_sql_gives() { # stack_sql_gives <expected> <sql>
   is "$1" "$(stack exec -T postgres psql -U kanabol -d kanabol -tAc "$2" | tr -d '\r')"
 }
@@ -633,6 +674,9 @@ task_3() {
   check "the whole stack comes up, with a healthy API" stack_comes_up
   check "nginx serves the app" web_serves_the_app /
   check "nginx reaches the real API" api_through_web_is_real
+  check "the first admin signs in through nginx, with the cookie the spec asks" web_login_sets_the_cookie
+  check "nginx lets one client log in 5 times a minute, whatever X-Forwarded-For it sends" web_limits_a_client_whatever_it_claims
+  check "another client behind the same nginx has its own limit" web_limits_each_client_apart
   check "the API migrated and seeded the database" stack_sql_gives 1 "select count(*) from users where email = 'admin@kanabol.local'"
   check "attachments survive a new API container, started without that password" volume_survives_a_new_api_container
   check "the API's logs reach Seq" logs_reach_seq

@@ -9,6 +9,7 @@ using Kanabol.Application.Features.Auth.Commands.LogoutUser;
 using Kanabol.Application.Features.Auth.Commands.RefreshSession;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Kanabol.Api.Controllers;
 
@@ -17,6 +18,7 @@ namespace Kanabol.Api.Controllers;
 public sealed class AuthController : ControllerBase
 {
     [AllowAnonymous]
+    [EnableRateLimiting(LoginRateLimit.PolicyName)]
     [HttpPost("login")]
     public async Task<IActionResult> Login(
         LoginUserRequest request,

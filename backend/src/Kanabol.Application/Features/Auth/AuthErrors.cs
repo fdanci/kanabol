@@ -17,6 +17,10 @@ public static class AuthErrors
     public static readonly Error PasswordChangeRequired =
         Error.Forbidden("Auth.PasswordChangeRequired", "The password has to be changed first.");
 
+    // The API answers it with a 429, which the error types do not have, since only this limit needs one.
+    public static readonly Error TooManyLoginAttempts =
+        Error.Failure("Auth.TooManyLoginAttempts", "Too many login attempts. Wait a minute and try again.");
+
     public static readonly Error SessionChangedMeanwhile =
         Error.Conflict("Auth.SessionChangedMeanwhile", "A session changed at the same moment. Try again.");
 
