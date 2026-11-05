@@ -2,7 +2,7 @@
 
 > Specificație vizuală și de interacțiune pentru frontend-ul Angular 22 + Angular Material 22. Complementară cu `SPEC.md` (arhitectură); unde se contrazic, pentru vizual câștigă acest fișier.
 >
-> Stare: v1.3 — 2026-11-05 (v1.2 + contrast AA: `--kb-fill-*` sub textul alb și verdele `#1c7a26`, §2). Tema derivă din culorile aplicației interne existente la firmă (screenshot „SDG Platformă Web”, eșantionat pixel cu pixel), ca trecerea colegilor la Kanabol să fie familiară. Ce era inconsistent acolo e corectat aici, nu copiat. **Forma** (colțuri, borduri, umbre, dialoguri, controale) urmează limbajul aplicațiilor macOS — nu culorile lui, ci proporțiile și materialele.
+> Stare: v1.4 — 2026-11-05 (v1.3 + contradicțiile interne aliniate la §6.0: butonul default în §2, iconițele în §6.0.12 și §12, dialogurile în §8, sidebar-ul în §10). Tema derivă din culorile aplicației interne existente la firmă (screenshot „SDG Platformă Web”, eșantionat pixel cu pixel), ca trecerea colegilor la Kanabol să fie familiară. Ce era inconsistent acolo e corectat aici, nu copiat. **Forma** (colțuri, borduri, umbre, dialoguri, controale) urmează limbajul aplicațiilor macOS — nu culorile lui, ci proporțiile și materialele.
 
 ![Paleta Kanabol](images/kanabol-palette.png)
 
@@ -45,10 +45,10 @@
 
 | Token | Hex | Sursă în screenshot | Folosire |
 |---|---|---|---|
-| `--kb-navy-900` | `#052063` | titlu „Platformă Web”, h1 „Panou principal” | titluri, text pe butoane primare, text puternic |
+| `--kb-navy-900` | `#052063` | titlu „Platformă Web”, h1 „Panou principal” | titluri, text pe butoanele bezel, text puternic |
 | `--kb-brand-800` | `#122d94` | logo SDG | logo, navbar brand, grafice (serie principală) |
 | `--kb-accent-600` | `#135bf7` | clopoțel + badge notificări | link-uri, element activ în sidebar, focus ring, iconițe interactive, badge-uri |
-| `--kb-sky-300` | `#91c4fb` | butoanele „Încarcă fișier”, „Actualizare…” | fundal buton primar, selecție pe kanban, highlight rând |
+| `--kb-sky-300` | `#91c4fb` | butoanele „Încarcă fișier”, „Actualizare…” | selecție pe kanban, highlight rând, chip „Owner”; nu e fundal de buton: butonul default e `--kb-fill-accent` (§3.3) |
 | `--kb-tint-100` | `#ecf4fc` | fundal element activ sidebar | hover/activ în liste și meniuri, fundal chip neutru |
 | `--kb-surface-50` | `#f5f8ff` | fundalul paginii | fundal aplicație |
 | `--kb-surface-0` | `#ffffff` | carduri, navbar, sidebar | carduri, dialoguri, tabele, câmpuri |
@@ -74,7 +74,7 @@ Fundaluri pline sub text alb: `--kb-fill-accent #135bf7` și `--kb-fill-danger #
 | Text | Fundal | Raport | Verdict |
 |---|---|---|---|
 | navy `#052063` | alb | 15.1 | AAA |
-| navy `#052063` | sky-300 `#91c4fb` (buton primar) | 8.3 | AAA — **de aceea textul butonului e navy, nu alb** |
+| navy `#052063` | sky-300 `#91c4fb` (selecție, highlight, chip „Owner”) | 8.3 | AAA |
 | alb | sky-300 `#91c4fb` | 1.8 | ✗ interzis |
 | accent `#135bf7` | alb | 5.4 | AA — ok pentru link-uri și iconițe |
 | accent `#135bf7` | tint-100 `#ecf4fc` | 4.9 | AA — element activ în sidebar |
@@ -105,7 +105,7 @@ Aceiași tokens semantici, valori diferite. Nu inversăm pur și simplu; păstr�
 | `--kb-text-500` | `#6f7b96` |
 | `--kb-accent-600` | `#5b93ff` (mai deschis, 5.5:1 pe `#161f36`) |
 | `--kb-fill-accent` / `--kb-fill-danger` / `--kb-fill-shade` | la fel ca în light: `#135bf7` / `#b42318` / `#052063` (textul alb ar avea doar 3.0:1 pe accentul din dark și 2.8:1 pe danger) |
-| `--kb-sky-300` (buton primar) | `#3d6fc9` cu text `#eef2ff` |
+| `--kb-sky-300` (selecție, highlight) | `#3d6fc9` cu text `#eef2ff` |
 | `--kb-info-bg` / `--kb-info-text` | `#113a45` / `#9fdcea` |
 | success / warning / danger | `#4ade80` / `#fbbf24` / `#f87171` pe fundaluri `#0f2a16` / `#2d1f05` / `#2d0f0d` |
 
@@ -481,7 +481,7 @@ Chips: 22px înălțime, raza pill, 12px/500, padding 0 8px, fundal de stare, **
 
 - Scrollbars: overlay subțiri, 8px, thumb `color-mix(navy 25%, transparent)` raza pill, apar la hover pe container (`scrollbar-width: thin; scrollbar-color`).
 - Separatoare: 1px border-200, niciodată mai groase; secțiunile se separă prin **spațiu** (24px), nu prin linii, cu excepția listelor.
-- Iconițele rămân Material Symbols (nu SF Symbols), dar la 16px în controale, 20px în liste, 24px doar în empty states și în sidebar colapsat.
+- Iconițele rămân Material Symbols (nu SF Symbols), dar la 16px în controale și în sidebar-ul deschis, 20px în liste și în sidebar-ul colapsat (§6.0.7), 48px doar în empty states (§6.8).
 
 ### 6.1 Banner / Alert (inline)
 Fundal + text de stare, bordură 1px în culoarea stării la 30% + rază 10px, padding 12px 16px, iconiță 20px la stânga, opțional buton „Închide”. Variante: info (info-bg/info-text, iconiță `info`), success, warning, danger. Folosit pentru context persistent (ex. „Acest proiect e arhivat”), **nu** pentru feedback la acțiuni — pentru asta e snackbar-ul.
@@ -562,7 +562,7 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 |---|---|
 | Hover, focus, chips | 120 ms, `--kb-ease` |
 | Deschidere meniu, tooltip, snackbar | 200 ms, fade + translate 4px |
-| Dialog | 200 ms fade + scale 0.98→1; închidere 120 ms |
+| Sheet (dialog) | 240 ms `--kb-ease`, `translateY(-16px) → 0` + opacitate; închidere 160 ms (§6.0.5) |
 | Reordonare kanban, sidebar collapse | 200 ms |
 | Pulsare update remote | 600 ms, o singură dată |
 | Skeleton shimmer | 1.2 s loop |
@@ -589,8 +589,8 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 
 | Lățime | Comportament |
 |---|---|
-| ≥ 1280 | Layout complet, sidebar 260px |
-| 960–1279 | Sidebar colapsat implicit (64px), tabele complete |
+| ≥ 1280 | Layout complet, sidebar 240px (§5) |
+| 960–1279 | Sidebar colapsat implicit (56px, §6.0.7), tabele complete |
 | 768–959 | Sidebar ca drawer (overlay) din butonul ≡; dialogurile 90% lățime; detalii task pe o coloană |
 | < 768 | Nu e țintă în v1 (SPEC: fără mobil). Nu trebuie să fie frumos, dar nu trebuie să fie rupt: tabele → carduri, board scroll orizontal cu coloane 280px, navbar fără căutare (iconiță) |
 
@@ -610,7 +610,7 @@ Filtre sus (interval cu presets „Săptămâna asta / Luna asta / Ultimele 30 z
 
 ## 12. Iconițe
 
-Material Symbols Outlined, self-hosted, `font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20`. Mărimi: 20px în butoane/liste, 24px în navbar/sidebar, 48px în empty states. Activ/selectat: `FILL 1`. Set fix pentru navigație: `dashboard`, `folder`, `task_alt`, `notifications`, `group`, `admin_panel_settings`, `bar_chart`, `settings`, `logout`.
+Material Symbols Outlined, self-hosted, `font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20`. Mărimi: 16px în controale, butoane și sidebar-ul deschis (18px în butoanele `large`), 20px în liste, bannere și sidebar-ul colapsat, 48px în empty states (§6.0.3, §6.0.7, §6.0.12, §6.8). Activ/selectat: `FILL 1`. Set fix pentru navigație: `dashboard`, `folder`, `task_alt`, `notifications`, `group`, `admin_panel_settings`, `bar_chart`, `settings`, `logout`.
 
 ---
 
