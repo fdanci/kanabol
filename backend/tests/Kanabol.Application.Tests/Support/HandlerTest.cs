@@ -3,6 +3,7 @@ using Kanabol.Infrastructure;
 using Kanabol.Tests.Shared.Database;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Application.Tests.Support;
 
@@ -21,22 +22,31 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
 
     protected IBoardNotifier BoardNotifier { get; } = Substitute.For<IBoardNotifier>();
 
+    protected ListLoggerProvider Logs { get; } = new();
+
     public override async Task InitializeAsync()
     {
         await base.InitializeAsync();
 
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = Postgres.ConnectionString })
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = Postgres.ConnectionString,
+                ["Jwt:Secret"] = "only-for-these-tests-and-long-enough-to-pass",
+                ["Jwt:Issuer"] = "kanabol-tests",
+                ["Jwt:Audience"] = "kanabol-tests",
+            })
             .Build();
 
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(logging => logging.AddProvider(Logs).SetMinimumLevel(LogLevel.Trace));
         services.AddInfrastructure(configuration);
         services.AddApplication();
         services.AddHandlersFrom(typeof(HandlerTest).Assembly);
         services.AddSingleton(CurrentUser);
         services.AddSingleton(Clock);
         services.AddSingleton(BoardNotifier);
+        ConfigureServices(services);
 
         _services = services.BuildServiceProvider(validateScopes: true);
         _scope = _services.CreateAsyncScope();
@@ -49,7 +59,14 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
         await base.DisposeAsync();
     }
 
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
+    }
+
     protected TService Get<TService>()
         where TService : notnull =>
         _scope.ServiceProvider.GetRequiredService<TService>();
+
+    /// <summary>A scope of its own, for what has to run side by side, as two requests would.</summary>
+    protected AsyncServiceScope NewScope() => _services!.CreateAsyncScope();
 }

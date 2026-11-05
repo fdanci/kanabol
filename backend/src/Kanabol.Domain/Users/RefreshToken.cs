@@ -28,4 +28,10 @@ public sealed class RefreshToken : Entity
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset? RevokedAt { get; private set; }
+
+    public bool IsRevoked => RevokedAt is not null;
+
+    public bool IsExpiredAt(DateTimeOffset now) => ExpiresAt <= now;
+
+    public void Revoke(DateTimeOffset now) => RevokedAt ??= now;
 }

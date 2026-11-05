@@ -551,6 +551,7 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnName("family_id");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
 
@@ -605,6 +606,10 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)")
                         .HasColumnName("email");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_login_attempts");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")

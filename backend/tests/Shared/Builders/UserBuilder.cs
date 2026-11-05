@@ -9,11 +9,18 @@ public sealed class UserBuilder
 
     private string _email = $"user{Interlocked.Increment(ref _sequence)}@example.com";
     private Guid _roleId = Guid.CreateVersion7();
+    private string _passwordHash = "not-a-real-hash";
     private bool _mustChangePassword;
 
     public UserBuilder WithEmail(string email)
     {
         _email = email;
+        return this;
+    }
+
+    public UserBuilder WithPasswordHash(string passwordHash)
+    {
+        _passwordHash = passwordHash;
         return this;
     }
 
@@ -29,5 +36,5 @@ public sealed class UserBuilder
         return this;
     }
 
-    public User Build() => new(_email, "Ana Pop", "not-a-real-hash", _roleId, _mustChangePassword);
+    public User Build() => new(_email, "Ana Pop", _passwordHash, _roleId, _mustChangePassword);
 }
