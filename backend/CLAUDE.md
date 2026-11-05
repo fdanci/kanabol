@@ -13,6 +13,7 @@ Run from `backend/`:
 - Test: `dotnet test Kanabol.sln`, with Docker Desktop running: the tests start their own PostgreSQL 17 in a container, so they don't need the local database.
 - Test back and front together, from the repo root: `scripts/test-all.sh`
 - Run the structure checks, from the repo root: `scripts/check-backend.sh [task-number...]`. They need a PostgreSQL whose user may create databases, and each run works in its own databases and drops them. The connection string comes from `KANABOL_CHECK_DB`, or else from the `ConnectionStrings:Default` user secret.
+- Run the authentication checks, from the repo root: `scripts/check-auth.sh [task-number...]`. They run the auth tests, and start the real API on a database of their own, under the same conditions as the structure checks.
 
 ## Migrations
 
@@ -64,3 +65,10 @@ In Docker and production, settings come from environment variables:
 - Code checks permissions, never role names.
 - Visibility across all projects comes from the global `projects.view_all` permission, not from a role.
 - Access is checked on every request. The frontend only hides what isn't available.
+
+## Authentication
+
+- `POST /api/auth/login`, `refresh`, `logout` and `change-password`, and `GET /api/auth/me`. Access tokens go in the body and refresh tokens only in the `refresh_token` cookie, which is `Secure`, so tests have to call over `https://localhost` and browsers accept it on `http://localhost`.
+- Every controller needs a signed-in user unless it says `[AllowAnonymous]`.
+- While `MustChangePassword` is on, the API answers 403 `Auth.PasswordChangeRequired` everywhere except the public endpoints and those marked `[AllowedBeforePasswordChange]`.
+- Logins are limited to 5 per minute per client address, which comes from `X-Forwarded-For` on connections from private networks. Tests that log in give each attempt its own address: `AuthApiTest.Login` does it by itself.
