@@ -18,6 +18,7 @@ Run from `frontend/`:
 - Build: `npm run build`
 - Lint: `npm run lint`
 - Check formatting: `npx prettier --check .`
+- Extract the texts for translation: `npx ng extract-i18n --output-path <folder>`. Romanian is the source language, and v1 has no other.
 
 ## UI
 

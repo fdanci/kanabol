@@ -103,8 +103,39 @@ task_1() {
   check "the production build names no host" bundle_lacks localhost
 }
 
+# ---- 9.7 (done second: every text in a template needs it)
+
+extracted() {
+  [ -f "$scratch/locale/messages.xlf" ] && return 0
+  (cd "$web" && npx ng extract-i18n --output-path "$scratch/locale") >"$scratch/extract.log" 2>&1 || {
+    plain "$scratch/extract.log" | tail -n 25
+    return 1
+  }
+}
+
+messages_have() { # messages_have <text>
+  extracted && in_file "$1" "$scratch/locale/messages.xlf"
+}
+
+localize_is_installed() {
+  in_file '"@angular/localize"' "$web/package.json" && in_file '"@angular/localize/init"' "$web/angular.json"
+}
+
+source_locale_is_romanian() {
+  in_file '"sourceLocale": "ro"' "$web/angular.json"
+}
+
+task_7() {
+  echo "9.7 i18n with Romanian as the source"
+  check "@angular/localize is installed and loaded" localize_is_installed
+  check "the source locale is ro" source_locale_is_romanian
+  check "its spec passes" specs_pass src/app/localize.spec.ts 2
+  check "ng extract-i18n works" extracted
+  check "and writes Romanian as the source language" messages_have 'source-language="ro"'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 7
 fi
 
 for task in "$@"; do
