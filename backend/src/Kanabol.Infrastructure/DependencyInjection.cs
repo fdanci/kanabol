@@ -28,6 +28,7 @@ public static class DependencyInjection
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
+        services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<AuditingInterceptor>();
         services.AddScoped<DomainEventsInterceptor>();
 
