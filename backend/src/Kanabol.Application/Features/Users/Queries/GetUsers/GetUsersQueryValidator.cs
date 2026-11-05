@@ -7,7 +7,7 @@ public sealed class GetUsersQueryValidator : AbstractValidator<GetUsersQuery>
 {
     public GetUsersQueryValidator()
     {
-        RuleFor(query => query.PageNumber).IsAPageNumber();
+        RuleFor(query => query.Page).IsAPageNumber();
         RuleFor(query => query.PageSize).IsAPageSize();
     }
 }

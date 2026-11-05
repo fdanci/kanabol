@@ -63,9 +63,9 @@ public sealed class RoleQueriesTests(PostgresFixture postgres) : ManagementHandl
     }
 
     [Theory]
-    [InlineData(0, 50, "PageNumber")]
-    [InlineData(-1, 50, "PageNumber")]
-    [InlineData(int.MaxValue, 50, "PageNumber")]
+    [InlineData(0, 50, "Page")]
+    [InlineData(-1, 50, "Page")]
+    [InlineData(int.MaxValue, 50, "Page")]
     [InlineData(1, 0, "PageSize")]
     [InlineData(1, 101, "PageSize")]
     public async Task GetRoles_WithAPageOutOfRange_ReturnsTheFieldsError(int page, int pageSize, string field)

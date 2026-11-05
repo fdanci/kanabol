@@ -7,7 +7,7 @@ public sealed class GetRolesQueryValidator : AbstractValidator<GetRolesQuery>
 {
     public GetRolesQueryValidator()
     {
-        RuleFor(query => query.PageNumber).IsAPageNumber();
+        RuleFor(query => query.Page).IsAPageNumber();
         RuleFor(query => query.PageSize).IsAPageSize();
     }
 }

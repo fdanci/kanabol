@@ -3,4 +3,4 @@ using Kanabol.Application.Common;
 
 namespace Kanabol.Application.Features.Roles.Queries.GetRoles;
 
-public sealed record GetRolesQuery(int PageNumber, int PageSize) : IQuery<Page<RoleDto>>;
+public sealed record GetRolesQuery(int Page, int PageSize) : IQuery<Page<RoleDto>>;

@@ -19,6 +19,6 @@ public sealed class GetUsersQueryHandler(IAppDbContext db, CurrentPermissions cu
         return await db.Users
             .OrderBy(user => user.Email)
             .ToDtos()
-            .ToPage(query.PageNumber, query.PageSize, ct);
+            .ToPage(query.Page, query.PageSize, ct);
     }
 }

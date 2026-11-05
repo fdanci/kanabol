@@ -20,6 +20,6 @@ public sealed class GetRolesQueryHandler(IAppDbContext db, CurrentPermissions cu
             .OrderBy(role => role.Name)
             .ThenBy(role => role.Id)
             .ToDtos(db)
-            .ToPage(query.PageNumber, query.PageSize, ct);
+            .ToPage(query.Page, query.PageSize, ct);
     }
 }

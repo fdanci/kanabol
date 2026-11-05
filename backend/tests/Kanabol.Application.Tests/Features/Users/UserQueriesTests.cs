@@ -49,7 +49,7 @@ public sealed class UserQueriesTests(PostgresFixture postgres) : ManagementHandl
     }
 
     [Theory]
-    [InlineData(0, 50, "PageNumber")]
+    [InlineData(0, 50, "Page")]
     [InlineData(1, 101, "PageSize")]
     public async Task GetUsers_WithAPageOutOfRange_ReturnsTheFieldsError(int page, int pageSize, string field)
     {
