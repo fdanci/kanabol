@@ -10,4 +10,24 @@ public static class AuthErrors
 
     public static readonly Error InvalidRefreshToken =
         Error.Unauthorized("Auth.InvalidRefreshToken", "The session has ended. Sign in again.");
+
+    public static readonly Error SessionEnded =
+        Error.Unauthorized("Auth.SessionEnded", "The session has ended. Sign in again.");
+
+    public static readonly Error PasswordChangeRequired =
+        Error.Forbidden("Auth.PasswordChangeRequired", "The password has to be changed first.");
+
+    public static readonly Error SessionChangedMeanwhile =
+        Error.Conflict("Auth.SessionChangedMeanwhile", "A session changed at the same moment. Try again.");
+
+    // On the field rather than a 401, which the frontend answers by refreshing the session.
+    public static readonly Error WrongCurrentPassword = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["CurrentPassword"] = ["The current password is incorrect."],
+    });
+
+    public static readonly Error NewPasswordSameAsCurrent = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["NewPassword"] = ["The new password has to differ from the current one."],
+    });
 }

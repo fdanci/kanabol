@@ -1,11 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
 using Kanabol.Api.Errors;
 using Kanabol.Application.Common;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Tests.Templates;
 
 /// <summary>Only exists in the tests, to reach the error paths until the first real endpoints do.</summary>
+[AllowAnonymous]
 [ApiController]
 [Route("api/test-samples")]
 [SuppressMessage("Performance", "CA1822", Justification = "MVC only finds instance methods.")]

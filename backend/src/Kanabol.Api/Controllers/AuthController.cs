@@ -3,9 +3,11 @@ using Kanabol.Api.Errors;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Auth;
+using Kanabol.Application.Features.Auth.Commands.ChangePassword;
 using Kanabol.Application.Features.Auth.Commands.LoginUser;
 using Kanabol.Application.Features.Auth.Commands.LogoutUser;
 using Kanabol.Application.Features.Auth.Commands.RefreshSession;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Controllers;
@@ -14,6 +16,7 @@ namespace Kanabol.Api.Controllers;
 [Route("api/auth")]
 public sealed class AuthController : ControllerBase
 {
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<IActionResult> Login(
         LoginUserRequest request,
@@ -21,6 +24,9 @@ public sealed class AuthController : ControllerBase
         CancellationToken ct) =>
         SessionResult(await handler.Handle(new LoginUserCommand(request.Email, request.Password), ct));
 
+    // Anonymous, because these two are what a client with an expired access token has left. The
+    // cookie is what proves who's calling, and SameSite=Strict keeps other sites from sending it.
+    [AllowAnonymous]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh(
         [FromServices] ICommandHandler<RefreshSessionCommand, AuthSession> handler,
@@ -35,6 +41,7 @@ public sealed class AuthController : ControllerBase
         return SessionResult(result);
     }
 
+    [AllowAnonymous]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout(
         [FromServices] ICommandHandler<LogoutUserCommand, Unit> handler,
@@ -44,6 +51,14 @@ public sealed class AuthController : ControllerBase
         RefreshTokenCookie.Clear(Response);
         return result.ToActionResult();
     }
+
+    [AllowedBeforePasswordChange]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword(
+        ChangePasswordRequest request,
+        [FromServices] ICommandHandler<ChangePasswordCommand, AuthSession> handler,
+        CancellationToken ct) =>
+        SessionResult(await handler.Handle(new ChangePasswordCommand(request.CurrentPassword, request.NewPassword), ct));
 
     private IActionResult SessionResult(Result<AuthSession> result)
     {

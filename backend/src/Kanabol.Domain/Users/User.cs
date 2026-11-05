@@ -59,6 +59,13 @@ public sealed class User : AuditableEntity
         }
     }
 
+    public void ChangePassword(string passwordHash)
+    {
+        PasswordHash = passwordHash;
+        MustChangePassword = false;
+        RecordSuccessfulLogin();
+    }
+
     public void RecordSuccessfulLogin()
     {
         FailedLoginAttempts = 0;

@@ -23,7 +23,7 @@ public static class ResultExtensions
     public static IActionResult ToCreatedResult<T>(this Result<T> result, string location) =>
         result.IsSuccess ? new CreatedResult(location, result.Value) : Problem(result.Error);
 
-    private static ProblemActionResult Problem(Error error)
+    public static ProblemDetails ToProblemDetails(this Error error)
     {
         var status = error.Type switch
         {
@@ -46,6 +46,8 @@ public static class ResultExtensions
         problem.Detail = error.Message;
         problem.Extensions["code"] = error.Code;
 
-        return new ProblemActionResult(problem);
+        return problem;
     }
+
+    private static ProblemActionResult Problem(Error error) => new(error.ToProblemDetails());
 }

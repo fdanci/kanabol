@@ -57,6 +57,20 @@ public sealed class UserTests
         user.LockedUntil.Should().BeNull();
     }
 
+    [Fact]
+    public void ChangePassword_WhenCalled_ReplacesTheHashAndClearsTheFlagAndFailures()
+    {
+        var user = new UserBuilder().MustChangePassword().Build();
+        FailLogins(user, User.MaxFailedLogins + 3);
+
+        user.ChangePassword("new-hash");
+
+        user.PasswordHash.Should().Be("new-hash");
+        user.MustChangePassword.Should().BeFalse();
+        user.FailedLoginAttempts.Should().Be(0);
+        user.LockedUntil.Should().BeNull();
+    }
+
     private static void FailLogins(User user, int count)
     {
         for (var attempt = 0; attempt < count; attempt++)

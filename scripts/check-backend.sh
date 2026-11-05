@@ -354,11 +354,13 @@ task_1() {
 write_probe_controller() { # write_probe_controller <api-project-folder>
   mkdir -p "$1/Controllers"
   cat >"$1/Controllers/ProbeController.cs" <<'CS'
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Controllers;
 
 [ApiController]
+[AllowAnonymous]
 [Route("api/probe")]
 public sealed class ProbeController : ControllerBase
 {
@@ -1777,6 +1779,7 @@ using Kanabol.Api.Errors;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Probe;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Controllers;
@@ -1784,6 +1787,7 @@ namespace Kanabol.Api.Controllers;
 public sealed record ProbeValue(string Greeting);
 
 [ApiController]
+[AllowAnonymous]
 [Route("api/probe")]
 public sealed class ProbeController(ICommandHandler<ProbeCommand, Unit> handler) : ControllerBase
 {

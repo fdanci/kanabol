@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Users;
@@ -35,6 +36,9 @@ public abstract class AuthApiTest(ApiFixture api) : ApiTest(api)
             .Single(cookie => cookie.Name == RefreshCookieName);
 
     protected static string RefreshTokenFrom(HttpResponseMessage response) => RefreshCookieFrom(response).Value.ToString();
+
+    protected static async Task<string> AccessTokenFrom(HttpResponseMessage response) =>
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
 
     /// <summary>An address nobody else has used, so the limit on logins per IP doesn't get in the way.</summary>
     protected static string UnusedAddress()

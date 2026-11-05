@@ -24,6 +24,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+builder.Services.AddJwtAuthentication();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -40,9 +41,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseRouting();
+app.UseAuthentication();
 app.UseMiddleware<UserIdLogContextMiddleware>();
+app.UseMiddleware<PasswordChangeRequiredMiddleware>();
+app.UseAuthorization();
 
-app.MapControllers();
-app.MapHealthChecks("/health");
+// Every controller needs a signed-in user unless it says [AllowAnonymous], so forgetting an attribute closes an endpoint.
+app.MapControllers().RequireAuthorization();
+app.MapHealthChecks("/health").AllowAnonymous();
 
 await app.RunAsync();
