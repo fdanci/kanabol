@@ -1,11 +1,12 @@
 using System.ComponentModel.DataAnnotations;
+using Kanabol.Application.Features.Auth;
 
 namespace Kanabol.Infrastructure.Configuration;
 
 public sealed class AdminOptions
 {
     public const string SectionName = "Admin";
-    public const int MinimumPasswordLength = 10;
+    public const int MinimumPasswordLength = PasswordPolicy.MinimumLength;
 
     [Required]
     [EmailAddress]
