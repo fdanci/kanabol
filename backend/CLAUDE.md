@@ -16,6 +16,7 @@ Run from `backend/`:
 - Run the structure checks, from the repo root: `scripts/check-backend.sh [task-number...]`. They need a PostgreSQL whose user may create databases, and each run works in its own databases and drops them. The connection string comes from `KANABOL_CHECK_DB`, or else from the `ConnectionStrings:Default` user secret.
 - Run the authentication checks, from the repo root: `scripts/check-auth.sh [task-number...]`. They run the auth tests, and start the real API on a database of their own, under the same conditions as the structure checks.
 - Run the permission checks, from the repo root: `scripts/check-permissions.sh [task-number...]`, under the same conditions.
+- Run the user and role checks, from the repo root: `scripts/check-users.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -70,6 +71,21 @@ In Docker and production, settings come from environment variables:
 - `[HasPermission(Permissions.X)]` on an action or a controller closes it to tokens without that permission, with a 403 `Auth.PermissionRequired`. Several of them all have to hold.
 - `IProjectAccess` answers from the database, about the user it's asked about, and refuses deactivated users. It doesn't check that the project exists, so a handler loads the project or task first.
 - Tests reach paths no real endpoint has yet through sample controllers in the test project. `scripts/check-permissions.sh` makes sure they aren't in what ships.
+
+## Users and roles
+
+| Endpoint                                                                                                    | Does                                                        | Needs          |
+| ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------- |
+| `GET /api/roles`, `GET /api/roles/{id}`, `POST /api/roles`, `PUT /api/roles/{id}`, `DELETE /api/roles/{id}` | Roles and their permissions                                 | `roles.manage` |
+| `GET /api/permissions`                                                                                      | Every permission that exists                                | `roles.manage` |
+| `GET /api/users`, `GET /api/users/{id}`, `POST /api/users`, `PUT /api/users/{id}`                           | Users, with an initial password on creation                 | `users.manage` |
+| `GET /api/users/assignable-roles`                                                                           | The roles this caller can give                              | `users.manage` |
+| `PUT /api/users/{id}/role`, `POST /api/users/{id}/deactivate`                                               | Another role, or deactivation. Both end the user's sessions | `users.manage` |
+
+- These handlers check twice: `[HasPermission]` reads the token, and `CurrentPermissions` reads the database. So someone deactivated or demoted a moment ago can't use the token they still hold here. Any other endpoint with only `[HasPermission]` stays open to them until the token expires.
+- Nobody gives more than they have: a role can only get permissions its editor holds, and a user can only get a role whose permissions the caller holds. Nobody changes a user who has permissions they don't.
+- The Admin role can't be renamed, restricted or deleted, and the last active user with it can't be deactivated or moved. `LastAdminGuard` holds that when two requests race, through `roles.holders_version`, so the second one gets a 409 `User.ChangedMeanwhile`.
+- Swagger, on http://localhost:5200/swagger in Development only, takes the `accessToken` from `POST /api/auth/login` in its Authorize button.
 
 ## Authentication
 
