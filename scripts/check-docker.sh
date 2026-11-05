@@ -499,6 +499,16 @@ web_limits_a_client_whatever_it_claims() {
   is 429 "$(refused_login_through_web -H 'X-Forwarded-For: 203.0.113.99')"
 }
 
+# nginx stops reading the path at the #, so this reaches /hubs/ there, while the API resolves the dots
+# and sees a login. Whichever way a request gets through, the client doesn't choose its address, so
+# this client, which has used up its logins above, stays refused. Git Bash would rewrite the target.
+web_limits_a_login_sent_through_hubs() {
+  is 429 "$(MSYS_NO_PATHCONV=1 curl -sS -o "$(native "$scratch/through-hubs.txt")" -w '%{http_code}' \
+    --path-as-is --request-target '/hubs/#/../../api/auth/login' \
+    -H 'X-Forwarded-For: 203.0.113.200' -H 'Content-Type: application/json' \
+    -d '{"email":"nobody@example.com","password":"not the right one"}' "$web_url/")"
+}
+
 # Inside the web container, nginx sees another client, while the API still only ever talks to nginx.
 web_limits_each_client_apart() {
   answer=$(stack exec -T web wget -S -q -O /dev/null --header 'Content-Type: application/json' \
@@ -676,6 +686,7 @@ task_3() {
   check "nginx reaches the real API" api_through_web_is_real
   check "the first admin signs in through nginx, with the cookie the spec asks" web_login_sets_the_cookie
   check "nginx lets one client log in 5 times a minute, whatever X-Forwarded-For it sends" web_limits_a_client_whatever_it_claims
+  check "a login sent through the hubs path gets no way around the limit" web_limits_a_login_sent_through_hubs
   check "another client behind the same nginx has its own limit" web_limits_each_client_apart
   check "the API migrated and seeded the database" stack_sql_gives 1 "select count(*) from users where email = 'admin@kanabol.local'"
   check "attachments survive a new API container, started without that password" volume_survives_a_new_api_container
