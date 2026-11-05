@@ -259,15 +259,11 @@ reports.view
 
 **Un utilizator are exact un rol** (`users.role_id`, NOT NULL). Rolul grupează permisiuni (`role_permissions`). Dacă cineva are nevoie de drepturi combinate, adminul creează un rol nou — nu atribuim mai multe roluri aceleiași persoane. Schimbarea rolului invalidează refresh token-urile utilizatorului (permisiunile din JWT se reîmprospătează la următorul login/refresh).
 
-Permisiunile ajung în JWT ca claims `permission`. Pe API: `[HasPermission(Permissions.ProjectsViewAll)]` — un `IAuthorizationPolicyProvider` custom construiește politica `Permission:<name>` la cerere, fără să le înregistrăm pe fiecare în `Program.cs`. Mai multe atribute, pe acțiune sau pe controller, se cumulează, iar o permisiune scrisă greșit în cod închide endpoint-ul.
-
-Refuzul e 403 ProblemDetails cu `code: Auth.PermissionRequired`. Răspunsul nu spune ce lipsește; permisiunea lipsă apare doar în log, la `Warning`. Claims-urile rămân valabile până expiră token-ul, deci o permisiune pierdută mai merge cel mult 15 minute acolo unde se citesc doar claims.
+Permisiunile ajung în JWT ca claims `permission`. Pe API: `[HasPermission(Permissions.ProjectsViewAll)]` — un `IAuthorizationPolicyProvider` custom construiește politica `Permission:<name>` la cerere, fără să le înregistrăm pe fiecare în `Program.cs`.
 
 **Nivel proiect — rol pe proiect.** `ProjectMember(ProjectId, UserId, ProjectRole)` cu `ProjectRole = Owner | Member`. Verificat în handler prin `IProjectAccess`:
 - `EnsureMemberAsync(projectId, userId)` — trece dacă e membru **sau** are `projects.view_all`.
 - `EnsureOwnerAsync(projectId, userId)` — trece dacă e owner **sau** are `projects.manage`.
-
-`IProjectAccess` răspunde din baza de date, nu din token: întrebarea e despre `userId`, care nu e mereu cel care face cererea, iar un token poate lista o permisiune pierdută între timp. Un utilizator dezactivat nu trece niciodată. Refuzurile sunt 403 `Project.MemberRequired` și `Project.OwnerRequired`. Răspunde doar despre acces: un proiect arhivat își păstrează owner-ii, ca să-l poată restaura, iar dacă proiectul există verifică handlerul, înainte. Cine are doar `projects.manage` trece ca owner, dar nu și ca membru: cele două permisiuni sunt independente.
 
 Invariante:
 - `Project` are mereu cel puțin un owner (verificat în `Project.RemoveMember` / `ChangeMemberRole`).
@@ -1173,8 +1169,8 @@ Observații:
 
 Fiecare grup din `Tasks.md` are verificările lui în `scripts/check-*.sh`. Nu rulează în hook-uri: se rulează toate pe o clonă curată, după `scripts/setup.sh`, înainte ca un grup să fie considerat gata, pentru că repo-ul n-are CI.
 
-- `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
-- `check-backend.sh`, `check-auth.sh` și `check-permissions.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
+- `check-tests.sh`, `check-auth.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
+- `check-backend.sh` și `check-auth.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
 - `check-docker.sh 5` are nevoie de porturile 5432, 5341 și 5200 libere.
 
 Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-all.sh` e exact ce rulează și acolo — fără duplicare de logică.
