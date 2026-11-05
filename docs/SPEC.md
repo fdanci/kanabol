@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.2 — 2026-11-04 (v1.1 + aliniere la repo-ul existent `E:\Workspace\kanabol`, vezi §3.1). Se mută în repo ca `docs/SPEC.md` la primul commit.
+> Stare: v1.3 — 2026-11-05 (v1.2 + ce s-a stabilit la implementare: autentificarea în §4.5, modelul în §5, Docker în §13 și pipeline-ul de commit în §14).
 
 ---
 
@@ -30,7 +30,7 @@
 | Lint front | ESLint flat config (angular-eslint + typescript-eslint strict) + Prettier |
 | Atașamente | Disc local în volum Docker, în spatele `IFileStorage` |
 | Docker | Multi-stage Dockerfiles, `compose.yaml` (postgres, seq, api, web/nginx) |
-| Git | Feature branches → `master`, Conventional Commits, **Husky + lint-staged**; suita completă de teste rulează la commit/merge pe `master` |
+| Git | Feature branches → `dev` → `main`, Conventional Commits, **Husky + lint-staged**; suita completă de teste rulează la commit/merge pe `main` |
 | Deploy | Server Linux, Docker Compose, nginx servește SPA + proxy către API |
 | TLS | Certificat **self-signed** (CA proprie), terminat în nginx, importat o dată în browserele colegilor |
 
@@ -76,8 +76,9 @@ kanabol/
 ├── .gitattributes                # eol=lf pentru scripturi
 ├── .husky/                       # hook-uri git (vezi §14)
 ├── .lintstagedrc.json
+├── .prettierignore
 ├── commitlint.config.js
-├── package.json                  # doar tooling de repo (husky, lint-staged, commitlint)
+├── package.json                  # doar tooling de repo (husky, lint-staged, commitlint, prettier)
 ├── compose.yaml                  # servicii comune
 ├── compose.override.yaml         # dev (porturi expuse, volume locale) — încărcat automat
 ├── compose.prod.yaml             # prod (nginx, fără porturi inutile)
@@ -85,9 +86,16 @@ kanabol/
 ├── scripts/
 │   ├── setup.sh                  # instalare tooling + git config (rulat o dată după clone)
 │   ├── verify.sh                 # ce rulează hook-ul: lint + teste
-│   └── test-all.sh               # suita completă back + front
+│   ├── test-all.sh               # suita completă back + front
+│   ├── require-docker.sh         # oprește cu mesaj clar când Docker e oprit
+│   ├── make-certs.sh             # CA proprie + certificatul serverului (§13.4)
+│   ├── seq-retention.sh          # retenția de 30 de zile în Seq, o dată per volum
+│   └── check-*.sh                # verificările de acceptanță ale grupurilor din Tasks.md (§14.7)
 ├── docs/
 │   ├── SPEC.md                   # acest fișier
+│   ├── UI_UX_SPEC.md             # spec-ul vizual, copie a notei din vault
+│   ├── tls.md                    # cum se importă CA-ul pe stațiile colegilor
+│   ├── images/                   # imaginile din UI_UX_SPEC.md
 │   └── adr/                      # copii ale deciziilor din Obsidian, numerotate
 ├── CLAUDE.md                     # indică spre vault + SPEC; reguli de git
 ├── backend/
@@ -111,9 +119,12 @@ kanabol/
     ├── package.json
     ├── eslint.config.js
     ├── .prettierrc
+    ├── .lintstagedrc.json        # lint-staged pentru frontend (§14.5)
     ├── proxy.conf.json           # ng serve → API local
     ├── Dockerfile
-    ├── nginx.conf
+    ├── nginx-app.conf            # ce au comun dev și prod (§13.2)
+    ├── nginx.conf                # dev: portul 80
+    ├── nginx.prod.conf           # prod: 443, plus redirect de pe 80
     └── src/
 ```
 
@@ -262,13 +273,36 @@ Invariante:
 
 ### 4.5 Autentificare
 
-- `POST /api/auth/login` → access token JWT (15 min, în body) + refresh token (7 zile) în cookie `HttpOnly; Secure; SameSite=Strict; Path=/api/auth`.
-- `POST /api/auth/refresh` rotește refresh token-ul (cel vechi devine invalid; refolosirea unuia invalidat revocă toată familia — detecție de furt).
+**Token-uri**
+
+- `POST /api/auth/login` → access token JWT (15 min, în body) + refresh token (7 zile) în cookie `refresh_token`: `HttpOnly; Secure; SameSite=Strict; Path=/api/auth`.
+- Access token-ul are claims `sub`, `permission` (câte unul pe permisiune) și `must_change_password`, doar când e cazul. E semnat HS256 și se validează fără toleranță de ceas.
+- `POST /api/auth/refresh` rotește refresh token-ul (cel vechi devine invalid; refolosirea unuia invalidat revocă toată familia — detecție de furt). Două cereri simultane cu același token contează tot ca refolosire: `revoked_at` e concurrency token, deci a doua salvare nu mai găsește rândul.
+- `POST /api/auth/logout` revocă familia sesiunii curente și șterge cookie-ul. Răspunde 204 și fără cookie.
+- Login, refresh și logout sunt anonime, pentru că sunt tot ce-i rămâne unui client cu access token-ul expirat. Cookie-ul dovedește cine cheamă, iar `SameSite=Strict` îl ține departe de alte site-uri.
 - Refresh token-urile se stochează hash-uite (SHA-256) în `refresh_tokens`.
-- Parole: `Microsoft.AspNetCore.Identity.PasswordHasher<User>` (PBKDF2, fără pachetul Identity complet).
 - Frontend ține access token-ul **doar în memorie** (semnal în `AuthStore`), niciodată în `localStorage`.
-- Rate limiting pe `/api/auth/login`: 5 încercări / minut / IP (`AddRateLimiter`, fixed window).
 - SignalR primește token-ul prin query string `access_token` la handshake (standard).
+
+**Parole**
+
+- `Microsoft.AspNetCore.Identity.PasswordHasher<User>` (PBKDF2, fără pachetul Identity complet).
+- Politică: minim 10 caractere, maxim 256 (ca nimeni să nu pună serverul să hash-uiască un body întreg) și în afara listei `Features/Auth/common-passwords.txt`.
+- `POST /api/auth/change-password` cere parola curentă, iar cea nouă trebuie să difere. Revocă toate refresh token-urile și pornește o sesiune nouă pentru dispozitivul curent, într-o singură salvare, apoi răspunde ca login-ul.
+- O parolă curentă greșită e 400 pe câmpul `currentPassword`, nu 401, la care frontend-ul ar încerca un refresh, și se numără la lockout.
+- Cât timp `MustChangePassword` e activ, token-ul deschide doar endpoint-urile publice și pe cele marcate `[AllowedBeforePasswordChange]` (`change-password` și `me`). Restul răspund 403 `Auth.PasswordChangeRequired`.
+
+**Login refuzat**
+
+- Un singur răspuns, 401 `Auth.InvalidCredentials`, pentru parolă greșită și pentru cont inexistent, dezactivat sau blocat, cu același timp de răspuns. Motivul real apare doar în loguri.
+- Lockout: 15 minute după 10 eșecuri (`failed_login_attempts`, `locked_until`). Contorul crește într-un singur `UPDATE` pe rândul curent, ca încercările trimise simultan să nu se suprascrie.
+- Rate limiting pe `/api/auth/login`: 5 încercări / minut / IP (`AddRateLimiter`, fixed window), cu răspuns 429 ProblemDetails `Auth.TooManyLoginAttempts` și `Retry-After`.
+- Adresa clientului vine din `X-Forwarded-For`, doar pentru conexiuni din rețele private, unde stă nginx. nginx suprascrie header-ul pe `/api/` și pe `/hubs/`, deci clientul nu-și poate alege adresa (§13.2).
+
+**Restul**
+
+- `GET /api/auth/me` întoarce utilizatorul și permisiunile, citite din DB, nu din token.
+- Orice controller cere un utilizator autentificat, dacă nu are `[AllowAnonymous]` (`MapControllers().RequireAuthorization()`), deci un atribut uitat închide endpoint-ul, nu-l deschide.
 
 ### 4.6 Erori
 
@@ -293,7 +327,7 @@ Project ──< TaskItem ──< Comment
                      └──< Notification (overdue etc.)
 ```
 
-- `User`: `Email` (unic), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol), `IsActive`, `LockedUntil?`, `MustChangePassword`.
+- `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol), `IsActive`, `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
 - `Role`: `Name` (unic), `IsSystem` (true doar pentru `Admin`), permisiuni prin `role_permissions`.
 - `TaskItem` (nu `Task`, ca să nu se bată cu `System.Threading.Tasks.Task`): `Title`, `Description`, `Priority` (enum `Low|Medium|High|Critical`), `DueDate?`, `AssigneeId?`, `ColumnId`, `Position`, `CompletedAt?`, `ArchivedAt?`, `ArchivedById?`.
 - `BoardColumn`: `Name`, `Position`, `IsDone` (marchează coloana „terminat”; intrarea unui task într-o astfel de coloană setează `CompletedAt`, ieșirea îl anulează). Fără WIP limit în v1.
@@ -341,7 +375,7 @@ Un `AuditingInterceptor : SaveChangesInterceptor` completează câmpurile de aud
 
 - Un fișier `IEntityTypeConfiguration<T>` per entitate în `Infrastructure/Persistence/Configurations/`, aplicate cu `ApplyConfigurationsFromAssembly`. **Fără** data annotations pe entități (Domain rămâne curat).
 - `UseNpgsql(...).UseSnakeCaseNamingConvention()` → toate tabelele/coloanele/indexurile în `snake_case` automat.
-- Concurență optimistă: `builder.UseXminAsConcurrencyToken()` pe `TaskItem`, `Project`, `BoardColumn` (mutările pe kanban concurente se rezolvă cu 409).
+- Concurență optimistă: `builder.Property<uint>("Version").IsRowVersion()` pe `TaskItem`, `Project`, `BoardColumn` (mutările pe kanban concurente se rezolvă cu 409). Npgsql o mapează pe `xmin`; `UseXminAsConcurrencyToken` nu mai există în Npgsql 10.
 - Enum-uri stocate ca `text` (`HasConversion<string>()`) — lizibile în DB și în Seq, sigure la reordonare.
 - Toate datele în `timestamptz` (`DateTimeOffset` în C#). Serverul lucrează în UTC; frontend-ul afișează local.
 - `string` → `varchar(n)` explicit cu `HasMaxLength`; `Description` și `Comment.Body` → `text`.
@@ -502,7 +536,7 @@ Urmăm style guide-ul Angular v20+ (fără sufixe `.component`/`.service` în nu
 ### 8.1 Backend — Serilog
 
 - **Structurate**: message templates cu proprietăți numite, niciodată interpolare (analizorul CA2254 forțează asta). `Log.Information("Task {TaskId} moved to column {ColumnId} by {UserId}", …)`.
-- **Destinații**: consolă (format lizibil în dev, JSON compact în prod — Docker le strânge) + **Seq** (`http://seq:5341`). Seq ține 30 de zile (setat din UI-ul Seq, retenție pe disc în volum).
+- **Destinații**: consolă (format lizibil în dev, JSON compact în prod — Docker le strânge) + **Seq** (`http://seq:5341`). Seq ține 30 de zile (setat o dată per volum, cu `scripts/seq-retention.sh`; retenția stă în volum).
 - **Enrichers**: `FromLogContext`, `WithEnvironmentName`, `WithMachineName`, plus proprii: `CorrelationId`, `UserId`, `RequestPath`.
 - **Request logging**: `app.UseSerilogRequestLogging()` — o linie per request cu metodă, path, status, durată. Înlocuiește logurile verbose ASP.NET.
 - **Niveluri**:
@@ -718,11 +752,18 @@ COPY src/Kanabol.Infrastructure/*.csproj src/Kanabol.Infrastructure/
 COPY src/Kanabol.Api/*.csproj src/Kanabol.Api/
 RUN dotnet restore src/Kanabol.Api/Kanabol.Api.csproj
 COPY src/ src/
-RUN dotnet publish src/Kanabol.Api/Kanabol.Api.csproj -c Release -o /app --no-restore
+# The analyzers run in the commit hooks, with the rules in the root .editorconfig. That file is
+# outside this build context, so here they would report rules the project has turned off.
+RUN dotnet publish src/Kanabol.Api/Kanabol.Api.csproj -c Release -o /app --no-restore -p:RunAnalyzers=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-RUN mkdir -p /data/attachments && chown -R app:app /data
+# The image has neither wget nor curl, and the healthcheck needs one of them.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends wget \
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /data/attachments \
+  && chown -R app:app /data
 USER app
 ENV ASPNETCORE_URLS=http://+:8080 \
     DOTNET_EnableDiagnostics=0
@@ -733,7 +774,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
 ENTRYPOINT ["dotnet", "Kanabol.Api.dll"]
 ```
 
-Restore separat de sursă → cache-ul Docker nu reface restore la fiecare schimbare de cod. Testele **nu** rulează în Dockerfile (rulează în hook); imaginea e doar runtime.
+Restore separat de sursă → cache-ul Docker nu reface restore la fiecare schimbare de cod. Testele **nu** rulează în Dockerfile (rulează în hook); imaginea e doar runtime. Tot în hook rulează și analizoarele: la publish sunt oprite, pentru că regulile lor stau în `.editorconfig` din rădăcină, în afara contextului de build. Imaginea `aspnet` n-are nici `wget`, nici `curl`, așa că `wget` se instalează pentru healthcheck.
 
 ### 13.2 `frontend/Dockerfile`
 
@@ -747,8 +788,47 @@ RUN npx ng build --configuration production
 
 FROM nginx:1.27-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx-app.conf /etc/nginx/kanabol-app.conf
 COPY --from=build /app/dist/kanabol/browser /usr/share/nginx/html
 EXPOSE 80
+```
+
+nginx are trei fișiere. Ce au comun dev și prod stă în `nginx-app.conf`, inclus din `nginx.conf` (dev) și din `nginx.prod.conf`, pe care `compose.prod.yaml` îl montează peste `nginx.conf`.
+
+`nginx-app.conf`:
+
+```nginx
+# What the development and production servers have in common. They include it from
+# nginx.conf and nginx.prod.conf.
+root /usr/share/nginx/html;
+index index.html;
+
+location /api/ {
+  proxy_pass http://api:8080;
+  # Without Host, a 201's Location would point to http://api:8080.
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $remote_addr;
+  # nginx allows 1 MB by default. Uploads go up to 25 MB, and the API is the one to refuse more.
+  client_max_body_size 30m;
+}
+location /hubs/ {
+  proxy_pass http://api:8080;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  # Here too: the API takes the client address from this header, so no request may bring its own.
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_read_timeout 100s;
+}
+location / { try_files $uri $uri/ /index.html; }
+# nginx doesn't know this extension, and would send it as a binary download.
+location = /manifest.webmanifest { default_type application/manifest+json; }
+
+gzip on;
+gzip_types text/css application/javascript application/json image/svg+xml;
+add_header X-Content-Type-Options nosniff;
+add_header X-Frame-Options DENY;
 ```
 
 `nginx.conf`:
@@ -756,22 +836,24 @@ EXPOSE 80
 ```nginx
 server {
   listen 80;
-  root /usr/share/nginx/html;
-  index index.html;
+  include /etc/nginx/kanabol-app.conf;
+}
+```
 
-  location /api/  { proxy_pass http://api:8080; proxy_set_header X-Forwarded-For $remote_addr; }
-  location /hubs/ {
-    proxy_pass http://api:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 100s;
-  }
-  location / { try_files $uri $uri/ /index.html; }
+`nginx.prod.conf`:
 
-  gzip on; gzip_types text/css application/javascript application/json image/svg+xml;
-  add_header X-Content-Type-Options nosniff;
-  add_header X-Frame-Options DENY;
+```nginx
+# compose.prod.yaml mounts this over nginx.conf. The certificates come from scripts/make-certs.sh.
+server {
+  listen 80;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl;
+  ssl_certificate /etc/nginx/certs/server.crt;
+  ssl_certificate_key /etc/nginx/certs/server.key;
+  include /etc/nginx/kanabol-app.conf;
 }
 ```
 
@@ -809,6 +891,8 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: Host=postgres;Database=kanabol;Username=kanabol;Password=${POSTGRES_PASSWORD}
       Jwt__Secret: ${JWT_SECRET}
+      # Needed only when the database is new: that first start creates the admin user.
+      Admin__InitialPassword: ${ADMIN_INITIAL_PASSWORD}
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
       Storage__Root: /data/attachments
       Database__MigrateOnStartup: "true"
@@ -827,48 +911,93 @@ volumes:
   attachments:
 ```
 
-`compose.override.yaml` (dev, încărcat automat de `docker compose up`): expune `postgres:5432`, `seq:5341` (UI pe `http://localhost:5341`), `api:8080`, `web:4200→80`. În dev obișnuit **nu** pornim `api` și `web` din Docker: rulăm `docker compose up postgres seq`, apoi `dotnet watch --launch-profile http` (API pe `http://localhost:5200`, profilul existent) și `ng serve` local (hot reload, debugger).
+`compose.override.yaml` (dev, încărcat automat de `docker compose up`):
+
+```yaml
+# Development settings, which docker compose loads by itself. Usually only the first two services
+# run here, with the API and Angular on the host: docker compose up postgres seq
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+
+  seq:
+    # Inside the container, 80 serves the UI and takes logs, while 5341 only takes logs.
+    # So both the UI and the local API's logs use localhost:5341.
+    ports: ["127.0.0.1:5341:80"]
+
+  api:
+    ports: ["127.0.0.1:8080:8080"]
+
+  web:
+    ports: ["127.0.0.1:4200:80"]
+```
+
+Porturile sunt legate de `127.0.0.1`, deci rămân pe mașina dezvoltatorului. În dev obișnuit **nu** pornim `api` și `web` din Docker: rulăm `docker compose up postgres seq`, apoi `dotnet watch --launch-profile http` (API pe `http://localhost:5200`, profilul existent) și `ng serve` local (hot reload, debugger).
 
 `frontend/proxy.conf.json` trimite `/api` și `/hubs` către API-ul local, deci SPA-ul și API-ul sunt pe același origin și în dev — **nu avem CORS nicăieri**:
 
 ```json
 {
-  "/api":  { "target": "http://localhost:5200", "secure": false },
+  "/api": { "target": "http://localhost:5200", "secure": false },
   "/hubs": { "target": "http://localhost:5200", "secure": false, "ws": true }
 }
 ```
 
 Porturi, pe scurt: API local `5200`, API în container `8080`, Angular dev `4200`, nginx `80/443`, Seq `5341`, Postgres `5432`.
 
-`compose.prod.yaml`: `docker compose -f compose.yaml -f compose.prod.yaml up -d` — expune `web:443` (și `80` doar ca redirect către HTTPS), montează certificatele (`./certs:/etc/nginx/certs:ro`), `restart: unless-stopped`, fără build (imagini tag-uite `kanabol-api:v0.1.0`).
+`compose.prod.yaml`, pornit cu `docker compose -f compose.yaml -f compose.prod.yaml up -d`:
+
+```yaml
+# Production: docker compose -f compose.yaml -f compose.prod.yaml up -d
+# It runs tagged images. KANABOL_VERSION picks another tag than the default one.
+services:
+  postgres:
+    restart: unless-stopped
+
+  seq:
+    restart: unless-stopped
+
+  api:
+    build: !reset null
+    image: kanabol-api:${KANABOL_VERSION:-v0.1.0}
+    restart: unless-stopped
+
+  web:
+    build: !reset null
+    image: kanabol-web:${KANABOL_VERSION:-v0.1.0}
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+```
+
+Expune doar `web`, pe 443 și pe 80 ca redirect către HTTPS, fără build, cu imagini tag-uite. `KANABOL_VERSION` alege alt tag decât `v0.1.0`.
+
+Seq își păstrează retenția în volum, deci fiecare volum nou are nevoie o dată de `SEQ_ADMIN_PASSWORD=<parola> scripts/seq-retention.sh` (§8.1).
 
 ### 13.4 TLS self-signed
 
 Fără certificat de la IT: generăm o **CA proprie** o singură dată și semnăm cu ea certificatul serverului. Colegii importă doar CA-ul (un singur fișier, o singură dată); certificatul serverului se poate reînnoi fără să-i deranjăm.
 
 ```sh
-# scripts/make-certs.sh — rulat o dată, pe server; rezultatul în certs/ (în .gitignore)
-openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout certs/ca.key -out certs/ca.crt -subj "/CN=Kanabol Internal CA"
-openssl req -newkey rsa:2048 -nodes -keyout certs/server.key -out certs/server.csr \
-  -subj "/CN=kanabol.local"
-printf "subjectAltName=DNS:kanabol.local,DNS:kanabol,IP:10.0.0.10\n" > certs/san.ext   # hostname/IP-ul real
-openssl x509 -req -in certs/server.csr -CA certs/ca.crt -CAkey certs/ca.key -CAcreateserial \
-  -out certs/server.crt -days 825 -sha256 -extfile certs/san.ext
+scripts/make-certs.sh kanabol.local kanabol 10.0.0.10   # numele și IP-urile reale ale serverului
 ```
 
-- `ca.crt` se distribuie colegilor (Windows: dublu-clic → „Trusted Root Certification Authorities”; Chrome/Edge îl preiau din Windows, Firefox are propriul store, sau `security.enterprise_roots.enabled`). `ca.key` nu părăsește serverul.
-- `nginx.conf` (prod) primește blocul `listen 443 ssl; ssl_certificate /etc/nginx/certs/server.crt; ssl_certificate_key /etc/nginx/certs/server.key;` + `server { listen 80; return 301 https://$host$request_uri; }`.
-- Cu HTTPS valid în browser, cookie-ul de refresh rămâne `Secure; SameSite=Strict` ca în spec; nu facem excepții pentru HTTP.
+Scriptul rulează pe server și scrie în `certs/` (în `.gitignore`). Prima rulare creează CA-ul, valabil 10 ani. Rulările următoare păstrează CA-ul și refac doar certificatul serverului, valabil 825 de zile, deci colegii nu mai importă nimic.
+
+- `ca.crt` se distribuie colegilor (`docs/tls.md` spune cum se importă pe Windows și în Firefox). `ca.key` nu părăsește serverul.
+- `nginx.prod.conf` (§13.2) are blocul `listen 443 ssl` și redirectul de pe 80.
+- Cu HTTPS valid în browser, cookie-ul de refresh rămâne `Secure; SameSite=Strict` ca în spec; nu facem excepții pentru HTTP. Browserele bazate pe Chromium îl acceptă și pe `http://localhost`, deci merge și în dev.
 - Dacă IT-ul oferă mai târziu un certificat, se înlocuiesc doar `server.crt`/`server.key` — nimic în cod.
 
-`.env.example` documentează `POSTGRES_PASSWORD`, `JWT_SECRET`, `SEQ_ADMIN_HASH`, `ADMIN_INITIAL_PASSWORD`. `.env` e în `.gitignore`.
+`.env.example` documentează `POSTGRES_PASSWORD`, `JWT_SECRET`, `SEQ_ADMIN_HASH`, `ADMIN_INITIAL_PASSWORD` și, opțional, `KANABOL_VERSION`. `.env` e în `.gitignore`.
 
 ---
 
 ## 14. Pipeline local la commit (fără runner)
 
-Cerință: testele rulează **mereu înainte de un commit pe `master`**, pe mașina dezvoltatorului, fără CI extern. Pe feature branches rulăm doar verificări rapide ca să nu încetinim munca.
+Cerință: testele rulează **mereu înainte de un commit pe `main`**, pe mașina dezvoltatorului, fără CI extern. Pe celelalte branch-uri, inclusiv `dev`, rulăm doar verificări rapide ca să nu încetinim munca.
 
 ### 14.1 Tooling
 
@@ -878,30 +1007,33 @@ Cerință: testele rulează **mereu înainte de un commit pe `master`**, pe maș
 {
   "name": "kanabol-repo",
   "private": true,
-  "scripts": { "prepare": "husky" },
+  "scripts": {
+    "prepare": "husky"
+  },
   "devDependencies": {
+    "@commitlint/cli": "^19",
+    "@commitlint/config-conventional": "^19",
     "husky": "^9",
     "lint-staged": "^15",
-    "@commitlint/cli": "^19",
-    "@commitlint/config-conventional": "^19"
+    "prettier": "^3.8.1"
   }
 }
 ```
 
-`npm install` la rădăcină (rulat de `scripts/setup.sh`) instalează hook-urile din `.husky/`. Hook-urile sunt în repo, deci orice clonă le primește.
+`npm install` la rădăcină (rulat de `scripts/setup.sh`) instalează hook-urile din `.husky/`. Hook-urile sunt în repo, deci orice clonă le primește. `prettier` e aici pentru Markdown și YAML din rădăcină, iar `.prettierignore` îl ține departe de `docs/SPEC.md` și de copiile din vault (`docs/UI_UX_SPEC.md`, `docs/adr/`).
 
 ### 14.2 Hook-uri
 
 ```sh
 # .husky/pre-commit
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh" 2>/dev/null || true
 exec scripts/verify.sh commit
 ```
 
 ```sh
-# .husky/pre-merge-commit  (git merge --no-ff creează un commit, dar NU apelează pre-commit)
+# .husky/pre-merge-commit
 #!/bin/sh
+# git merge --no-ff creates a commit, but doesn't call pre-commit.
 exec scripts/verify.sh merge
 ```
 
@@ -912,10 +1044,16 @@ npx --no -- commitlint --edit "$1"
 ```
 
 ```sh
-# .husky/pre-push  (plasă de siguranță: dacă cineva a sărit hook-ul cu --no-verify)
+# .husky/pre-push
 #!/bin/sh
-while read local_ref local_sha remote_ref remote_sha; do
-  case "$remote_ref" in refs/heads/master) exec scripts/test-all.sh ;; esac
+# The safety net for a commit made with --no-verify.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main)
+      scripts/require-docker.sh || exit 1
+      exec scripts/test-all.sh
+      ;;
+  esac
 done
 ```
 
@@ -923,16 +1061,25 @@ done
 
 ```sh
 #!/bin/sh
+# What the commit and merge hooks run (docs/SPEC.md section 14.3): the full suite on main, fast checks elsewhere.
+# Usage: scripts/verify.sh [commit|merge]
+
 set -e
 cd "$(git rev-parse --show-toplevel)"
 branch=$(git rev-parse --abbrev-ref HEAD)
 mode=${1:-commit}
 
-echo "▶ lint-staged"
-npx --no -- lint-staged            # eslint/prettier/dotnet format doar pe fișierele staged
+if [ "$branch" = "main" ]; then
+  scripts/require-docker.sh
+fi
 
-if [ "$branch" = "master" ]; then
-  echo "▶ master: full test suite"
+echo "▶ $mode: lint-staged"
+# eslint, prettier and dotnet format on the staged files only. dotnet format ignores absolute paths
+# without saying so, and lint-staged sends those unless told otherwise.
+npx --no -- lint-staged --relative
+
+if [ "$branch" = "main" ]; then
+  echo "▶ main: full test suite"
   exec scripts/test-all.sh
 fi
 
@@ -945,6 +1092,8 @@ if git diff --cached --name-only | grep -q '^frontend/'; then
   (cd frontend && npx ng test --no-watch)
 fi
 ```
+
+`scripts/require-docker.sh` oprește cu un mesaj clar când Docker e oprit. Altfel suita completă ar raporta doar o listă de teste picate, fără să pomenească de Docker.
 
 ### 14.4 `scripts/test-all.sh`
 
@@ -964,31 +1113,63 @@ echo "✔ all green"
 
 ### 14.5 `.lintstagedrc.json`
 
+În rădăcină:
+
 ```json
 {
-  "frontend/**/*.{ts,html}": ["prettier --write", "eslint --fix --max-warnings=0"],
-  "frontend/**/*.{scss,json}": ["prettier --write"],
   "backend/**/*.cs": ["dotnet format backend/Kanabol.sln --include"],
   "*.{md,yaml,yml}": ["prettier --write"]
 }
 ```
 
+`frontend/.lintstagedrc.json`, separat, ca eslint și prettier să ruleze din `frontend/`, cu configurațiile de acolo:
+
+```json
+{
+  "*.{ts,html}": ["prettier --write", "eslint --fix --max-warnings=0"],
+  "*.{scss,json,md,yaml,yml}": ["prettier --write"]
+}
+```
+
 ### 14.6 Reguli de git care fac hook-urile de încredere
 
-`scripts/setup.sh` setează, pe lângă `npm install`:
+`scripts/setup.sh`, rulat după clone (se poate rula din nou):
 
 ```sh
-git config branch.master.mergeOptions "--no-ff"   # merge-ul în master creează mereu un commit → rulează pre-merge-commit
-git config core.hooksPath .husky                   # husky o face oricum; explicit nu strică
-git config commit.gpgsign false                    # nu blocăm pe semnături în v1
+#!/bin/sh
+# Prepares a clone: the packages, the hooks and the git settings they rely on (docs/SPEC.md section 14.6).
+# Usage: scripts/setup.sh    (safe to run again)
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+# The root package's prepare script makes git use the hooks in .husky/.
+npm install --no-audit --no-fund
+(cd frontend && npm install --no-audit --no-fund)
+dotnet tool restore
+
+# A fast-forward runs no hook, so a merge into main always has to create a commit.
+git config branch.main.mergeOptions "--no-ff"
+git config commit.gpgsign false
+
+echo "Ready. The hooks are on: docs/SPEC.md section 14 says what they run."
 ```
 
 Observații:
-- **Fast-forward nu rulează niciun hook** — de aceea forțăm `--no-ff` pe `master`. Merge commit-ul trece prin `pre-merge-commit` → `verify.sh` → suita completă.
-- Testele de integrare au nevoie de **Docker Desktop pornit** (Testcontainers). Dacă nu e pornit, `test-all.sh` eșuează cu mesaj clar și commit-ul e refuzat — corect, nu sărim testele.
-- `git commit --no-verify` rămâne posibil (git nu poate interzice); `pre-push` pe `master` e plasa de siguranță.
-- Durată estimată pe `master`: build ~15 s + container Postgres ~8 s + teste; țintim < 90 s total. Pe feature branches < 20 s.
+- **Fast-forward nu rulează niciun hook** — de aceea forțăm `--no-ff` pe `main`. Merge commit-ul trece prin `pre-merge-commit` → `verify.sh` → suita completă.
+- `core.hooksPath` rămâne `.husky/_`, cum îl setează husky 9; nu-l suprascriem.
+- Testele de integrare au nevoie de **Docker Desktop pornit** (Testcontainers). Dacă nu e pornit, `scripts/require-docker.sh` refuză commit-ul pe `main` cu un mesaj clar — corect, nu sărim testele.
+- `git commit --no-verify` rămâne posibil (git nu poate interzice); `pre-push` pe `main` e plasa de siguranță.
+- Durată estimată pe `main`: build ~15 s + container Postgres ~8 s + teste; țintim < 90 s total. Pe feature branches < 20 s.
 - Pe Windows, hook-urile rulează prin `sh` din Git for Windows; scripturile sunt POSIX sh (fără bash-isme) și au `eol=lf` prin `.gitattributes`.
+
+### 14.7 Verificări de acceptanță
+
+Fiecare grup din `Tasks.md` are verificările lui în `scripts/check-*.sh`. Nu rulează în hook-uri: se rulează toate pe o clonă curată, după `scripts/setup.sh`, înainte ca un grup să fie considerat gata, pentru că repo-ul n-are CI.
+
+- `check-tests.sh`, `check-auth.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
+- `check-backend.sh` și `check-auth.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
+- `check-docker.sh 5` are nevoie de porturile 5432, 5341 și 5200 libere.
 
 Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-all.sh` e exact ce rulează și acolo — fără duplicare de logică.
 
@@ -997,7 +1178,7 @@ Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-a
 ## 15. Configurare și secrete
 
 - `appsettings.json` (valori comune) + `appsettings.Development.json` (loguri verbose, Swagger). Fără CORS: în dev `proxy.conf.json`, în prod nginx — același origin peste tot.
-- Secrete în dev: `dotnet user-secrets` (`Jwt:Secret`, `ConnectionStrings:Default`). Override-uri locale **nesecrete** pot sta în `appsettings.Development.local.json` (deja în `.gitignore`), încărcat explicit în `Program.cs` după cel standard. În Docker/prod: variabile de mediu (`__` ca separator).
+- Secrete în dev: `dotnet user-secrets` (`Jwt:Secret`, `ConnectionStrings:Default`, `Admin:InitialPassword`). Override-uri locale **nesecrete** pot sta în `appsettings.Development.local.json` (deja în `.gitignore`), încărcat explicit în `Program.cs` după cel standard. În Docker/prod: variabile de mediu (`__` ca separator).
 - Toate opțiunile tipate (`JwtOptions` etc.) cu `[Required]` și `ValidateOnStart()` → aplicația refuză să pornească cu config incompletă, nu eșuează la primul request.
 - Frontend: `environment.ts` conține doar `apiBaseUrl` (`/api`) și `hubsBaseUrl` (`/hubs`); același build pentru toate mediile, nginx face restul.
 
@@ -1027,7 +1208,7 @@ Pe lângă cele două existente (`RBAC pe două niveluri`, `Un singur repo`), de
 3. Angular Signals + servicii, fără NgRx; Angular Material
 4. Serilog + Seq pentru loguri; istoricul de task-uri e în DB, nu în loguri
 5. Postgres real în teste (Testcontainers), nu InMemory
-6. Husky + lint-staged; suita completă la commit/merge pe master, `--no-ff` obligatoriu
+6. Husky + lint-staged; suita completă la commit/merge pe `main`, `--no-ff` obligatoriu
 7. SignalR din v1, alimentat de domain events
 8. Atașamente pe disc în spatele `IFileStorage`
 9. Fără MediatR / AutoMapper / Moq / Karma (motivele din §2)
@@ -1045,7 +1226,7 @@ Format recomandat pentru fiecare: `Decizie / Motiv / Alternative / Legate`, ca c
 
 Toate întrebările din v1.0 au fost închise pe 2026-11-04 (vezi §0 și §17). Rămân pentru momentul implementării, fără impact pe arhitectură:
 
-- Hostname-ul/IP-ul intern al serverului (intră în `san.ext` din §13.4).
+- Hostname-ul/IP-ul intern al serverului (le primește `scripts/make-certs.sh`, §13.4).
 - Intervalul exact al `OverdueTasksWorker` (propus 15 min) și dacă notificarea de întârziere se repetă zilnic sau o singură dată.
 - Lista de extensii permise la atașamente.
 
@@ -1058,6 +1239,6 @@ Toate întrebările din v1.0 au fost închise pe 2026-11-04 (vezi §0 și §17).
 3. **Backend + DB**: cele 4 proiecte, `AppDbContext`, `Entity`/`AuditableEntity`, entitățile din §5.1, prima migrare, Serilog + correlation id, health endpoint, Swagger.
 4. **Teste**: fixture Testcontainers, un test de domeniu și un test de handler ca șablon; Vitest cu un spec de store.
 5. **Docker**: Dockerfiles + compose; `docker compose up postgres seq` funcțional, Seq primește loguri.
-6. **Hook-uri**: Husky, `verify.sh`, `test-all.sh`, `--no-ff`; primul commit pe `master` trece prin suita completă.
+6. **Hook-uri**: Husky, `verify.sh`, `test-all.sh`, `--no-ff`; primul commit pe `main` trece prin suita completă.
 
 Apoi `Next` din `Tasks.md`, în ordinea existentă (auth → RBAC → proiecte → task-uri → kanban → …).

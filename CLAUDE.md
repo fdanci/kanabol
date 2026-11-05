@@ -64,3 +64,5 @@ A summary of `docs/SPEC.md` §7, which has the full tables and examples.
 Never mention Claude in commit messages or PRs, and never add a `Co-Authored-By` line or any other AI attribution.
 
 After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the full test suite on `main`, which needs Docker Desktop running, and only fast checks on other branches (`docs/SPEC.md` §14).
+
+Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`: run them all on a fresh clone before calling a group done (`docs/SPEC.md` §14.7).
