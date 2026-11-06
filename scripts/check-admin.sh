@@ -1,10 +1,14 @@
 #!/bin/sh
 # Acceptance checks for the administration of users and roles (group 10 in the project's Tasks.md).
-# The specs hold the rules, so these checks run them, and add what they can't see: the routes, the
-# texts as extracted for translation, and the production build.
+# The specs and tests hold the rules, so these checks run them, and add what they can't see: the
+# routes, the texts as extracted for translation, the production build, and for the browser's logs
+# the real API process in Production on a real PostgreSQL, with its log.
 #
 # Usage: scripts/check-admin.sh [task-number...]    (no arguments: every task)
-# Exits non-zero if any check fails. Run scripts/setup.sh first, which installs the packages.
+# Exits non-zero if any check fails. Run scripts/setup.sh first, which installs the packages. Task 3
+# also needs Docker running, for its tests, and a PostgreSQL whose user may create databases, with its
+# connection string in KANABOL_CHECK_DB or else in the API's user secrets (ConnectionStrings:Default).
+# It works in a database of its own and drops it.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -15,6 +19,8 @@ web=frontend
 app=$web/src/app
 
 cleanup() {
+  stop_api
+  drop_database
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -111,6 +117,170 @@ lazy_behind() { # lazy_behind <path> <PERMISSIONS key> <routes file, from app/>
   "
 }
 
+# ---- The real API, for 10.3: in Production, on a database of its own, dropped at the end.
+
+check_db="kanabol_admin_check_$"
+api_dir=backend/src/Kanabol.Api
+api_port=5284
+API_URL="http://127.0.0.1:$api_port"
+api_log="$scratch/api.log"
+api_pid=
+admin_connection=
+admin_email=admin@kanabol.local
+admin_password=only-for-these-checks
+new_admin_password='alta parola pentru verificari'
+
+is() { # is <expected> <actual>
+  [ "$1" = "$2" ] || {
+    echo "expected '$1', got '$2'"
+    return 1
+  }
+}
+
+docker_is_running() {
+  docker_cli=$(command -v docker || echo '/c/Program Files/Docker/Docker/resources/bin/docker.exe')
+  "$docker_cli" info --format '{{.ServerVersion}}'
+}
+
+tests_pass() { # tests_pass <project> <filter> <minimum passed>
+  log="$scratch/tests-$1.log"
+  dotnet test "backend/tests/$1/$1.csproj" --nologo --filter "$2" >"$log" 2>&1 || {
+    tail -n 25 "$log"
+    return 1
+  }
+  passed=$(sed -n 's/.*Passed: *\([0-9]*\),.*/\1/p' "$log" | tail -n 1)
+  [ "${passed:-0}" -ge "$3" ] || {
+    echo "only ${passed:-0} tests passed, expected at least $3"
+    return 1
+  }
+}
+
+# Run a statement and print its rows, with columns separated by |. Built once, on first use.
+sql() { # sql <connection> <statement>
+  sql_dll="$scratch/sql/bin/Debug/net10.0/sql.dll"
+  if [ ! -f "$sql_dll" ]; then
+    mkdir -p "$scratch/sql"
+    cat >"$scratch/sql/sql.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.*" />
+  </ItemGroup>
+</Project>
+XML
+    cat >"$scratch/sql/Program.cs" <<'CS'
+await using var connection = new Npgsql.NpgsqlConnection(args[0]);
+await connection.OpenAsync();
+await using var command = new Npgsql.NpgsqlCommand(args[1], connection);
+await using var reader = await command.ExecuteReaderAsync();
+while (await reader.ReadAsync())
+{
+    var values = Enumerable.Range(0, reader.FieldCount).Select(i => reader.GetValue(i)?.ToString());
+    Console.WriteLine(string.Join('|', values));
+}
+CS
+    dotnet build "$scratch/sql/sql.csproj" --nologo -v q >"$scratch/sql/build.log" 2>&1 || {
+      cat "$scratch/sql/build.log" >&2
+      return 1
+    }
+  fi
+  dotnet "$sql_dll" "$1" "$2"
+}
+
+need_database() {
+  [ -n "$admin_connection" ] && return 0
+  base_connection=${KANABOL_CHECK_DB:-$(dotnet user-secrets list --id kanabol-api 2>/dev/null |
+    tr -d '\r' | sed -n 's/^ConnectionStrings:Default = //p')}
+  if [ -z "$base_connection" ]; then
+    echo "No database: set KANABOL_CHECK_DB or the API's ConnectionStrings:Default user secret."
+    return 1
+  fi
+  admin_connection=$(printf '%s' "$base_connection" | sed 's/Database=[^;]*/Database=postgres/')
+  sql "$admin_connection" "CREATE DATABASE $check_db"
+}
+
+connection_to() { # connection_to <database>
+  printf '%s' "$base_connection" | sed "s/Database=[^;]*/Database=$1/"
+}
+
+api_is_up() {
+  [ -n "$api_pid" ] && return 0
+  need_database || return 1
+  dotnet build "$api_dir/Kanabol.Api.csproj" --nologo -v q || return 1
+  (
+    cd "$api_dir" || exit 1
+    ASPNETCORE_ENVIRONMENT=Production \
+      ConnectionStrings__Default=$(connection_to "$check_db") \
+      Jwt__Secret=only-for-these-checks-and-long-enough-to-pass \
+      Storage__Root="$scratch/attachments" \
+      Admin__InitialPassword=$admin_password \
+      exec dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls "$API_URL"
+  ) >"$api_log" 2>&1 &
+  api_pid=$!
+
+  attempts=0
+  until curl -s -o /dev/null "$API_URL/health"; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 120 ] || ! kill -0 "$api_pid" 2>/dev/null; then
+      api_pid=
+      cat "$api_log"
+      return 1
+    fi
+    sleep 0.5
+  done
+}
+
+stop_api() {
+  [ -n "$api_pid" ] || return 0
+  kill "$api_pid" 2>/dev/null
+  wait "$api_pid" 2>/dev/null
+  api_pid=
+}
+
+drop_database() {
+  [ -n "$admin_connection" ] || return 0
+  sql "$admin_connection" "DROP DATABASE IF EXISTS $check_db WITH (FORCE)" >/dev/null
+}
+
+send() { # send <method> <path> [curl arguments...]: leaves the answer in the scratch folder, prints the status
+  method=$1
+  path=$2
+  shift 2
+  curl -sS --max-time 30 -o "$scratch/body" -w '%{http_code}' -X "$method" "$@" "$API_URL$path"
+}
+
+as() { # as <token> <method> <path> <JSON body> [curl arguments...]
+  token=$1
+  method=$2
+  path=$3
+  body=$4
+  shift 4
+  send "$method" "$path" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "$body" "$@"
+}
+
+body_field() { # body_field <name>: the value of a text field in the last answer
+  sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$scratch/body"
+}
+
+admin_is_ready() {
+  [ -n "${admin_token:-}" ] && return 0
+  api_is_up || return 1
+  is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.84.0.1' \
+    -d "{\"email\":\"$admin_email\",\"password\":\"$admin_password\"}")" || return 1
+  first_token=$(body_field accessToken)
+  is 200 "$(as "$first_token" POST /api/auth/change-password \
+    "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"$new_admin_password\"}")" || {
+    cat "$scratch/body"
+    return 1
+  }
+  admin_token=$(body_field accessToken)
+  [ -n "$admin_token" ]
+}
+
 # ---- 10.1
 
 task_1() {
@@ -153,8 +323,68 @@ task_2() {
   check "a deactivation says what follows from it" messages_have 'Rămâne în istoric și îl poți activa oricând.'
 }
 
+# ---- 10.3
+
+batch_marker="check-admin-$"
+
+anonymous_batch_is_refused() {
+  api_is_up || return 1
+  is 401 "$(send POST /api/client-logs -H 'Content-Type: application/json' \
+    -d '{"entries":[{"level":"error","message":"no session"}]}')"
+}
+
+batch_is_taken() {
+  admin_is_ready || return 1
+  is 204 "$(as "$admin_token" POST /api/client-logs \
+    "{\"entries\":[{\"level\":\"error\",\"message\":\"$batch_marker\",\"url\":\"https://kanabol.local/users\",\"correlationId\":\"req-$batch_marker\"}],\"dropped\":2}" \
+    -A 'check-admin browser')" || {
+    cat "$scratch/body"
+    return 1
+  }
+}
+
+batch_is_in_the_log() {
+  sleep 1
+  grep -F "$batch_marker" "$api_log" | grep -F "req-$batch_marker" | grep -F 'check-admin browser' |
+    grep -qF '"Error"' || {
+    echo "no error line with the message, the request's correlation id and the user agent:"
+    grep -F "$batch_marker" "$api_log" | head -n 3
+    return 1
+  }
+}
+
+drops_are_in_the_log() {
+  grep -F 'dropped' "$api_log" | grep -qF '"DroppedCount":2'
+}
+
+big_batch_is_refused() {
+  admin_is_ready || return 1
+  entries=$(node -e "console.log(JSON.stringify(Array.from({ length: 11 }, () => ({ level: 'warn', message: 'x' }))))")
+  is 400 "$(as "$admin_token" POST /api/client-logs "{\"entries\":$entries}")"
+}
+
+logger_sends_in_production() {
+  in_file 'inject(Injector)' "$app/core/logging/logger.ts" && in_file '.get(ClientLogs).add(' "$app/core/logging/logger.ts"
+}
+
+task_3() {
+  echo "10.3 The browser's warnings and errors in the API's logs"
+  check "Docker is running" docker_is_running
+  check "the controller is tracked" tracked backend/src/Kanabol.Api/Controllers/ClientLogsController.cs
+  check "core/logging/client-logs.ts is tracked" tracked "$app/core/logging/client-logs.ts"
+  check "the endpoint's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ClientLogs' 10
+  check "the specs of the Logger and of ClientLogs pass" specs_pass "src/app/core/logging/*.spec.ts" 15
+  check "the Logger hands its warnings and errors to ClientLogs" logger_sends_in_production
+  check "the build sends them to /client-logs" bundle_has '/client-logs'
+  check "the real API refuses a batch without a session" anonymous_batch_is_refused
+  check "and takes one from a signed-in user" batch_is_taken
+  check "whose error it logs with the request's correlation id and the user agent" batch_is_in_the_log
+  check "and how many entries the browser dropped" drops_are_in_the_log
+  check "a batch of more than 10 entries is refused" big_batch_is_refused
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do
