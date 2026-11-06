@@ -535,11 +535,11 @@ archived_ones_only_when_asked() {
 tasks_are_counted() {
   todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND position = 0")
   done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND is_done")
-  in_db "INSERT INTO task_items (id, project_id, column_id, title, priority, position, due_date, created_at) VALUES
-    (gen_random_uuid(), '$LST_id', '$todo', 'Deschis', 'Medium', 0, NULL, now()),
-    (gen_random_uuid(), '$LST_id', '$todo', 'Intarziat', 'High', 1, now() - interval '1 day', now()),
-    (gen_random_uuid(), '$LST_id', '$done_column', 'Gata la timp', 'Low', 0, now() - interval '1 day', now()),
-    (gen_random_uuid(), '$LST_id', '$todo', 'Arhivat', 'Low', 2, now() - interval '1 day', now())" >/dev/null || return 1
+  in_db "INSERT INTO task_items (id, project_id, number, column_id, title, priority, position, due_date, created_at) VALUES
+    (gen_random_uuid(), '$LST_id', 1, '$todo', 'Deschis', 'Medium', 0, NULL, now()),
+    (gen_random_uuid(), '$LST_id', 2, '$todo', 'Intarziat', 'High', 1, now() - interval '1 day', now()),
+    (gen_random_uuid(), '$LST_id', 3, '$done_column', 'Gata la timp', 'Low', 0, now() - interval '1 day', now()),
+    (gen_random_uuid(), '$LST_id', 4, '$todo', 'Arhivat', 'Low', 2, now() - interval '1 day', now())" >/dev/null || return 1
   in_db "UPDATE task_items SET archived_at = now() WHERE title = 'Arhivat'" >/dev/null || return 1
   status_is 200 "$(as "$dan_token" GET /api/projects)" || return 1
   is 2 "$(number_field openTaskCount)" || return 1
@@ -735,7 +735,7 @@ task_3() {
   check "shared/ui/segmented-nav.ts is tracked" tracked "$app/shared/ui/segmented-nav.ts"
   check "shared/ui/field.ts is tracked, for every sheet" tracked "$app/shared/ui/field.ts"
   check "shared/pipes/relative-time-pipe.ts is tracked" tracked "$app/shared/pipes/relative-time-pipe.ts"
-  check "the specs of the projects pass" specs_pass "src/app/features/projects/*.spec.ts" 59
+  check "the specs of the projects pass" specs_pass "src/app/features/projects/*.spec.ts" 63
   check "times read as the UI spec writes them" specs_pass src/app/shared/pipes/relative-time-pipe.spec.ts 5
   check "the users pages still pass, with the shared field" specs_pass "src/app/features/users/*.spec.ts" 23
   check "the shell still opens its pages" specs_pass src/app/core/layout/layout.spec.ts 15
@@ -823,28 +823,40 @@ the_owner_cannot_leave_alone() {
   code_is 409 Project.LastOwner "$(as "$eva_token" PUT "/api/projects/$eva_project/members/$eva_id" '{"role":"Member"}')"
 }
 
-# Until the deactivated owner is settled (Tasks.md, group 11, in Blocked): deactivating the only owner
-# isn't refused, their token still valid opens nothing, and projects.manage hands the project on.
+# A deactivated owner (SPEC section 4.4, decided 2026-11-06): deactivating the only owner isn't refused,
+# their token still valid opens nothing, and projects.manage hands the project on. Always an owner means
+# an active one, so whoever owns it beside a deactivated owner can't leave it or step down.
 a_deactivated_owner_is_shut_out() {
   status_is 200 "$(as "$admin_token" POST "/api/users/$eva_id/deactivate")" || return 1
   code_is 403 Project.MemberRequired "$(as "$eva_token" GET "/api/projects/$eva_project")" || return 1
   is "Owner|False" "$(in_db "SELECT m.role, u.is_active FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = '$eva_project' AND m.user_id = '$eva_id'")"
 }
 
-manage_hands_the_project_on() {
+manage_makes_a_new_owner() {
   code_is 409 Project.LastOwner "$(as "$admin_token" DELETE "/api/projects/$eva_project/members/$eva_id")" || return 1
-  status_is 200 "$(as "$admin_token" PUT "/api/projects/$eva_project/members/$dan_id" '{"role":"Owner"}')" || return 1
+  code_is 409 Project.LastOwner "$(as "$admin_token" PUT "/api/projects/$eva_project/members/$eva_id" '{"role":"Member"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/projects/$eva_project/members/$dan_id" '{"role":"Owner"}')"
+}
+
+the_owner_beside_a_deactivated_one_stays() {
+  code_is 409 Project.LastOwner "$(as "$dan_token" DELETE "/api/projects/$eva_project/members/$dan_id")" || return 1
+  code_is 409 Project.LastOwner "$(as "$dan_token" PUT "/api/projects/$eva_project/members/$dan_id" '{"role":"Member"}')" || return 1
+  is "Owner|True
+Owner|False" "$(in_db "SELECT m.role, u.is_active FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = '$eva_project' ORDER BY u.is_active DESC")"
+}
+
+manage_removes_the_deactivated_owner() {
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$eva_project/members/$eva_id")" || return 1
   is "Owner|dan@example.com" "$(in_db "SELECT m.role, u.email FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = '$eva_project'")"
 }
 
 task_4() {
-  echo "11.4 Access by role, and always an owner"
+  echo "11.4 Access by role, and always an active owner"
   check "Docker is running" docker_is_running
   check "every endpoint answers each kind of caller as its role allows" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ProjectAccessMatrixTests' 54
   check "the access rules pass, member, non-member and view_all" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectAccessTests|FullyQualifiedName~ProjectQueryHandlerTests|FullyQualifiedName~GetProjectsQueryHandlerTests' 50
-  check "the last owner stays, also when two requests race" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectMemberCommandHandlerTests|FullyQualifiedName~ConcurrentMemberChangesTests' 27
-  check "and in the entity" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectTests' 34
+  check "the last owner stays, also when two requests race" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectMemberCommandHandlerTests|FullyQualifiedName~ConcurrentMemberChangesTests' 33
+  check "and in the entity" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectTests' 42
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
   check "a user without permissions signs in" dan_is_ready
   check "the admin's id is known" admin_id_is_known
@@ -857,7 +869,9 @@ task_4() {
   check "projects.manage changes a project it isn't in" manage_changes_a_project_it_is_not_in
   check "the only owner can't leave or step down" the_owner_cannot_leave_alone
   check "a deactivated owner's token opens nothing, and they stay owner" a_deactivated_owner_is_shut_out
-  check "projects.manage hands the project on, and only then removes them" manage_hands_the_project_on
+  check "projects.manage can't remove or demote them, and makes a new owner first" manage_makes_a_new_owner
+  check "the new owner can't leave or step down beside the deactivated one" the_owner_beside_a_deactivated_one_stays
+  check "projects.manage then removes the deactivated owner" manage_removes_the_deactivated_owner
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 

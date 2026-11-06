@@ -38,9 +38,20 @@ export class ProjectStore {
   readonly archived = computed(() => this.current()?.archivedAt != null);
   /** Changes need an owner, or projects.manage, and an open project. */
   readonly canChange = computed(() => (this.current()?.canManage ?? false) && !this.archived());
-  readonly ownerCount = computed(
-    () => this.memberList().filter((member) => member.role === 'Owner').length,
+  /** A deactivated owner can't manage the project, so only the active ones count (SPEC section 4.4). */
+  private readonly activeOwnerIds = computed(
+    () =>
+      new Set(
+        this.memberList()
+          .filter((member) => member.role === 'Owner' && member.isActive)
+          .map((member) => member.userId),
+      ),
   );
+
+  /** Whether an active owner stays once this user is no longer one: the API refuses the change otherwise. */
+  keepsAnActiveOwnerWithout(userId: string): boolean {
+    return [...this.activeOwnerIds()].some((ownerId) => ownerId !== userId);
+  }
 
   /** Only the last project asked for lands, however the answers arrive. */
   async load(id: string): Promise<void> {

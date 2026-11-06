@@ -33,6 +33,8 @@ import { SidebarStore } from './sidebar-store';
         <main id="main" tabindex="-1">
           <router-outlet />
         </main>
+        <!-- The task panel opens over the page, from its own outlet (shared/task-panel.ts). -->
+        <router-outlet name="panel" />
       </mat-sidenav-content>
     </mat-sidenav-container>
   `,

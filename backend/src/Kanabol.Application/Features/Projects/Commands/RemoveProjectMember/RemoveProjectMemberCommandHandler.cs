@@ -1,3 +1,4 @@
+using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Domain.Projects;
@@ -5,8 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Application.Features.Projects.Commands.RemoveProjectMember;
 
-/// <summary>Project.RemoveMember refuses to leave the project without an owner (SPEC section 4.4).</summary>
+/// <summary>Project.RemoveMember refuses to leave the project without an active owner (SPEC section 4.4).</summary>
 public sealed class RemoveProjectMemberCommandHandler(
+    IAppDbContext db,
     ProjectChanges changes,
     ILogger<RemoveProjectMemberCommandHandler> logger) : ICommandHandler<RemoveProjectMemberCommand, Unit>
 {
@@ -18,7 +20,8 @@ public sealed class RemoveProjectMemberCommandHandler(
             return loaded.Error;
         }
 
-        var change = loaded.Value.RemoveMember(command.UserId);
+        var activeMemberIds = await db.ActiveMemberIdsOf(command.ProjectId, ct);
+        var change = loaded.Value.RemoveMember(command.UserId, activeMemberIds);
         if (change != MembershipChange.Done)
         {
             return change == MembershipChange.LastOwner ? ProjectErrors.LastOwner : ProjectErrors.MemberNotFound;

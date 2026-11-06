@@ -53,6 +53,15 @@ describe('ApiClient', () => {
     put.flush({});
   });
 
+  it('sends a body with a patch', () => {
+    api.patch('/tasks/1/position', { columnId: 'c1', position: 0 }).subscribe();
+
+    const patch = http.expectOne('/api/tasks/1/position');
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({ columnId: 'c1', position: 0 });
+    patch.flush({});
+  });
+
   it('deletes', () => {
     let done = false;
     api.delete('/roles/1').subscribe(() => (done = true));

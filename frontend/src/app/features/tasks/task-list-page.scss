@@ -1,0 +1,139 @@
+:host {
+  display: block;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kb-space-4);
+  margin-bottom: var(--kb-space-3);
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.filters {
+  display: block;
+  margin-bottom: var(--kb-space-3);
+}
+
+.placeholder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-4);
+  height: 40px;
+  padding: 0 var(--kb-space-4);
+}
+
+// The whole row opens the task's panel; the title is its button, for the keyboard.
+tr.kb-table-row {
+  cursor: pointer;
+}
+
+// A header that sorts: its label and a 12px chevron, turned up while it sorts upwards (UI spec 6.4).
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+
+  .chevron {
+    font-size: 12px;
+    opacity: 0;
+    transition: transform var(--kb-dur-fast) var(--kb-ease);
+  }
+
+  &:hover .chevron,
+  &:focus-visible .chevron {
+    opacity: 0.6;
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: var(--kb-focus-ring);
+  }
+}
+
+th[aria-sort] .chevron {
+  opacity: 1;
+}
+
+th[aria-sort='ascending'] .chevron {
+  transform: rotate(180deg);
+}
+
+td.key {
+  width: 88px;
+  font-family: var(--kb-font-mono);
+  font-size: 12px;
+  color: var(--kb-text-500);
+  white-space: nowrap;
+}
+
+td.title {
+  max-width: 0;
+  width: 40%;
+}
+
+.open {
+  display: inline-flex;
+  max-width: calc(100% - 80px);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--kb-text-900);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  vertical-align: middle;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: var(--kb-focus-ring);
+  }
+}
+
+td.title kb-chip {
+  margin-left: var(--kb-space-2);
+}
+
+.column-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--kb-space-1);
+  white-space: nowrap;
+}
+
+// The done column, as on the board (UI spec 7.4).
+.done {
+  font-size: 16px;
+  color: var(--kb-success-600);
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  max-width: 180px;
+}
+
+.none,
+.updated {
+  color: var(--kb-text-600);
+}
+
+.updated,
+.due,
+.priority {
+  white-space: nowrap;
+}

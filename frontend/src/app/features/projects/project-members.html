@@ -85,7 +85,7 @@
           <span class="kb-visually-hidden" i18n>Acțiuni</span>
         </th>
         <td mat-cell *matCellDef="let member" class="actions">
-          @if (!isLastOwner(member)) {
+          @if (!isLastActiveOwner(member)) {
             <button
               matIconButton
               class="kb-row-actions"

@@ -562,6 +562,9 @@ internal sealed class NoAccess : IProjectAccess
 
     public Task<Result> EnsureOwnerAsync(Guid projectId, Guid userId, CancellationToken ct) =>
         Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
+
+    public Task<Result> EnsureRealMemberAsync(Guid projectId, Guid userId, CancellationToken ct) =>
+        Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
 }
 
 internal sealed class NullStorage : IFileStorage
@@ -1001,7 +1004,7 @@ var user = new User("ana@example.com", "Ana", "hash", role.Id);
 var project = new Project("Website", "WEB", "The company site");
 project.AddMember(user.Id, ProjectRole.Owner);
 var column = new BoardColumn(project.Id, "To do", 0, isDone: false);
-var task = new TaskItem(project.Id, column.Id, "Write the copy", "All pages", TaskPriority.High, 0);
+var task = TaskItem.Create(project, column, "Write the copy", "All pages", TaskPriority.High, 0, null, null, user.Id, DateTimeOffset.UtcNow);
 var comment = new Comment(task.Id, user.Id, "Looks fine");
 var attachment = new Attachment(task.Id, "brief.pdf", "application/pdf", 1234, "2026/11/key.pdf", user.Id);
 var entry = new TaskHistoryEntry(task.Id, "Title", "Old", "New", user.Id, DateTimeOffset.UtcNow);

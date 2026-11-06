@@ -1,0 +1,349 @@
+@switch (store.state()) {
+  @case ('missing') {
+    <kb-empty-state icon="search_off" [title]="missingTitle">
+      <p i18n>A fost arhivat sau mutat, ori adresa e greșită.</p>
+    </kb-empty-state>
+  }
+  @case ('forbidden') {
+    <kb-empty-state icon="lock" [title]="forbiddenTitle">
+      <p i18n>Cere unui owner al proiectului să te adauge în el.</p>
+    </kb-empty-state>
+  }
+  @case ('error') {
+    <kb-empty-state icon="error" [title]="loadFailed">
+      <p i18n>Verifică conexiunea și reîncearcă.</p>
+      <button
+        kbEmptyAction
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        (click)="retry()"
+        i18n
+      >
+        Reîncearcă
+      </button>
+    </kb-empty-state>
+  }
+  @default {
+    @if (store.task(); as task) {
+      <div class="body">
+        <section class="main">
+          <p class="context">
+            <span class="key">{{ task.key }}</span>
+            <span aria-hidden="true">·</span>
+            <span class="kb-truncate">{{ task.projectName }}</span>
+          </p>
+
+          @if (task.archivedAt) {
+            <kb-banner class="archived" variant="info">
+              <ng-container i18n
+                >Acest task e arhivat: se poate citi, dar nu și schimba.</ng-container
+              >
+              @if (store.canRestore()) {
+                <ng-container i18n> Îl poți restaura din meniul de jos.</ng-container>
+              }
+            </kb-banner>
+          }
+
+          @if (editingTitle()) {
+            <input
+              class="kb-field title-field"
+              [value]="titleDraft()"
+              [attr.maxlength]="titleMax"
+              [attr.aria-invalid]="titleError() !== null"
+              aria-describedby="kb-task-title-error"
+              i18n-aria-label
+              aria-label="Titlul task-ului"
+              (input)="titleDraft.set($any($event.target).value)"
+              (keydown.enter)="saveTitle()"
+              (keydown.escape)="cancelTitle($event)"
+              (blur)="saveTitle()"
+              #titleInput
+            />
+            @if (titleError(); as error) {
+              <p id="kb-task-title-error" class="kb-field-error">{{ error }}</p>
+            }
+          } @else if (task.canChange) {
+            <h2 id="kb-task-title" class="title">
+              <button
+                type="button"
+                class="title-button"
+                i18n-matTooltip
+                matTooltip="Schimbă titlul"
+                (click)="editTitle()"
+              >
+                {{ task.title }}
+              </button>
+            </h2>
+          } @else {
+            <h2 id="kb-task-title" class="title">{{ task.title }}</h2>
+          }
+
+          <section class="description" aria-labelledby="kb-task-description">
+            <div class="section-head">
+              <h3 id="kb-task-description" class="kb-subtitle" i18n>Descriere</h3>
+              @if (task.canChange && !editingDescription()) {
+                <button matButton class="kb-sm" type="button" (click)="editDescription()" i18n>
+                  Editează
+                </button>
+              }
+            </div>
+
+            @if (editingDescription()) {
+              <textarea
+                class="kb-field description-field"
+                rows="10"
+                [value]="descriptionDraft()"
+                [attr.aria-invalid]="descriptionError() !== null"
+                aria-labelledby="kb-task-description"
+                aria-describedby="kb-task-description-help"
+                (input)="descriptionDraft.set($any($event.target).value)"
+              ></textarea>
+              @if (descriptionError(); as error) {
+                <p class="kb-field-error">{{ error }}</p>
+              }
+              <p id="kb-task-description-help" class="help" i18n>
+                Markdown de bază: **gras**, *italic*, `cod`, liste, citate și linkuri.
+              </p>
+              <div class="actions">
+                <button
+                  matButton="outlined"
+                  class="kb-bezel kb-regular"
+                  type="button"
+                  (click)="cancelDescription()"
+                  i18n
+                >
+                  Anulează
+                </button>
+                <button
+                  matButton="filled"
+                  class="kb-default kb-regular"
+                  type="button"
+                  [disabled]="store.saving()"
+                  (click)="saveDescription()"
+                  i18n
+                >
+                  Salvează
+                </button>
+              </div>
+            } @else if (task.description) {
+              <kb-markdown [text]="task.description" />
+            } @else {
+              <p class="empty" i18n>Fără descriere.</p>
+            }
+          </section>
+
+          <mat-tab-group class="tabs" animationDuration="0ms">
+            <mat-tab i18n-label label="Comentarii">
+              <p class="later" i18n>Comentariile vin într-o versiune următoare.</p>
+            </mat-tab>
+            <mat-tab i18n-label label="Atașamente">
+              <p class="later" i18n>Atașamentele vin într-o versiune următoare.</p>
+            </mat-tab>
+            <mat-tab i18n-label label="Istoric">
+              <p class="later" i18n>Istoricul vine într-o versiune următoare.</p>
+            </mat-tab>
+          </mat-tab-group>
+        </section>
+
+        <aside class="properties" i18n-aria-label aria-label="Proprietățile task-ului">
+          <dl>
+            <div class="property">
+              <dt id="kb-task-column" i18n>Stare</dt>
+              <dd>
+                @if (task.canChange && store.columns().length > 0) {
+                  <mat-select
+                    #columnSelect
+                    class="kb-field kb-select"
+                    panelClass="kb-menu"
+                    aria-labelledby="kb-task-column"
+                    [value]="task.columnId"
+                    (selectionChange)="move(columnSelect, $event.value)"
+                  >
+                    @for (column of store.columns(); track column.id) {
+                      <mat-option [value]="column.id">{{ column.name }}</mat-option>
+                    }
+                  </mat-select>
+                } @else {
+                  {{ task.columnName }}
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt id="kb-task-assignee" i18n>Asignat</dt>
+              <dd>
+                @if (task.canChange) {
+                  <mat-select
+                    #assigneeSelect
+                    class="kb-field kb-select"
+                    panelClass="kb-menu"
+                    aria-labelledby="kb-task-assignee"
+                    [value]="task.assignee?.userId ?? unassignedValue"
+                    (selectionChange)="assign(assigneeSelect, $event.value)"
+                  >
+                    <mat-option [value]="unassignedValue">{{ unassigned }}</mat-option>
+                    @for (member of store.assignees(); track member.userId) {
+                      <mat-option [value]="member.userId" [disabled]="!member.isActive">
+                        <span class="person">
+                          <kb-avatar [name]="member.displayName" />
+                          <span>{{ member.displayName }}</span>
+                        </span>
+                      </mat-option>
+                    }
+                  </mat-select>
+                } @else if (task.assignee; as assignee) {
+                  <span class="person">
+                    <kb-avatar [name]="assignee.displayName" />
+                    <span>{{ assignee.displayName }}</span>
+                  </span>
+                } @else {
+                  <span class="none">{{ unassigned }}</span>
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt id="kb-task-priority" i18n>Prioritate</dt>
+              <dd>
+                @if (task.canChange) {
+                  <mat-select
+                    #prioritySelect
+                    class="kb-field kb-select"
+                    panelClass="kb-menu"
+                    aria-labelledby="kb-task-priority"
+                    [value]="task.priority"
+                    (selectionChange)="prioritize(prioritySelect, $event.value)"
+                  >
+                    @for (priority of priorities; track priority) {
+                      <mat-option [value]="priority">
+                        <kb-chip [kind]="$any(priority.toLowerCase())">{{
+                          priorityLabel(priority)
+                        }}</kb-chip>
+                      </mat-option>
+                    }
+                  </mat-select>
+                } @else {
+                  <kb-chip [kind]="$any(task.priority.toLowerCase())">{{
+                    priorityLabel(task.priority)
+                  }}</kb-chip>
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt id="kb-task-due" i18n>Deadline</dt>
+              <dd>
+                @if (task.canChange) {
+                  <span class="due">
+                    <input
+                      class="kb-field"
+                      readonly
+                      aria-labelledby="kb-task-due"
+                      i18n-placeholder
+                      placeholder="Fără deadline"
+                      [matDatepicker]="duePicker"
+                      [value]="dueDay()"
+                      (click)="duePicker.open()"
+                      (dateChange)="schedule($event.value)"
+                    />
+                    <mat-datepicker-toggle [for]="duePicker" />
+                    @if (task.dueDate) {
+                      <button
+                        matIconButton
+                        type="button"
+                        class="clear"
+                        i18n-aria-label
+                        aria-label="Șterge deadline-ul"
+                        (click)="schedule(null)"
+                      >
+                        <mat-icon>close</mat-icon>
+                      </button>
+                    }
+                    <mat-datepicker #duePicker panelClass="kb-menu" />
+                  </span>
+                } @else if (task.dueDate) {
+                  <span [matTooltip]="fullDate(task.dueDate)">{{
+                    dueDay()?.toLocaleDateString('ro-RO')
+                  }}</span>
+                } @else {
+                  <span class="none" i18n>Fără deadline</span>
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt i18n>Creat de</dt>
+              <dd>
+                @if (task.createdBy; as creator) {
+                  <span class="person">
+                    <kb-avatar [name]="creator.displayName" />
+                    <span>{{ creator.displayName }}</span>
+                  </span>
+                } @else {
+                  <span class="none">—</span>
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt i18n>Creat la</dt>
+              <dd>
+                <span [matTooltip]="fullDate(task.createdAt)">{{
+                  task.createdAt | relativeTime
+                }}</span>
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt i18n>Actualizat la</dt>
+              <dd>
+                @if (task.updatedAt; as updated) {
+                  <span [matTooltip]="fullDate(updated)">{{ updated | relativeTime }}</span>
+                } @else {
+                  <span class="none">—</span>
+                }
+              </dd>
+            </div>
+          </dl>
+
+          @if (task.canChange || store.canRestore()) {
+            <div class="menu">
+              <button
+                matIconButton
+                type="button"
+                class="more"
+                [matMenuTriggerFor]="actions"
+                i18n-aria-label
+                aria-label="Acțiuni pentru task"
+              >
+                <mat-icon>more_vert</mat-icon>
+              </button>
+            </div>
+          }
+        </aside>
+      </div>
+
+      <mat-menu #actions="matMenu" class="kb-menu" xPosition="before" yPosition="above">
+        @if (store.canRestore()) {
+          <button mat-menu-item type="button" (click)="restore()">
+            <mat-icon>unarchive</mat-icon>
+            <span i18n>Restaurează</span>
+          </button>
+        } @else {
+          <button mat-menu-item type="button" class="kb-menu-danger" (click)="archive()">
+            <mat-icon>archive</mat-icon>
+            <span i18n>Arhivează</span>
+          </button>
+        }
+      </mat-menu>
+    } @else {
+      <div class="loading" aria-busy="true">
+        <kb-skeleton width="120px" />
+        <kb-skeleton width="60%" height="28px" />
+        <kb-skeleton width="90%" />
+        <kb-skeleton width="80%" />
+      </div>
+    }
+  }
+}

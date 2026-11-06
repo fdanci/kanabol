@@ -20,7 +20,7 @@ Run from `frontend/`:
 - Lint: `npm run lint`
 - Check formatting: `npx prettier --check .`
 - Extract the texts for translation: `npx ng extract-i18n --output-path <folder>`. Romanian is the source language, and v1 has no other.
-- Run the acceptance checks of the skeleton and authentication, from the repo root: `scripts/check-web.sh [task-number...]`, those of the users and roles pages: `scripts/check-admin.sh [task-number...]`, and those of the projects: `scripts/check-projects.sh [task-number...]`. Task 3 of check-admin.sh and tasks 1 and 2 of check-projects.sh also start the real API, so they need Docker and PostgreSQL like `scripts/check-users.sh`.
+- Run the acceptance checks of the skeleton and authentication, from the repo root: `scripts/check-web.sh [task-number...]`, those of the users and roles pages: `scripts/check-admin.sh [task-number...]`, those of the projects: `scripts/check-projects.sh [task-number...]`, and those of the tasks: `scripts/check-tasks.sh [task-number...]` (7 and 8 need only the packages). Task 3 of check-admin.sh and tasks 1 and 2 of check-projects.sh also start the real API, so they need Docker and PostgreSQL like `scripts/check-users.sh`.
 
 ## How a request goes
 
@@ -55,10 +55,21 @@ Run from `frontend/`:
 
 ## Projects
 
-- `/projects` lists what the API lets the user open, for anyone signed in. `/projects/:id` opens on `board`, next to `list`, `members`, `reports` and `settings`; the board, the list and the reports are placeholders until their groups.
+- `/projects` lists what the API lets the user open, for anyone signed in. `/projects/:id` opens on `board`, next to `list`, `members`, `reports` and `settings`; the board and the reports are placeholders until their groups, and the list is the tasks feature's page, which `projects.routes.ts` loads.
 - `ProjectPage` provides one `ProjectStore` for its views, so they share the project and another project starts from nothing. `canManage` from the API (an owner, or `projects.manage`) shows Setări and the changes, and an archived project changes nothing until it's restored.
 - The member sheet looks for users through `GET /api/projects/{id}/member-candidates`, so an owner without `users.manage` can still add someone.
-- The last owner's row has no ⋮: the API refuses to remove or demote them anyway (409 `Project.LastOwner`).
+- The last active owner's row has no ⋮, nor has a deactivated owner's while no owner is active: the API refuses to remove or demote them anyway (409 `Project.LastOwner`). `ProjectStore.keepsAnActiveOwnerWithout` decides it.
+
+## Tasks
+
+- A task opens in its panel, over the page it was opened from, through a router outlet of its own next to the page: `/projects/p1/list(panel:task/KAN-12)`. Any feature opens and closes it with `openTaskPanel` and `closeTaskPanel` (`shared/task-panel.ts`), which keep the page's query, so features don't import the tasks feature. `/tasks/KAN-12`, the address a task is shared by, finds its project and opens it over the project's board.
+- `TaskPanelRoute` is what the outlet shows: it opens `TaskPanel` as a `MatDialog` with `taskPanelConfig` (920px, from the right, the window's height less 12px each side), and the outlet closes with the panel. Leaving the address, the back button for one, closes the panel.
+- `TaskPanelStore` reads the task by its key, with `includeArchived` for `tasks.archive`, then the project's columns and members when the caller can change it (`canChange` from the API). Every change answers with the task as saved; a 409 reads it again, a refused field comes back by name and the panel says it in Romanian (`task-fields.ts`). `TaskChanges.version` counts the changes, so a list behind the panel reads its page again.
+- A deadline is a day: the panel stores the end of that day where the person is (`endOfDay`), so a task due today isn't late until midnight. `kb-deadline-chip` (`shared/ui`) colors it as UI spec §6.5 says, neutral once the task is done.
+- Markdown goes through `kb-markdown` (`shared/ui/markdown.ts`), which renders the tree `parseMarkdown` reads through templates. Nothing in the app sets `innerHTML` or bypasses the sanitizer: raw HTML is dropped, links go only to http, https and mailto, with `rel="noopener noreferrer"` (docs/SPEC.md §16). `scripts/check-tasks.sh 7` fails on any of it.
+- The List view (`TaskListPage`) keeps its filters, sort and page in the address, so a list can be shared and the back button goes through them. The filters are the board's (docs/UI_UX_SPEC.md §7.4), in `shared/` for group 13: `TaskFilters` and their query (`shared/models/task-filters.ts`), and `kb-task-filter-bar` (`shared/ui`). "Ale mele" is `assignee=me`, the tasks of whoever opens the link. A row opens the panel and keeps the query.
+- The headers sort through buttons of their own with a 12px chevron (UI spec §6.4), not `MatSort`, whose arrow Material draws.
+- `mat-select` takes an option whose value is `null` for no choice at all and shows nothing, so "Neasignat" and "Oricine" have the value `''`.
 
 ## Access rules
 

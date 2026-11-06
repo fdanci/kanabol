@@ -1,0 +1,135 @@
+<form (submit)="submit($event)" novalidate>
+  <h2 id="kb-sheet-title" class="kb-title" i18n>Task nou</h2>
+  <p class="lead" i18n>Primește următoarea cheie a proiectului și pornește la capătul coloanei.</p>
+
+  <div class="kb-form-group">
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="task-title" i18n>Titlu</label>
+      <div>
+        <input
+          #titleInput
+          id="task-title"
+          class="kb-field"
+          autocomplete="off"
+          [attr.maxlength]="titleMax"
+          [value]="title.value()"
+          [attr.aria-invalid]="title.error() !== null"
+          [attr.aria-describedby]="title.error() !== null ? 'task-title-error' : null"
+          (input)="title.value.set(titleInput.value)"
+          (blur)="title.touched.set(true)"
+        />
+        @if (title.error(); as message) {
+          <p id="task-title-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    <div class="kb-form-row">
+      <label class="kb-form-label" for="task-description" i18n>Descriere</label>
+      <div>
+        <textarea
+          #descriptionInput
+          id="task-description"
+          class="kb-field"
+          rows="4"
+          [attr.maxlength]="descriptionMax"
+          [value]="description.value()"
+          [attr.aria-invalid]="description.error() !== null"
+          [attr.aria-describedby]="
+            description.error() !== null ? 'task-description-error' : 'task-description-help'
+          "
+          (input)="description.value.set(descriptionInput.value)"
+          (blur)="description.touched.set(true)"
+        ></textarea>
+        @if (description.error(); as message) {
+          <p id="task-description-error" class="kb-field-error">{{ message }}</p>
+        } @else {
+          <p id="task-description-help" class="kb-form-help" i18n>
+            Markdown de bază: **gras**, *italic*, `cod`, liste și linkuri.
+          </p>
+        }
+      </div>
+    </div>
+
+    <div class="kb-form-row">
+      <span id="task-priority" class="kb-form-label" i18n>Prioritate</span>
+      <mat-select
+        class="kb-field kb-select"
+        panelClass="kb-menu"
+        aria-labelledby="task-priority"
+        [value]="priority()"
+        (selectionChange)="priority.set($event.value)"
+      >
+        @for (each of priorities; track each) {
+          <mat-option [value]="each">
+            <kb-chip [kind]="$any(each.toLowerCase())">{{ priorityLabel(each) }}</kb-chip>
+          </mat-option>
+        }
+      </mat-select>
+    </div>
+
+    <div class="kb-form-row">
+      <span id="task-column" class="kb-form-label" i18n>Coloană</span>
+      <mat-select
+        class="kb-field kb-select"
+        panelClass="kb-menu"
+        aria-labelledby="task-column"
+        [value]="columnId()"
+        (selectionChange)="columnId.set($event.value)"
+      >
+        @for (column of columns(); track column.id) {
+          <mat-option [value]="column.id">{{ column.name }}</mat-option>
+        }
+      </mat-select>
+    </div>
+
+    <div class="kb-form-row">
+      <span id="task-assignee" class="kb-form-label" i18n>Asignat</span>
+      <mat-select
+        class="kb-field kb-select"
+        panelClass="kb-menu"
+        aria-labelledby="task-assignee"
+        [value]="assigneeId()"
+        (selectionChange)="assigneeId.set($event.value)"
+      >
+        <mat-option [value]="unassigned" i18n>Neasignat</mat-option>
+        @for (member of assignees(); track member.userId) {
+          <mat-option [value]="member.userId">
+            <span class="person">
+              <kb-avatar [name]="member.displayName" />
+              <span>{{ member.displayName }}</span>
+            </span>
+          </mat-option>
+        }
+      </mat-select>
+    </div>
+
+    <div class="kb-form-row">
+      <label class="kb-form-label" for="task-due" i18n>Deadline</label>
+      <span class="due">
+        <input
+          id="task-due"
+          class="kb-field"
+          readonly
+          i18n-placeholder
+          placeholder="Fără deadline"
+          [matDatepicker]="duePicker"
+          [value]="dueDay()"
+          (click)="duePicker.open()"
+          (dateChange)="dueDay.set($event.value)"
+        />
+        <mat-datepicker-toggle [for]="duePicker" />
+        <mat-datepicker #duePicker panelClass="kb-menu" />
+      </span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button matButton="outlined" class="kb-bezel" type="button" (click)="cancel()" i18n>
+      Anulează
+    </button>
+    <button matButton="filled" class="kb-default" type="submit" [disabled]="busy()" i18n>
+      Creează
+    </button>
+  </div>
+</form>

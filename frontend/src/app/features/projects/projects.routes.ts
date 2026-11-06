@@ -7,7 +7,7 @@ import { ProjectsPage } from './projects-page';
 
 /**
  * Loaded with the first visit to /projects. Any signed-in user may open it: the API answers with the
- * projects they can see, and refuses the rest. The board, the list and the reports come later.
+ * projects they can see, and refuses the rest. The board and the reports come later.
  */
 export const PROJECTS_ROUTES: Routes = [
   { path: '', component: ProjectsPage },
@@ -17,7 +17,11 @@ export const PROJECTS_ROUTES: Routes = [
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'board' },
       { path: 'board', component: ProjectPlaceholder },
-      { path: 'list', component: ProjectPlaceholder },
+      // The tasks feature's: the projects feature only knows its route (docs/SPEC.md §6.1).
+      {
+        path: 'list',
+        loadComponent: () => import('../tasks/task-list-page').then((page) => page.TaskListPage),
+      },
       { path: 'members', component: ProjectMembers },
       { path: 'reports', component: ProjectPlaceholder },
       { path: 'settings', component: ProjectSettings },

@@ -293,6 +293,85 @@ public sealed class ProjectMemberCommandHandlerTests(PostgresFixture postgres) :
         (await MembersOf(project.Id)).Should().HaveCount(2);
     }
 
+    // "Always an owner" means an active one: the handler gives the entity who is active (SPEC section 4.4).
+    [Fact]
+    public async Task Remove_OfAnOwnerWhenTheOnlyOtherOwnerIsDeactivated_ReturnsLastOwnerAndKeepsThem()
+    {
+        var owner = await CreateUser();
+        var other = await CreateUser("dan@example.com");
+        await Deactivate(other);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).OwnedBy(other));
+        SignIn(owner);
+
+        (await Remove(project.Id, owner.Id)).Error.Should().Be(ProjectErrors.LastOwner);
+        (await MembersOf(project.Id)).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task ChangeRole_OfAnOwnerWhenTheOnlyOtherOwnerIsDeactivated_ReturnsLastOwnerAndKeepsThemOwner()
+    {
+        var owner = await CreateUser();
+        var other = await CreateUser("dan@example.com");
+        await Deactivate(other);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).OwnedBy(other));
+        SignIn(owner);
+
+        (await ChangeRole(project.Id, owner.Id, ProjectRole.Member)).Error.Should().Be(ProjectErrors.LastOwner);
+        (await MembersOf(project.Id)).Should().OnlyContain(member => member.Role == ProjectRole.Owner);
+    }
+
+    [Fact]
+    public async Task Remove_OfADeactivatedOwnerWhenAnActiveOneStays_RemovesThem()
+    {
+        var owner = await CreateUser();
+        var other = await CreateUser("dan@example.com");
+        await Deactivate(other);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).OwnedBy(other));
+        SignIn(owner);
+
+        (await Remove(project.Id, other.Id)).IsSuccess.Should().BeTrue();
+        (await MembersOf(project.Id)).Should().ContainSingle(member => member.UserId == owner.Id);
+    }
+
+    [Fact]
+    public async Task ChangeRole_OfADeactivatedOwnerWhenAnActiveOneStays_MakesThemAMember()
+    {
+        var owner = await CreateUser();
+        var other = await CreateUser("dan@example.com");
+        await Deactivate(other);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).OwnedBy(other));
+        SignIn(owner);
+
+        (await ChangeRole(project.Id, other.Id, ProjectRole.Member)).Value.Should().BeEquivalentTo(new { UserId = other.Id, Role = ProjectRole.Member, IsActive = false });
+    }
+
+    [Fact]
+    public async Task Remove_OfTheOnlyOwnerWhoIsDeactivatedWithProjectsManage_ReturnsLastOwner()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        await Deactivate(owner);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        await SignInWith(Permissions.ProjectsManage);
+
+        (await Remove(project.Id, owner.Id)).Error.Should().Be(ProjectErrors.LastOwner);
+        (await ChangeRole(project.Id, owner.Id, ProjectRole.Member)).Error.Should().Be(ProjectErrors.LastOwner);
+    }
+
+    [Fact]
+    public async Task ChangeRole_WhenNoOwnerIsActive_LetsProjectsManageMakeANewOneAndThenRemoveTheOld()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        await Deactivate(owner);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        await SignInWith(Permissions.ProjectsManage);
+
+        (await ChangeRole(project.Id, member.Id, ProjectRole.Owner)).IsSuccess.Should().BeTrue();
+        (await Remove(project.Id, owner.Id)).IsSuccess.Should().BeTrue();
+        (await MembersOf(project.Id)).Should().ContainSingle(stored => stored.UserId == member.Id && stored.Role == ProjectRole.Owner);
+    }
+
     [Fact]
     public async Task Remove_WhenTheProjectDoesNotExist_ReturnsNotFound()
     {
