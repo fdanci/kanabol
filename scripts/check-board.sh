@@ -659,8 +659,46 @@ task_4() {
   check "the board says when no card matches" messages_have 'Niciun task nu se potrivește filtrelor.'
 }
 
+# ---- 13.5: configuring the columns from the board.
+
+the_columns_use_their_endpoints() {
+  for path in '/board-columns`, { name, isDone }' '/board-columns/${columnId}`, {' '/board-columns/${columnId}/position`' 'delete(`/projects/${projectId}/board-columns/${columnId}`)'; do
+    in_file "$path" "$board/board-api.ts" || {
+      echo "board-api.ts doesn't call $path"
+      return 1
+    }
+  done
+}
+
+the_menu_is_for_owners_only() {
+  in_file '@if (canManage()) {' "$board/board-column.ts" &&
+    in_file '[canManage]="store.canManage()"' "$board/board-page.html" &&
+    in_file '@if (store.canManage()) {' "$board/board-page.html"
+}
+
+only_an_empty_column_is_offered_for_deletion() {
+  in_file 'this.store.columns().length > 1 && this.store.cardsIn(column.id).length === 0' "$board/board-page.ts" &&
+    in_file 'this.confirmation.ask({' "$board/board-page.ts"
+}
+
+task_5() {
+  echo "13.5 Configuring the columns from the board"
+  check "the board page's specs pass, the columns among them" specs_pass src/app/features/board/board-page.spec.ts 36
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the columns go through their endpoints" the_columns_use_their_endpoints
+  check "the ⋮ and the new column are for owners and projects.manage" the_menu_is_for_owners_only
+  check "only an empty column, not the last, is offered for deletion, after a question" only_an_empty_column_is_offered_for_deletion
+  check "the board writes no colors by hand" no_colors_by_hand
+  check "nor reaches into Material's classes" no_deep_selectors
+  check "the menu renames" messages_have 'Redenumește'
+  check "marks a column done" messages_have 'Marchează ca terminată'
+  check "and asks before deleting" messages_have 'Ștergi coloana «'
+  check "a column holding archived tasks says why it stays" messages_have 'Coloana mai are task-uri, poate și arhivate.'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 
 for task in "$@"; do

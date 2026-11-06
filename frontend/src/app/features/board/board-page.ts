@@ -11,9 +11,11 @@ import {
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { map } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
@@ -26,6 +28,7 @@ import {
 } from '../../shared/models/task-filters';
 import { TaskChanges } from '../../shared/task-changes';
 import { openTaskPanel } from '../../shared/task-panel';
+import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { Snackbar } from '../../shared/ui/snackbar';
@@ -61,7 +64,7 @@ const MOVES: Record<string, [columns: number, places: number] | undefined> = {
   selector: 'kb-board-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [BoardStore],
-  imports: [CdkDropListGroup, BoardColumn, EmptyState, Skeleton, MatButton, TaskFilterBar],
+  imports: [CdkDropListGroup, BoardColumn, EmptyState, Skeleton, MatButton, MatIcon, TaskFilterBar],
   templateUrl: './board-page.html',
   styleUrl: './board-page.scss',
 })
@@ -73,6 +76,7 @@ export class BoardPage {
   private readonly changes = inject(TaskChanges);
   private readonly snackbar = inject(Snackbar);
   private readonly announcer = inject(LiveAnnouncer);
+  private readonly confirmation = inject(Confirmation);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -98,6 +102,8 @@ export class BoardPage {
     this.store.members().filter((member) => member.isActive),
   );
   protected readonly lifted = signal<Lifted | null>(null);
+  protected readonly addingColumn = signal(false);
+  private readonly newColumn = viewChild<ElementRef<HTMLInputElement>>('newColumn');
 
   /**
    * The cards each column shows: those the filters let through, and the one picked up from the
@@ -142,6 +148,10 @@ export class BoardPage {
           this.store.open(projectId);
         });
       }
+    });
+    // The name field takes the focus as it opens.
+    effect(() => {
+      this.newColumn()?.nativeElement.focus();
     });
     // What the panel saved: the board reads itself again, past its first read.
     let seen = this.changes.version();
@@ -232,6 +242,49 @@ export class BoardPage {
     const key = await this.store.createTask(card.column.id, card.title);
     if (key) {
       this.snackbar.show($localize`Task-ul ${key}:key: a fost creat.`);
+    }
+  }
+
+  /** Only an empty column, the hidden cards counting, and not the last one (docs/UI_UX_SPEC.md §7.4). */
+  protected canDelete(column: BoardColumnDto): boolean {
+    return this.store.columns().length > 1 && this.store.cardsIn(column.id).length === 0;
+  }
+
+  protected async addColumn(field: HTMLInputElement): Promise<void> {
+    const name = field.value.trim();
+    if (name !== '' && (await this.store.addColumn(name))) {
+      this.addingColumn.set(false);
+    }
+  }
+
+  protected renameColumn(column: BoardColumnDto, name: string): void {
+    void this.store.renameColumn(column, name);
+  }
+
+  protected moveColumn(column: BoardColumnDto, by: -1 | 1): void {
+    void this.store.moveColumn(column, column.position + by);
+  }
+
+  protected async markDone(column: BoardColumnDto, isDone: boolean): Promise<void> {
+    if (await this.store.markColumnDone(column, isDone)) {
+      this.snackbar.show(
+        isDone
+          ? $localize`«${column.name}:column:» e acum o coloană de task-uri terminate.`
+          : $localize`«${column.name}:column:» nu mai e o coloană de task-uri terminate.`,
+      );
+    }
+  }
+
+  protected async deleteColumn(column: BoardColumnDto): Promise<void> {
+    const sure = await this.confirmation.ask({
+      title: $localize`Ștergi coloana «${column.name}:column:»?`,
+      message: $localize`E goală, așa că de pe board dispare doar ea.`,
+      confirmLabel: $localize`Șterge`,
+      icon: 'delete',
+      destructive: true,
+    });
+    if (sure && (await this.store.deleteColumn(column))) {
+      this.snackbar.show($localize`Coloana «${column.name}:column:» a fost ștearsă.`);
     }
   }
 

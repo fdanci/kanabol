@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiClient } from '../../core/api/api-client';
-import { BoardDto, BoardMemberDto, CreatedTaskDto } from './models';
+import { BoardColumnDto, BoardDto, BoardMemberDto, CreatedTaskDto } from './models';
 
 /**
  * The board of a project (docs/UI_UX_SPEC.md §7.4, docs/SPEC.md §6.3). Moving a card needs a real
@@ -22,6 +22,37 @@ export class BoardApi {
   /** To a place from 0 in the column; the API moves the others up or down. */
   move(taskId: string, columnId: string, position: number): Observable<unknown> {
     return this.api.patch<unknown>(`/tasks/${taskId}/position`, { columnId, position });
+  }
+
+  /** At the right end of the board. The columns change for owners and projects.manage only. */
+  addColumn(projectId: string, name: string, isDone: boolean): Observable<BoardColumnDto> {
+    return this.api.post<BoardColumnDto>(`/projects/${projectId}/board-columns`, { name, isDone });
+  }
+
+  /** Turning a column done completes the open tasks in it, and back opens them (docs/SPEC.md §5.1). */
+  updateColumn(
+    projectId: string,
+    columnId: string,
+    name: string,
+    isDone: boolean,
+  ): Observable<BoardColumnDto> {
+    return this.api.put<BoardColumnDto>(`/projects/${projectId}/board-columns/${columnId}`, {
+      name,
+      isDone,
+    });
+  }
+
+  /** Answers every column in its new order. */
+  moveColumn(projectId: string, columnId: string, position: number): Observable<BoardColumnDto[]> {
+    return this.api.patch<BoardColumnDto[]>(
+      `/projects/${projectId}/board-columns/${columnId}/position`,
+      { position },
+    );
+  }
+
+  /** Only an empty one, archived tasks counting, and never the last: 409 otherwise. */
+  deleteColumn(projectId: string, columnId: string): Observable<void> {
+    return this.api.delete(`/projects/${projectId}/board-columns/${columnId}`);
   }
 
   /** At the end of the column, with the default priority. */

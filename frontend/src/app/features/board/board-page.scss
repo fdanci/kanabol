@@ -61,3 +61,14 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* "+ Coloană" at the right end, as wide as a column. */
+.add-column-slot {
+  flex: none;
+  width: 300px;
+}
+
+.new-column {
+  width: 100%;
+  box-sizing: border-box;
+}

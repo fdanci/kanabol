@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, resource, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { Observable, firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
 import { BoardApi } from './board-api';
@@ -117,6 +117,77 @@ export class BoardStore {
       return created.key;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * The columns (docs/UI_UX_SPEC.md §7.4), for an owner or projects.manage. Each answers true once the
+   * API took it; refused, errorInterceptor says why, and the board is read again to be sure.
+   */
+  addColumn(name: string): Promise<boolean> {
+    return this.changeColumns((board) => this.api.addColumn(board.projectId, name, false), true);
+  }
+
+  renameColumn(column: BoardColumnDto, name: string): Promise<boolean> {
+    return this.changeColumns(
+      (board) => this.api.updateColumn(board.projectId, column.id, name, column.isDone),
+      false,
+      (saved) => {
+        this.placeColumns((columns) =>
+          columns.map((found) => (found.id === saved.id ? saved : found)),
+        );
+      },
+    );
+  }
+
+  /** The tasks in it are completed now, or open again, so the board is read again. */
+  markColumnDone(column: BoardColumnDto, isDone: boolean): Promise<boolean> {
+    return this.changeColumns(
+      (board) => this.api.updateColumn(board.projectId, column.id, column.name, isDone),
+      true,
+    );
+  }
+
+  moveColumn(column: BoardColumnDto, position: number): Promise<boolean> {
+    return this.changeColumns(
+      (board) => this.api.moveColumn(board.projectId, column.id, position),
+      false,
+      (columns) => {
+        this.placeColumns(() => columns);
+      },
+    );
+  }
+
+  deleteColumn(column: BoardColumnDto): Promise<boolean> {
+    return this.changeColumns((board) => this.api.deleteColumn(board.projectId, column.id), true);
+  }
+
+  private async changeColumns<T>(
+    call: (board: BoardDto) => Observable<T>,
+    readAgain: boolean,
+    apply?: (saved: T) => void,
+  ): Promise<boolean> {
+    const board = this.board();
+    if (!board?.canManage) {
+      return false;
+    }
+    try {
+      const saved = await firstValueFrom(call(board), { defaultValue: undefined as T });
+      apply?.(saved);
+      if (readAgain) {
+        this.reload();
+      }
+      return true;
+    } catch {
+      this.reload();
+      return false;
+    }
+  }
+
+  private placeColumns(columns: (current: BoardColumnDto[]) => BoardColumnDto[]): void {
+    const board = this.board();
+    if (board) {
+      this.loaded.value.set({ ...board, columns: columns(board.columns) });
     }
   }
 

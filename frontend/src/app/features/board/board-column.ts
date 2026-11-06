@@ -3,19 +3,24 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  computed,
   effect,
   input,
   output,
   signal,
   viewChild,
 } from '@angular/core';
-import { MatButton } from '@angular/material/button';
+import { MatButton, MatIconButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
+import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { BoardColumnDto, BoardTaskDto } from './models';
 import { TaskCard } from './task-card';
 
 /** A title as long as the API takes (docs/SPEC.md §5.1). */
 const MAX_TITLE_LENGTH = 300;
+
+/** A column's name as long as the API takes. */
+const MAX_NAME_LENGTH = 100;
 
 export interface NewCard {
   column: BoardColumnDto;
@@ -25,17 +30,49 @@ export interface NewCard {
 /**
  * A column of the board (docs/UI_UX_SPEC.md §7.4): its name, a check when it's a done column, how
  * many cards it has, the cards themselves as a CDK drop list, and "+ Task" at the bottom, which
- * opens a title field in place. It shows the cards the page gives it, which the filters and a card
+ * opens a title field in place. For an owner, a ⋮ renames it in place, moves it, marks it done
+ * and deletes it when empty. It shows the cards the page gives it, which the filters and a card
  * picked up from the keyboard decide. It says what happened; the board page decides what it means.
  */
 @Component({
   selector: 'kb-board-column',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CdkDropList, CdkDrag, TaskCard, MatButton, MatIcon],
+  imports: [
+    CdkDropList,
+    CdkDrag,
+    TaskCard,
+    MatButton,
+    MatIconButton,
+    MatIcon,
+    MatMenu,
+    MatMenuItem,
+    MatMenuTrigger,
+  ],
   template: `
     <section class="column" [attr.aria-labelledby]="'kb-column-' + column().id">
       <header class="head">
-        <h3 class="kb-subtitle name" [id]="'kb-column-' + column().id">{{ column().name }}</h3>
+        <!-- Kept while renaming, out of sight, so the column keeps its name for screen readers. -->
+        <h3
+          class="kb-subtitle name"
+          [class.hidden-name]="renaming()"
+          [id]="'kb-column-' + column().id"
+        >
+          {{ column().name }}
+        </h3>
+        @if (renaming()) {
+          <input
+            #renameField
+            class="kb-field rename"
+            type="text"
+            [maxLength]="maxNameLength"
+            [value]="column().name"
+            i18n-aria-label
+            aria-label="Numele coloanei"
+            (keydown.enter)="rename(renameField)"
+            (keydown.escape)="renaming.set(false)"
+            (blur)="rename(renameField)"
+          />
+        }
         @if (column().isDone) {
           <span
             class="material-symbols-outlined done"
@@ -45,9 +82,53 @@ export interface NewCard {
             >check_circle</span
           >
         }
-        <span class="count" i18n-aria-label aria-label="{{ cards().length }} task-uri">{{
-          cards().length
-        }}</span>
+        <span class="count" [attr.aria-label]="countLabel()">{{ cards().length }}</span>
+        @if (canManage()) {
+          <button
+            matIconButton
+            class="menu"
+            type="button"
+            [matMenuTriggerFor]="actions"
+            [attr.aria-label]="menuLabel()"
+          >
+            <mat-icon>more_vert</mat-icon>
+          </button>
+          <mat-menu #actions="matMenu" class="kb-menu" xPosition="before">
+            <button mat-menu-item type="button" (click)="startRenaming()">
+              <mat-icon>edit</mat-icon>
+              <span i18n>Redenumește</span>
+            </button>
+            @if (!first()) {
+              <button mat-menu-item type="button" (click)="moved.emit(-1)">
+                <mat-icon>arrow_back</mat-icon>
+                <span i18n>Mută la stânga</span>
+              </button>
+            }
+            @if (!last()) {
+              <button mat-menu-item type="button" (click)="moved.emit(1)">
+                <mat-icon>arrow_forward</mat-icon>
+                <span i18n>Mută la dreapta</span>
+              </button>
+            }
+            @if (column().isDone) {
+              <button mat-menu-item type="button" (click)="doneChanged.emit(false)">
+                <mat-icon>remove_done</mat-icon>
+                <span i18n>Nu mai e de task-uri terminate</span>
+              </button>
+            } @else {
+              <button mat-menu-item type="button" (click)="doneChanged.emit(true)">
+                <mat-icon>check_circle</mat-icon>
+                <span i18n>Marchează ca terminată</span>
+              </button>
+            }
+            @if (canDelete()) {
+              <button mat-menu-item class="kb-menu-danger" type="button" (click)="deleted.emit()">
+                <mat-icon>delete</mat-icon>
+                <span i18n>Șterge</span>
+              </button>
+            }
+          </mat-menu>
+        }
       </header>
 
       <div
@@ -135,6 +216,26 @@ export interface NewCard {
       white-space: nowrap;
     }
 
+    /* While renaming: out of sight, still the column's name for screen readers. */
+    .hidden-name {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .rename {
+      flex: 1;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
+    .menu {
+      margin-left: auto;
+    }
+
     .done {
       font-size: 16px;
       color: var(--kb-success-600);
@@ -197,16 +298,55 @@ export class BoardColumn {
   readonly opened = output<BoardTaskDto>();
   readonly dropped = output<CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>>();
   readonly created = output<NewCard>();
+  /** An owner, or projects.manage, of an open project. */
+  readonly canManage = input(false);
+  /** Only an empty column, and not the board's last one. */
+  readonly canDelete = input(false);
+  readonly first = input(false);
+  readonly last = input(false);
+  readonly renamed = output<string>();
+  /** -1 to the left, 1 to the right. */
+  readonly moved = output<-1 | 1>();
+  readonly doneChanged = output<boolean>();
+  readonly deleted = output();
 
   protected readonly adding = signal(false);
   protected readonly maxTitleLength = MAX_TITLE_LENGTH;
+  protected readonly maxNameLength = MAX_NAME_LENGTH;
+  protected readonly renaming = signal(false);
+  protected readonly menuLabel = computed(
+    () => $localize`Acțiunile coloanei ${this.column().name}:name:`,
+  );
+  protected readonly countLabel = computed(() => $localize`${this.cards().length}:count: task-uri`);
   private readonly newTitle = viewChild<ElementRef<HTMLInputElement>>('newTitle');
+  private readonly renameField = viewChild<ElementRef<HTMLInputElement>>('renameField');
 
   constructor() {
-    // The field takes the focus as it opens, so "+ Task" and typing are one move.
+    // A field takes the focus as it opens, so choosing it and typing are one move.
     effect(() => {
       this.newTitle()?.nativeElement.focus();
     });
+    effect(() => {
+      const field = this.renameField()?.nativeElement;
+      field?.focus();
+      field?.select();
+    });
+  }
+
+  protected startRenaming(): void {
+    this.renaming.set(true);
+  }
+
+  /** Enter and leaving the field save; a blank or unchanged name changes nothing. */
+  protected rename(field: HTMLInputElement): void {
+    if (!this.renaming()) {
+      return;
+    }
+    this.renaming.set(false);
+    const name = field.value.trim();
+    if (name !== '' && name !== this.column().name) {
+      this.renamed.emit(name);
+    }
   }
 
   /** The field stays open, empty, for the next card. */

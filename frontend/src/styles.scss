@@ -352,6 +352,18 @@ kb-navbar {
   );
 }
 
+/// The ⋮ of a board column: 28px with a 16px icon, as in the toolbar (6.0.12).
+kb-board-column {
+  --_icon: 16px;
+
+  @include mat.icon-button-overrides(
+    (
+      state-layer-size: 28px,
+      icon-size: 16px,
+    )
+  );
+}
+
 // A destructive menu item: danger text and icon (6.0.6). <button mat-menu-item class="kb-menu-danger">.
 .kb-menu-danger {
   @include mat.menu-overrides(

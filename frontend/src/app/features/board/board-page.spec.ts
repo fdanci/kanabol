@@ -2,13 +2,16 @@ import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
+import { MatMenuHarness } from '@angular/material/menu/testing';
 import { By } from '@angular/platform-browser';
 import { Router, RouterOutlet, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Observable, Subject, of } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { TaskChanges } from '../../shared/task-changes';
+import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { BoardApi } from './board-api';
 import { BoardColumn } from './board-column';
@@ -39,6 +42,7 @@ describe('BoardPage', () => {
   const held = signal<string[]>(['tasks.create']);
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   let announcer: { announce: ReturnType<typeof vi.fn> };
+  let confirmation: { ask: ReturnType<typeof vi.fn>; discardChanges: ReturnType<typeof vi.fn> };
   let harness: RouterTestingHarness;
 
   beforeEach(() => {
@@ -49,9 +53,19 @@ describe('BoardPage', () => {
       members: vi.fn(() => of([aBoardMember('u1', 'Florin Danci'), aBoardMember('u2', 'Ana Pop')])),
       move: vi.fn(() => of({})),
       create: vi.fn(() => of({ id: 'id-KAN-6', key: 'KAN-6' })),
+      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, isDone: false })),
+      updateColumn: vi.fn((_: string, columnId: string, name: string, isDone: boolean) =>
+        of({ ...board.columns.find((column) => column.id === columnId)!, name, isDone }),
+      ),
+      moveColumn: vi.fn(() => of([])),
+      deleteColumn: vi.fn(() => of(undefined)),
     };
     snackbar = { show: vi.fn(), error: vi.fn() };
     announcer = { announce: vi.fn(() => Promise.resolve()) };
+    confirmation = {
+      ask: vi.fn(() => Promise.resolve(true)),
+      discardChanges: vi.fn(() => Promise.resolve(true)),
+    };
 
     TestBed.configureTestingModule({
       providers: [
@@ -76,6 +90,7 @@ describe('BoardPage', () => {
         },
         { provide: Snackbar, useValue: snackbar },
         { provide: LiveAnnouncer, useValue: announcer },
+        { provide: Confirmation, useValue: confirmation },
         { provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } },
       ],
     });
@@ -561,6 +576,163 @@ describe('BoardPage', () => {
 
       // After C, the last one shown: B, hidden, keeps its place before it.
       expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c1', 2);
+    });
+  });
+
+  // docs/UI_UX_SPEC.md §7.4: the ⋮ of a column renames it, moves it, marks it done, deletes it when empty.
+  describe('the columns', () => {
+    /** The items' icons, whose ligatures the harness reads as words. */
+    const ICONS = /^(edit|arrow_back|arrow_forward|remove_done|check_circle|delete)\s*/;
+
+    function menuOf(name: string): HTMLButtonElement | null {
+      return column(name).querySelector<HTMLButtonElement>('.menu');
+    }
+
+    /** The ⋮ of a column, through its harness: the items' words come without the icons' ligatures. */
+    function harnessOf(name: string): Promise<MatMenuHarness> {
+      return TestbedHarnessEnvironment.documentRootLoader(harness.fixture).getHarness(
+        MatMenuHarness.with({ selector: `[aria-label="Acțiunile coloanei ${name}"]` }),
+      );
+    }
+
+    async function choose(name: string, item: string): Promise<void> {
+      await (await harnessOf(name)).clickItem({ text: new RegExp(`${item}$`) });
+      await settle();
+    }
+
+    async function items(name: string): Promise<string[]> {
+      const menu = await harnessOf(name);
+      await menu.open();
+      const found = await Promise.all(
+        (await menu.getItems()).map(async (entry) => (await entry.getText()).replace(ICONS, '')),
+      );
+      await menu.close();
+      return found;
+    }
+
+    afterEach(() => {
+      document.querySelector('.cdk-overlay-container')?.replaceChildren();
+    });
+
+    it('gives an owner a menu on each column', async () => {
+      await visit();
+
+      expect(menuOf('De făcut')?.getAttribute('aria-label')).toBe('Acțiunile coloanei De făcut');
+      expect(page().querySelector('.add-column')).not.toBeNull();
+    });
+
+    it('gives a member neither the menu nor a new column', async () => {
+      board.canManage = false;
+      await visit();
+
+      expect(menuOf('De făcut')).toBeNull();
+      expect(page().querySelector('.add-column')).toBeNull();
+    });
+
+    it('adds a column at the right end from its name', async () => {
+      await visit();
+
+      page().querySelector<HTMLButtonElement>('.add-column')!.click();
+      await settle();
+      const field = page().querySelector<HTMLInputElement>('.new-column')!;
+      expect(document.activeElement).toBe(field);
+      field.value = ' Review ';
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await settle();
+
+      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review', false);
+      expect(api['board']).toHaveBeenCalledTimes(2);
+      expect(page().querySelector('.new-column')).toBeNull();
+    });
+
+    it('renames a column in place: Enter saves, Esc gives up', async () => {
+      await visit();
+
+      await choose('În lucru', 'Redenumește');
+      let field = column('În lucru').querySelector<HTMLInputElement>('.rename')!;
+      expect(document.activeElement).toBe(field);
+      field.value = 'Altceva';
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle();
+      expect(api['updateColumn']).not.toHaveBeenCalled();
+
+      await choose('În lucru', 'Redenumește');
+      field = column('În lucru').querySelector<HTMLInputElement>('.rename')!;
+      field.value = ' Lucrez ';
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await settle();
+
+      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez', false);
+      expect(column('Lucrez')).toBeDefined();
+    });
+
+    // docs/SPEC.md §5.1: the tasks in a column turned done are completed, so the board is read again.
+    it('marks a column done, and back, reading the board again each time', async () => {
+      await visit();
+
+      await choose('În lucru', 'Marchează ca terminată');
+
+      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'În lucru', true);
+      expect(api['board']).toHaveBeenCalledTimes(2);
+      expect(snackbar.show).toHaveBeenCalledWith(
+        '«În lucru» e acum o coloană de task-uri terminate.',
+      );
+      expect(await items('Gata')).toContain('Nu mai e de task-uri terminate');
+    });
+
+    it('moves a column to the left or the right, and not past the ends', async () => {
+      api['moveColumn'].mockReturnValue(
+        of([
+          { id: 'c1', name: 'De făcut', position: 0, isDone: false },
+          { id: 'c3', name: 'Gata', position: 1, isDone: true },
+          { id: 'c2', name: 'În lucru', position: 2, isDone: false },
+        ]),
+      );
+      await visit();
+      expect(await items('De făcut')).not.toContain('Mută la stânga');
+      expect(await items('Gata')).not.toContain('Mută la dreapta');
+
+      await choose('Gata', 'Mută la stânga');
+
+      expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c3', 1);
+      expect(
+        [...page().querySelectorAll('kb-board-column .name')].map((name) =>
+          name.textContent.trim(),
+        ),
+      ).toEqual(['De făcut', 'Gata', 'În lucru']);
+    });
+
+    it('offers to delete only an empty column, and asks first', async () => {
+      board.tasks = board.tasks.filter((task) => task.columnId !== 'c3');
+      await visit();
+      expect(await items('De făcut')).not.toContain('Șterge');
+
+      await choose('Gata', 'Șterge');
+
+      expect(confirmation.ask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Ștergi coloana «Gata»?', destructive: true }),
+      );
+      expect(api['deleteColumn']).toHaveBeenCalledWith('p1', 'c3');
+      expect(api['board']).toHaveBeenCalledTimes(2);
+      expect(snackbar.show).toHaveBeenCalledWith('Coloana «Gata» a fost ștearsă.');
+    });
+
+    it('deletes nothing when the question is turned down', async () => {
+      board.tasks = board.tasks.filter((task) => task.columnId !== 'c3');
+      confirmation.ask.mockReturnValue(Promise.resolve(false));
+      await visit();
+
+      await choose('Gata', 'Șterge');
+
+      expect(api['deleteColumn']).not.toHaveBeenCalled();
+    });
+
+    it('never offers to delete the last column', async () => {
+      board.columns = [{ id: 'c1', name: 'De făcut', position: 0, isDone: false }];
+      board.tasks = [];
+      await visit();
+
+      expect(await items('De făcut')).not.toContain('Șterge');
     });
   });
 });
