@@ -1,0 +1,20 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+.archived {
+  margin-bottom: var(--kb-space-4);
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kb-space-2);
+  padding: var(--kb-space-6) var(--kb-space-6) var(--kb-space-4);
+}

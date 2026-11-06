@@ -18,6 +18,7 @@ public static class DependencyInjection
             .AddScoped<CurrentPermissions>()
             .AddScoped<LastAdminGuard>()
             .AddScoped<IProjectAccess, ProjectAccess>()
+            .AddScoped<ProjectChanges>()
             .AddHandlersFrom(typeof(DependencyInjection).Assembly);
 
     public static IServiceCollection AddHandlersFrom(this IServiceCollection services, Assembly assembly)

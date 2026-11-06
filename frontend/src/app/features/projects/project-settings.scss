@@ -1,0 +1,41 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kb-space-4);
+  max-width: 720px;
+}
+
+// A flat card (UI spec 6.0.10): white, a border, radius 10px, padding 20px 24px.
+.card {
+  padding: 20px var(--kb-space-6);
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.kb-form-group {
+  margin-top: var(--kb-space-4);
+}
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  color: var(--kb-text-900);
+}
+
+.explain {
+  margin: var(--kb-space-2) 0 0;
+  color: var(--kb-text-600);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--kb-space-2);
+  margin-top: var(--kb-space-4);
+}

@@ -236,11 +236,21 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("key");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
+
+                    b.Property<int>("NextTaskNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("next_task_number");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -261,6 +271,10 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ArchivedById")
                         .HasDatabaseName("ix_projects_archived_by_id");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasDatabaseName("ux_projects_key");
 
                     b.ToTable("projects", (string)null);
                 });

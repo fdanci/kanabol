@@ -53,6 +53,17 @@ public sealed class TestDataBuilderTests
     }
 
     [Fact]
+    public void ProjectBuilder_WhenBuiltTwice_GivesEachProjectItsOwnValidKey()
+    {
+        var first = new ProjectBuilder().Build();
+        var second = new ProjectBuilder().Build();
+
+        first.Key.Should().NotBe(second.Key);
+        Project.IsValidKey(first.Key).Should().BeTrue();
+        Project.IsValidKey(second.Key).Should().BeTrue();
+    }
+
+    [Fact]
     public void TaskItemBuilder_WhenInAProject_StartsInItsFirstColumn()
     {
         var project = new ProjectBuilder().Build();

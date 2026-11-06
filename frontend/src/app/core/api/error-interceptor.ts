@@ -44,6 +44,18 @@ const BY_CODE: Record<string, () => string> = {
     $localize`Este ultimul administrator activ. Dă întâi rolul Admin altcuiva.`,
   'User.OwnPasswordReset': () =>
     $localize`Parola ta o schimbi cu parola curentă, nu prin resetare.`,
+  // The role on a project (docs/SPEC.md §4.4) and what keeps a project whole.
+  'Project.MemberRequired': () => $localize`Nu ai acces la acest proiect.`,
+  'Project.OwnerRequired': () => $localize`Doar un owner al proiectului poate face asta.`,
+  'Project.NotFound': () => $localize`Proiectul nu mai există.`,
+  'Project.KeyTaken': () => $localize`Există deja un proiect cu această cheie.`,
+  'Project.Archived': () => $localize`Proiectul e arhivat. Restaurează-l întâi.`,
+  'Project.AlreadyAMember': () => $localize`Utilizatorul e deja în proiect.`,
+  'Project.MemberNotFound': () => $localize`Utilizatorul nu mai e în proiect. Reîncarcă pagina.`,
+  'Project.LastOwner': () =>
+    $localize`Proiectul are nevoie de un owner. Fă întâi pe altcineva owner.`,
+  'Project.ChangedMeanwhile': () =>
+    $localize`Proiectul s-a schimbat între timp. Reîncarcă pagina și reîncearcă.`,
 };
 
 function messageFor(status: number, problem: ProblemDetails | null): string {

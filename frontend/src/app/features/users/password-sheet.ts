@@ -5,7 +5,8 @@ import { PASSWORD_MAX } from '../../shared/models/password-policy';
 import { Confirmation, askBeforeClosing } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { UserDto } from './models';
-import { Field, passwordProblem, refuseFields } from './user-fields';
+import { Field } from '../../shared/ui/field';
+import { passwordProblem, refuseFields } from './user-fields';
 import { UsersStore } from './users-store';
 
 /**

@@ -1,0 +1,74 @@
+<form (submit)="submit($event)" novalidate>
+  <h2 id="kb-sheet-title" class="kb-title" i18n>Adaugă un membru</h2>
+  <p class="lead" i18n>
+    Caută după nume sau email printre conturile active care nu sunt în proiect.
+  </p>
+
+  <div class="kb-form-group">
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="member-user" i18n>Utilizator</label>
+      <div>
+        <input
+          #userInput
+          id="member-user"
+          class="kb-field"
+          autocomplete="off"
+          [matAutocomplete]="people"
+          [value]="search()"
+          [attr.aria-invalid]="user.error() !== null"
+          [attr.aria-describedby]="user.error() !== null ? 'member-user-error' : null"
+          (input)="typed(userInput.value)"
+          (blur)="user.touched.set(true)"
+        />
+        <mat-autocomplete
+          #people="matAutocomplete"
+          class="kb-menu"
+          [displayWith]="display"
+          (optionSelected)="choose($event.option.value)"
+        >
+          @for (candidate of candidates(); track candidate.id) {
+            <mat-option [value]="candidate">
+              <span class="candidate">
+                <kb-avatar [name]="candidate.displayName" />
+                <span class="kb-truncate">{{ candidate.displayName }}</span>
+                <span class="email kb-truncate">{{ candidate.email }}</span>
+              </span>
+            </mat-option>
+          } @empty {
+            <mat-option disabled i18n>Nimeni de adăugat pentru ce ai scris</mat-option>
+          }
+        </mat-autocomplete>
+        @if (user.error(); as message) {
+          <p id="member-user-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    <div class="kb-form-row">
+      <span id="member-role-label" class="kb-form-label kb-required" i18n>Rol</span>
+      <div>
+        <mat-select
+          id="member-role"
+          class="kb-field kb-select"
+          panelClass="kb-menu"
+          aria-labelledby="member-role-label"
+          [value]="role.value()"
+          (valueChange)="role.value.set($event)"
+        >
+          <mat-option value="Member" i18n>Membru</mat-option>
+          <mat-option value="Owner" i18n>Owner</mat-option>
+        </mat-select>
+        <p class="kb-form-help" i18n>Un owner schimbă proiectul și membrii lui.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button matButton="outlined" class="kb-bezel" type="button" (click)="cancel()" i18n>
+      Anulează
+    </button>
+    <button matButton="filled" class="kb-default" type="submit" [disabled]="busy()" i18n>
+      Adaugă
+    </button>
+  </div>
+</form>

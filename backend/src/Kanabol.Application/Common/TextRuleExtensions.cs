@@ -12,6 +12,6 @@ public static class TextRuleExtensions
     public static IRuleBuilderOptions<T, string> HasNoHiddenCharacters<T>(this IRuleBuilder<T, string> rule) =>
         rule.Must(text => text is null || !text.Any(IsHidden)).WithMessage("This has a character that can't be seen.");
 
-    private static bool IsHidden(char character) =>
+    public static bool IsHidden(char character) =>
         char.GetUnicodeCategory(character) is UnicodeCategory.Control or UnicodeCategory.Format;
 }

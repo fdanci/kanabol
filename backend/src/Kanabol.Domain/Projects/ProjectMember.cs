@@ -18,4 +18,7 @@ public sealed class ProjectMember
     public Guid UserId { get; private set; }
 
     public ProjectRole Role { get; private set; }
+
+    /// <summary>Only through the project, which keeps it from losing its last owner.</summary>
+    internal void ChangeRole(ProjectRole role) => Role = role;
 }

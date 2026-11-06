@@ -1,0 +1,87 @@
+<form (submit)="submit($event)" novalidate>
+  <h2 id="kb-sheet-title" class="kb-title" i18n>Proiect nou</h2>
+  <p class="lead" i18n>
+    Tu devii owner-ul lui, iar board-ul pornește cu De făcut, În lucru și Gata.
+  </p>
+
+  <div class="kb-form-group">
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="project-name" i18n>Nume</label>
+      <div>
+        <input
+          #nameInput
+          id="project-name"
+          class="kb-field"
+          autocomplete="off"
+          [attr.maxlength]="nameMax"
+          [value]="name.value()"
+          [attr.aria-invalid]="name.error() !== null"
+          [attr.aria-describedby]="name.error() !== null ? 'project-name-error' : null"
+          (input)="nameChanged(nameInput.value)"
+          (blur)="name.touched.set(true)"
+        />
+        @if (name.error(); as message) {
+          <p id="project-name-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="project-key" i18n>Cheie</label>
+      <div>
+        <input
+          #keyInput
+          id="project-key"
+          class="kb-field kb-mono key"
+          autocomplete="off"
+          spellcheck="false"
+          [attr.maxlength]="keyMax"
+          [value]="key.value()"
+          [attr.aria-invalid]="key.error() !== null"
+          [attr.aria-describedby]="key.error() !== null ? 'project-key-error' : 'project-key-help'"
+          (input)="keyChanged(keyInput)"
+          (blur)="key.touched.set(true)"
+        />
+        @if (key.error(); as message) {
+          <p id="project-key-error" class="kb-field-error">{{ message }}</p>
+        } @else {
+          <p id="project-key-help" class="kb-form-help" i18n>
+            2–5 litere, în cheile task-urilor: {{ key.value() || 'KAN' }}-123. Nu se mai schimbă.
+          </p>
+        }
+      </div>
+    </div>
+
+    <div class="kb-form-row">
+      <label class="kb-form-label" for="project-description" i18n>Descriere</label>
+      <div>
+        <textarea
+          #descriptionInput
+          id="project-description"
+          class="kb-field"
+          rows="3"
+          [attr.maxlength]="descriptionMax"
+          [value]="description.value()"
+          [attr.aria-invalid]="description.error() !== null"
+          [attr.aria-describedby]="
+            description.error() !== null ? 'project-description-error' : null
+          "
+          (input)="description.value.set(descriptionInput.value)"
+          (blur)="description.touched.set(true)"
+        ></textarea>
+        @if (description.error(); as message) {
+          <p id="project-description-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button matButton="outlined" class="kb-bezel" type="button" (click)="cancel()" i18n>
+      Anulează
+    </button>
+    <button matButton="filled" class="kb-default" type="submit" [disabled]="busy()" i18n>
+      Creează
+    </button>
+  </div>
+</form>

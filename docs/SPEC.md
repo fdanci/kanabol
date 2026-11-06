@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.9 — 2026-11-06 (v1.8 + `check-web.sh` în §14.7. v1.8 — 2026-11-06: v1.7 + deciziile grupului 8b: reactivarea și resetarea parolei în §4.4, `MustChangePassword` în verificarea din baza de date, `users.is_active` ca concurrency token în §4.4, §5.1 și §5.3, ținta merge-ului în `main` ridicată la 150 s în §14.6, parola proprie în §16).
+> Stare: v1.10 — 2026-11-06 (v1.9 + deciziile grupului 10: cine trimite și ce primește `POST /api/client-logs` în §8.3, `check-admin.sh` în §14.7. v1.9 — 2026-11-06: v1.8 + `check-web.sh` în §14.7. v1.8 — 2026-11-06: v1.7 + deciziile grupului 8b: reactivarea și resetarea parolei în §4.4, `MustChangePassword` în verificarea din baza de date, `users.is_active` ca concurrency token în §4.4, §5.1 și §5.3, ținta merge-ului în `main` ridicată la 150 s în §14.6, parola proprie în §16).
 
 ---
 
@@ -589,7 +589,9 @@ Middleware `CorrelationIdMiddleware` (primul în pipeline): citește `X-Correlat
 
 ### 8.3 Frontend
 
-- `Logger` (`core/logging`): `debug/info/warn/error`; în dev scrie în consolă; în prod `warn`+`error` se trimit la `POST /api/client-logs` (batch, max 10/min, cu `correlationId`, URL, user agent) ca să apară în Seq alături de cele de backend.
+- `Logger` (`core/logging`): `debug/info/warn/error`; în dev scrie în consolă; în prod `warn`+`error` se trimit la `POST /api/client-logs` (batch, cu `correlationId`, URL, user agent) ca să apară în Seq alături de cele de backend.
+- Limita de 10 intrări pe minut e în browser: ce trece peste ea se numără și vine ca `dropped` în batch-ul următor, pe care serverul îl loghează ca warning. Serverul nu numără cererile pe minut; primește cel mult 10 intrări într-un batch, doar `warn` și `error`, cu lungimi limitate (mesaj 4.000, URL 2.000, detalii 16.000, correlation id 100 de caractere) și răspunde 204. O limită pe adresă la server se adaugă doar dacă apare nevoia (decis 2026-11-06).
+- Trimite doar un utilizator autentificat, ca orice controller, și nu cât timp `MustChangePassword` e activ: erorile din pagina de login și din schimbarea obligatorie a parolei rămân în consola browserului, nu ajung în Seq. Browserul nici nu trimite fără sesiune, ca un 401 să nu-l ducă la login (decis 2026-11-06).
 - `GlobalErrorHandler` (`ErrorHandler` Angular): prinde erorile neprinse → `Logger.error` + snackbar generic.
 - Fără `console.log` în cod comis (regulă ESLint `no-console: ["error", { allow: ["warn", "error"] }]`; Logger-ul are excepție).
 
@@ -1181,10 +1183,11 @@ Observații:
 
 Fiecare grup din `Tasks.md` are verificările lui în `scripts/check-*.sh`. Nu rulează în hook-uri: se rulează toate pe o clonă curată, după `scripts/setup.sh`, înainte ca un grup să fie considerat gata, pentru că repo-ul n-are CI.
 
-- `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-users.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
-- `check-backend.sh`, `check-auth.sh`, `check-permissions.sh` și `check-users.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
+- `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-users.sh`, `check-admin.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
+- `check-backend.sh`, `check-auth.sh`, `check-permissions.sh`, `check-users.sh` și `check-admin.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
 - `check-docker.sh 5` are nevoie de porturile 5432, 5341 și 5200 libere.
 - `check-web.sh` (grupul 9) n-are nevoie de Docker sau de PostgreSQL, doar de pachetele instalate de `scripts/setup.sh`.
+- `check-admin.sh` (grupul 10): task-urile 1 și 2 au nevoie doar de pachete; task-ul 3 rulează testele endpoint-ului și pornește API-ul real în Production, deci are nevoie de Docker și de PostgreSQL, ca `check-users.sh`.
 
 Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-all.sh` e exact ce rulează și acolo — fără duplicare de logică.
 

@@ -29,6 +29,20 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
         found.Should().OnlyContain(endpoint => endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any(required => required.Permission == permission));
     }
 
+    // The rest of the project endpoints check the role on the project, through IProjectAccess (SPEC section 4.4).
+    [Fact]
+    public void Projects_OnlyCreatingOne_NeedsAPermission()
+    {
+        var found = RealActions
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Projects")
+            .ToList();
+
+        found.Should().HaveCount(12);
+        found.Where(endpoint => endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any())
+            .Select(endpoint => (endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ActionName, endpoint.Metadata.GetMetadata<HasPermissionAttribute>()!.Permission))
+            .Should().Equal(("CreateProject", Permissions.ProjectsCreate));
+    }
+
     [Fact]
     public void HasPermission_InTheApiThatShips_NamesOnlyPermissionsThatExist() =>
         RealActions

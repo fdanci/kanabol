@@ -998,7 +998,7 @@ await using var database = await ProbeDatabase.Create("board");
 
 var role = new Role("Member", isSystem: false);
 var user = new User("ana@example.com", "Ana", "hash", role.Id);
-var project = new Project("Website", "The company site");
+var project = new Project("Website", "WEB", "The company site");
 project.AddMember(user.Id, ProjectRole.Owner);
 var column = new BoardColumn(project.Id, "To do", 0, isDone: false);
 var task = new TaskItem(project.Id, column.Id, "Write the copy", "All pages", TaskPriority.High, 0);
