@@ -1,0 +1,89 @@
+:host {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  height: var(--kb-navbar-h);
+  padding: 0 var(--kb-space-3);
+  border-bottom: 1px solid var(--kb-border-200);
+  background: var(--kb-glass-bg);
+  -webkit-backdrop-filter: var(--kb-glass-blur);
+  backdrop-filter: var(--kb-glass-blur);
+  color: var(--kb-navy-900);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  :host {
+    background: var(--kb-surface-0);
+  }
+}
+
+.home {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: var(--kb-radius-sm);
+  text-decoration: none;
+}
+
+.spacer {
+  flex: 1;
+}
+
+// A bezel without its border at rest: the border shows on hover (§6.0.8).
+.user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  height: 28px;
+  padding: 0 6px 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--kb-radius-sm);
+  background: transparent;
+  color: var(--kb-text-900);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color var(--kb-dur-fast) var(--kb-ease),
+    background var(--kb-dur-fast) var(--kb-ease);
+
+  &:hover,
+  &[aria-expanded='true'] {
+    border-color: var(--kb-border-300);
+    background: var(--kb-surface-0);
+    box-shadow: var(--kb-shadow-bezel), var(--kb-inner-highlight);
+  }
+}
+
+.chevron {
+  font-size: 12px;
+  transition: transform var(--kb-dur-base) var(--kb-ease);
+}
+
+.user[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--kb-text-900);
+}
+
+.theme {
+  padding: 6px 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron,
+  .user {
+    transition: none;
+  }
+}

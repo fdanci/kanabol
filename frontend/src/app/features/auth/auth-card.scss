@@ -1,0 +1,107 @@
+// The login and password change pages: no shell, a 400px card in the middle (UI spec §7.1).
+:host {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: var(--kb-space-6);
+  box-sizing: border-box;
+  background: var(--kb-surface-50);
+}
+
+.card {
+  box-sizing: border-box;
+  width: min(400px, 100%);
+  padding: var(--kb-space-8) var(--kb-space-6) var(--kb-space-6);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+  background: var(--kb-surface-0);
+}
+
+.brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--kb-space-6);
+}
+
+h1 {
+  margin: 0 0 var(--kb-space-4);
+  text-align: center;
+}
+
+.intro {
+  margin: 0 0 var(--kb-space-4);
+  color: var(--kb-text-600);
+  text-align: center;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--kb-space-3);
+  font-size: 13px;
+  color: var(--kb-text-600);
+}
+
+.with-button {
+  position: relative;
+  display: flex;
+}
+
+.with-button .kb-field {
+  padding-right: 72px;
+}
+
+.show {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+
+.error {
+  margin: 0 0 var(--kb-space-1);
+  padding: var(--kb-space-2) var(--kb-space-3);
+  border-radius: var(--kb-radius-sm);
+  background: var(--kb-danger-bg);
+  color: var(--kb-danger-600);
+  font-size: 13px;
+}
+
+.rules {
+  margin: var(--kb-space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--kb-text-600);
+}
+
+.rules li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rules .material-symbols-outlined {
+  font-size: 16px;
+  color: var(--kb-text-500);
+}
+
+.rules .met .material-symbols-outlined {
+  color: var(--kb-success-600);
+}
+
+.submit {
+  width: 100%;
+  margin-top: var(--kb-space-6);
+}
+
+.leave {
+  align-self: center;
+  margin-top: var(--kb-space-2);
+}

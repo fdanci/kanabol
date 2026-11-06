@@ -61,6 +61,24 @@ html {
       text-container-shape: var(--kb-radius-sm),
       text-container-height: 32px,
       text-label-text-color: var(--kb-accent-600),
+      // Hover and press darken with navy (6.0.1), not with Material's primary.
+      outlined-state-layer-color: var(--kb-navy-900),
+      text-state-layer-color: var(--kb-navy-900),
+      outlined-hover-state-layer-opacity: 0,
+      text-hover-state-layer-opacity: 0.05,
+    )
+  );
+  // Icon buttons: 32px in content and 28px in the toolbar, with a 40px target either way (3.3, 9).
+  @include mat.icon-button-overrides(
+    (
+      state-layer-size: 32px,
+      icon-size: 18px,
+      container-shape: var(--kb-radius-sm),
+      state-layer-color: var(--kb-navy-900),
+      hover-state-layer-opacity: 0.06,
+      touch-target-size: 40px,
+      touch-target-display: block,
+      icon-color: var(--kb-text-600),
     )
   );
   @include mat.card-overrides(
@@ -71,16 +89,49 @@ html {
       outlined-container-shape: var(--kb-radius-md),
     )
   );
+  // Dialogs are sheets: no title bar, padding 24px, buttons bottom right (6.0.5).
   @include mat.dialog-overrides(
     (
       container-shape: var(--kb-radius-lg),
       container-color: var(--kb-surface-0),
+      container-elevation-shadow: var(--kb-shadow-sheet),
+      container-max-width: 92vw,
+      container-small-max-width: 92vw,
+      headline-padding: 24px 24px 0,
+      content-padding: 16px 24px 0,
+      with-actions-content-padding: 16px 24px 0,
+      actions-padding: 24px,
+      actions-alignment: flex-end,
+      subhead-size: 18px,
+      subhead-line-height: 26px,
+      subhead-weight: 600,
+      subhead-color: var(--kb-navy-900),
+      supporting-text-size: 14px,
+      supporting-text-line-height: 21px,
+      supporting-text-color: var(--kb-text-600),
     )
   );
+  // Menus are translucent popovers (6.0.6). The blur itself comes from kb-menu on each mat-menu.
   @include mat.menu-overrides(
     (
       container-shape: var(--kb-radius-lg),
-      container-color: var(--kb-surface-0),
+      container-color: var(--kb-glass-bg),
+      container-elevation-shadow: var(--kb-shadow-popover),
+      item-label-text-size: 13px,
+      item-label-text-weight: 500,
+      item-label-text-color: var(--kb-text-900),
+      item-icon-size: 16px,
+      item-icon-color: var(--kb-text-600),
+      item-leading-spacing: 10px,
+      item-trailing-spacing: 10px,
+      item-with-icon-leading-spacing: 10px,
+      item-with-icon-trailing-spacing: 10px,
+      item-spacing: 8px,
+      item-hover-state-layer-color: var(--kb-tint-100),
+      item-focus-state-layer-color: var(--kb-tint-100),
+      divider-color: var(--kb-border-200),
+      divider-top-spacing: 6px,
+      divider-bottom-spacing: 6px,
     )
   );
   @include mat.form-field-overrides(
@@ -92,16 +143,95 @@ html {
       container-height: 32px,
     )
   );
+  // A 26x16 pill with a 12px white knob (6.0.3). The knob sits 2px in from either end.
   @include mat.slide-toggle-overrides(
     (
       selected-track-color: var(--kb-accent-600),
+      selected-hover-track-color: var(--kb-accent-600),
+      selected-focus-track-color: var(--kb-accent-600),
+      selected-pressed-track-color: var(--kb-accent-600),
+      unselected-track-color: var(--kb-border-300),
+      unselected-hover-track-color: var(--kb-border-300),
+      unselected-focus-track-color: var(--kb-border-300),
+      unselected-pressed-track-color: var(--kb-border-300),
       track-shape: var(--kb-radius-pill),
+      track-height: 16px,
+      track-width: 26px,
+      track-outline-width: 0,
+      selected-track-outline-width: 0,
+      handle-shape: var(--kb-radius-pill),
+      handle-surface-color: #ffffff,
+      handle-elevation-shadow: var(--kb-shadow-bezel),
+      unselected-handle-size: 12px,
+      selected-handle-size: 12px,
+      pressed-handle-size: 12px,
+      with-icon-handle-size: 12px,
+      unselected-handle-horizontal-margin: 0 2px,
+      selected-handle-horizontal-margin: 0 2px,
+      unselected-pressed-handle-horizontal-margin: 0 2px,
+      selected-pressed-handle-horizontal-margin: 0 2px,
+      unselected-with-icon-handle-horizontal-margin: 0 2px,
+      selected-with-icon-handle-horizontal-margin: 0 2px,
+      unselected-handle-color: #ffffff,
+      unselected-hover-handle-color: #ffffff,
+      unselected-focus-handle-color: #ffffff,
+      unselected-pressed-handle-color: #ffffff,
+      selected-handle-color: #ffffff,
+      selected-hover-handle-color: #ffffff,
+      selected-focus-handle-color: #ffffff,
+      selected-pressed-handle-color: #ffffff,
+      state-layer-size: 24px,
+      label-text-size: 13px,
     )
   );
+  // The box is on fill-accent with a white check when ticked (6.0.3). Its size and corner are Material's.
+  @include mat.checkbox-overrides(
+    (
+      selected-icon-color: var(--kb-fill-accent),
+      selected-hover-icon-color: var(--kb-fill-accent),
+      selected-focus-icon-color: var(--kb-fill-accent),
+      selected-pressed-icon-color: var(--kb-fill-accent),
+      selected-checkmark-color: #ffffff,
+      unselected-icon-color: var(--kb-border-300),
+      unselected-hover-icon-color: var(--kb-text-500),
+      unselected-focus-icon-color: var(--kb-accent-600),
+      state-layer-size: 28px,
+      label-text-size: 13px,
+      label-text-color: var(--kb-text-700),
+    )
+  );
+  // On ink at 92% with the glass, like the tooltip, and the action in sky-300 (6.2).
+  @include mat.snack-bar-overrides(
+    (
+      container-color: color-mix(in srgb, var(--kb-ink) 92%, transparent),
+      container-shape: var(--kb-radius-md),
+      supporting-text-color: #ffffff,
+      supporting-text-size: 13px,
+      supporting-text-line-height: 20px,
+      button-color: var(--kb-sky-300),
+    )
+  );
+  // On ink, not navy-900, which turns light in dark (6.0.6).
+  @include mat.tooltip-overrides(
+    (
+      container-color: color-mix(in srgb, var(--kb-ink) 90%, transparent),
+      container-shape: var(--kb-radius-sm),
+      supporting-text-color: #ffffff,
+      supporting-text-size: 12px,
+      supporting-text-line-height: 16px,
+      supporting-text-weight: 400,
+    )
+  );
+  // A source list (6.0.7): as wide as its content, translucent, square, with a faint line on its right.
   @include mat.sidenav-overrides(
     (
-      container-background-color: var(--kb-surface-0),
-      container-divider-color: var(--kb-border-200),
+      container-width: auto,
+      container-background-color: var(--kb-glass-bg),
+      container-divider-color: color-mix(in srgb, var(--kb-border-200) 50%, transparent),
+      container-shape: 0,
+      container-elevation-shadow: none,
+      content-background-color: var(--kb-surface-50),
+      scrim-color: rgba(5, 32, 99, 0.28),
     )
   );
   @include mat.toolbar-overrides(
@@ -110,6 +240,84 @@ html {
       container-text-color: var(--kb-navy-900),
     )
   );
+}
+
+// Controls come in three sizes (6.0.1, 6.0.3): Material is set to large, 32px, and these bring a
+// button down to regular, 28px, or small, 24px. The minimum width keeps a row of buttons even.
+html:root .kb-regular {
+  @include mat.button-overrides(
+    (
+      filled-container-height: 28px,
+      outlined-container-height: 28px,
+      text-container-height: 28px,
+      filled-horizontal-padding: 14px,
+      outlined-horizontal-padding: 14px,
+      text-horizontal-padding: 14px,
+      filled-label-text-size: 13px,
+      outlined-label-text-size: 13px,
+      text-label-text-size: 13px,
+    )
+  );
+  min-width: 72px;
+}
+
+html:root .kb-sm {
+  @include mat.button-overrides(
+    (
+      filled-container-height: 24px,
+      outlined-container-height: 24px,
+      text-container-height: 24px,
+      filled-horizontal-padding: 10px,
+      outlined-horizontal-padding: 10px,
+      text-horizontal-padding: 10px,
+      filled-label-text-size: 12px,
+      outlined-label-text-size: 12px,
+      text-label-text-size: 12px,
+    )
+  );
+  min-width: 64px;
+}
+
+html:root :is(.kb-default, .kb-danger, .kb-bezel):not(.kb-regular, .kb-sm) {
+  min-width: 88px;
+}
+
+// The snackbar's panel, from Snackbar: the glass and the popover shadow around Material's surface.
+.kb-snack {
+  border-radius: var(--kb-radius-md);
+  box-shadow: var(--kb-shadow-popover);
+  -webkit-backdrop-filter: var(--kb-glass-blur);
+  backdrop-filter: var(--kb-glass-blur);
+}
+
+kb-navbar {
+  --_icon: 16px;
+
+  @include mat.icon-button-overrides(
+    (
+      state-layer-size: 28px,
+      icon-size: 16px,
+      icon-color: var(--kb-navy-900),
+    )
+  );
+}
+
+// Sheets hang from 12% of the window's height, in the widths of 6.0.5, over a navy veil.
+.kb-sheet-backdrop {
+  background: rgba(5, 32, 99, 0.28);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+// Without the blur, a translucent menu would be hard to read over the page.
+@supports not (backdrop-filter: blur(1px)) {
+  html {
+    @include mat.menu-overrides(
+      (
+        container-color: var(--kb-surface-0),
+      )
+    );
+  }
 }
 
 // Material's colors follow color-scheme, so the toggle in the user menu has to set it as well.
