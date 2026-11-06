@@ -1,8 +1,30 @@
+import { HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiClient } from '../../core/api/api-client';
 import { handledHere } from '../../core/api/error-interceptor';
-import { NewTask, TaskItemDto, TaskMemberDto, TaskPriority, TaskProjectDto } from './models';
+import { Page } from '../../shared/models/page';
+import { TaskSort, sortToQuery } from '../../shared/models/task-filters';
+import {
+  NewTask,
+  TaskItemDto,
+  TaskMemberDto,
+  TaskPriority,
+  TaskProjectDto,
+  TaskSummaryDto,
+} from './models';
+
+/** A page of a project's tasks: the board's filters, with the assignee as an id. */
+export interface TaskListQuery {
+  page: number;
+  pageSize: number;
+  sort: TaskSort;
+  assigneeId: string | null;
+  priorities: TaskPriority[];
+  overdue: boolean;
+  search: string;
+  includeArchived: boolean;
+}
 
 /**
  * Tasks (docs/SPEC.md §4.4, §5.1). Creating one needs tasks.create and a real membership, changing one
@@ -18,6 +40,30 @@ export class TasksApi {
       params: includeArchived ? { includeArchived } : {},
       context: handledHere('Task.NotFound', 'Project.MemberRequired'),
     });
+  }
+
+  list(projectId: string, query: TaskListQuery): Observable<Page<TaskSummaryDto>> {
+    let params = new HttpParams().set('page', query.page).set('pageSize', query.pageSize);
+    const sort = sortToQuery(query.sort);
+    if (sort) {
+      params = params.set('sort', sort);
+    }
+    if (query.assigneeId) {
+      params = params.set('assigneeId', query.assigneeId);
+    }
+    for (const priority of query.priorities) {
+      params = params.append('priority', priority);
+    }
+    if (query.overdue) {
+      params = params.set('overdue', true);
+    }
+    if (query.search.trim() !== '') {
+      params = params.set('search', query.search.trim());
+    }
+    if (query.includeArchived) {
+      params = params.set('includeArchived', true);
+    }
+    return this.api.get<Page<TaskSummaryDto>>(`/projects/${projectId}/tasks`, { params });
   }
 
   /** The project's columns and the caller's role in it, for the panel's choices. */

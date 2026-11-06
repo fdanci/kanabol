@@ -959,7 +959,8 @@ no_html_from_text() {
 }
 
 no_colors_by_hand() {
-  lacks '#[0-9a-fA-F]{3,8}\b' "$tasks"/*.scss "$tasks"/*.ts "$app/shared/ui/markdown.ts" "$app/shared/ui/deadline-chip.ts"
+  lacks '#[0-9a-fA-F]{3,8}\b' "$tasks"/*.scss "$tasks"/*.ts "$app/shared/ui/markdown.ts" "$app/shared/ui/deadline-chip.ts" \
+    "$app/shared/ui/task-filter-bar.ts"
 }
 
 no_deep_selectors() {
@@ -1033,8 +1034,68 @@ task_7() {
   check "and its links can't reach back to the page" bundle_has 'noopener noreferrer'
 }
 
+# ---- 12.8: the List view of a project, with the board's filters in the address.
+
+# /projects/:id/list is the tasks feature's page, loaded the first time it opens.
+the_list_is_the_tasks_page() {
+  node -e "
+    const routes = require('fs').readFileSync('$app/features/projects/projects.routes.ts', 'utf8');
+    if (!/path: 'list',\\s*loadComponent: \\(\\) =>\\s*import\\('..\\/tasks\\/task-list-page'\\)/.test(routes)) {
+      console.log('the list route does not load the tasks list page'); process.exit(1);
+    }
+    if (/path: 'list', component: ProjectPlaceholder/.test(routes)) { console.log('the list is still a placeholder'); process.exit(1); }
+  "
+}
+
+# The filters live in shared, so the board of group 13 takes the same ones.
+the_filters_are_shared() {
+  for file in shared/models/task-filters.ts shared/ui/task-filter-bar.ts; do
+    tracked "$app/$file" || {
+      echo "$file is not tracked"
+      return 1
+    }
+  done
+  if grep -rn "features/" "$app/shared/models/task-filters.ts" "$app/shared/ui/task-filter-bar.ts"; then
+    echo "the shared filters reach into a feature"
+    return 1
+  fi
+}
+
+# docs/UI_UX_SPEC.md §7.3: key, title, column, priority, deadline, assignee, last change, in that order.
+the_columns_are_the_spec_ones() {
+  node -e "
+    const page = require('fs').readFileSync('$tasks/task-list-page.ts', 'utf8');
+    const found = page.match(/protected readonly columns = \\[([^\\]]*)\\]/);
+    const columns = found ? [...found[1].matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]).join(',') : '';
+    if (columns !== 'key,title,column,priority,dueDate,assignee,updated') { console.log('the columns are ' + columns); process.exit(1); }
+  "
+}
+
+task_8() {
+  echo "12.8 The List view of a project"
+  for file in task-list-page.ts task-list-page.html task-list-page.scss task-list-store.ts task-sheet.ts \
+    task-sheet.html task-sheet.scss; do
+    check "features/tasks/$file is tracked" tracked "$tasks/$file"
+  done
+  check "the specs of the list pass" specs_pass src/app/features/tasks/task-list-page.spec.ts 18
+  check "the filters read and write the address" specs_pass src/app/shared/models/task-filters.spec.ts 6
+  check "the filter bar says what changed" specs_pass src/app/shared/ui/task-filter-bar.spec.ts 6
+  check "the projects pages still pass, with the list in them" specs_pass "src/app/features/projects/*.spec.ts" 63
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "/projects/:id/list is the tasks list, loaded on its first visit" the_list_is_the_tasks_page
+  check "the filters are shared, for the board" the_filters_are_shared
+  check "the table has the UI spec's columns, in its order" the_columns_are_the_spec_ones
+  check "the pages write no colors by hand" no_colors_by_hand
+  check "nor reach into Material's classes" no_deep_selectors
+  check "the list says when nothing matches" messages_have 'Niciun task nu se potrivește'
+  check "and offers the first task" messages_have 'Creează primul task'
+  check "a new task explains where it starts" messages_have 'Primește următoarea cheie a proiectului'
+  check "archived tasks are offered" messages_have 'Și cele arhivate'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2 3 4 5 6 7 9
+  set -- 2 3 4 5 6 7 8 9
 fi
 
 for task in "$@"; do

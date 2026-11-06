@@ -1,0 +1,213 @@
+<div class="heading">
+  <h2 class="kb-title" i18n>Task-uri</h2>
+  @if (store.canCreate()) {
+    <button matButton="filled" class="kb-default kb-regular" type="button" (click)="create()" i18n>
+      Task nou
+    </button>
+  }
+</div>
+
+<kb-task-filter-bar
+  class="filters"
+  [filters]="filters()"
+  [people]="people()"
+  [canSeeArchived]="store.canSeeArchived()"
+  (filtersChange)="filter($event)"
+/>
+
+@if (store.state() === 'error') {
+  <kb-empty-state icon="error" [title]="loadFailed">
+    <p i18n>Verifică conexiunea și reîncearcă.</p>
+    <button
+      kbEmptyAction
+      matButton="outlined"
+      class="kb-bezel"
+      type="button"
+      (click)="retry()"
+      i18n
+    >
+      Reîncearcă
+    </button>
+  </kb-empty-state>
+} @else if (store.state() === 'loading' && store.rows().length === 0) {
+  <div class="kb-table-card placeholder" aria-busy="true">
+    @for (row of [1, 2, 3, 4]; track row) {
+      <div class="placeholder-row">
+        <kb-skeleton width="56px" />
+        <kb-skeleton width="35%" />
+        <kb-skeleton width="15%" />
+        <kb-skeleton width="80px" />
+      </div>
+    }
+  </div>
+} @else if (store.totalCount() === 0) {
+  @if (filtered()) {
+    <kb-empty-state icon="filter_alt_off" [title]="noMatchTitle">
+      <p i18n>Schimbă filtrele sau șterge-le ca să vezi toate task-urile.</p>
+      <button
+        kbEmptyAction
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        (click)="clearFilters()"
+        i18n
+      >
+        Șterge filtrele
+      </button>
+    </kb-empty-state>
+  } @else {
+    <kb-empty-state icon="task_alt" [title]="emptyTitle">
+      @if (store.canCreate()) {
+        <p i18n>Adaugă primul task, iar echipa îl vede pe board și aici.</p>
+      } @else {
+        <p i18n>Când cineva adaugă un task în proiect, apare aici.</p>
+      }
+      @if (store.canCreate()) {
+        <button
+          kbEmptyAction
+          matButton="filled"
+          class="kb-default"
+          type="button"
+          (click)="create()"
+          i18n
+        >
+          Creează primul task
+        </button>
+      }
+    </kb-empty-state>
+  }
+} @else {
+  <div class="kb-table-card" [attr.aria-busy]="store.state() === 'loading'">
+    <table
+      mat-table
+      class="kb-table"
+      [dataSource]="store.rows()"
+      i18n-aria-label
+      aria-label="Task-urile proiectului"
+    >
+      <ng-container matColumnDef="key">
+        <th mat-header-cell *matHeaderCellDef class="key" [attr.aria-sort]="ariaSort('key')">
+          <button type="button" class="sort" (click)="sortBy('key')">
+            <ng-container i18n>Cheie</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="key">{{ task.key }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="title">
+        <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('title')">
+          <button type="button" class="sort" (click)="sortBy('title')">
+            <ng-container i18n>Titlu</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="title">
+          <button type="button" class="open" (click)="$event.stopPropagation(); open(task)">
+            <span class="kb-truncate">{{ task.title }}</span>
+          </button>
+          @if (task.archivedAt) {
+            <kb-chip kind="archived" i18n>Arhivat</kb-chip>
+          }
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="column">
+        <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('column')">
+          <button type="button" class="sort" (click)="sortBy('column')">
+            <ng-container i18n>Coloană</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="column">
+          <span class="column-name">
+            {{ task.columnName }}
+            @if (task.columnIsDone) {
+              <span class="material-symbols-outlined done" i18n-aria-label aria-label="Gata"
+                >check_circle</span
+              >
+            }
+          </span>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="priority">
+        <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('priority')">
+          <button type="button" class="sort" (click)="sortBy('priority')">
+            <ng-container i18n>Prioritate</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="priority">
+          <kb-chip [kind]="$any(task.priority.toLowerCase())">{{
+            priorityLabel(task.priority)
+          }}</kb-chip>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="dueDate">
+        <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('dueDate')">
+          <button type="button" class="sort" (click)="sortBy('dueDate')">
+            <ng-container i18n>Deadline</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="due">
+          @if (task.dueDate) {
+            <kb-deadline-chip
+              [dueDate]="task.dueDate"
+              [done]="task.columnIsDone || task.completedAt !== null"
+            />
+          }
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="assignee">
+        <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('assignee')">
+          <button type="button" class="sort" (click)="sortBy('assignee')">
+            <ng-container i18n>Asignat</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="assignee">
+          @if (task.assignee; as assignee) {
+            <span class="person">
+              <kb-avatar [name]="assignee.displayName" />
+              <span class="kb-truncate">{{ assignee.displayName }}</span>
+            </span>
+          } @else {
+            <span class="none">{{ unassigned }}</span>
+          }
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="updated">
+        <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('updated')">
+          <button type="button" class="sort" (click)="sortBy('updated')">
+            <ng-container i18n>Actualizat</ng-container>
+            <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
+          </button>
+        </th>
+        <td mat-cell *matCellDef="let task" class="updated">
+          <span [matTooltip]="fullDate(task.updatedAt)">{{ task.updatedAt | relativeTime }}</span>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="columns; sticky: true"></tr>
+      <tr
+        mat-row
+        *matRowDef="let task; columns: columns"
+        class="kb-table-row"
+        [class.archived]="task.archivedAt !== null"
+        (click)="open(task)"
+      ></tr>
+    </table>
+    <mat-paginator
+      [length]="store.totalCount()"
+      [pageIndex]="page() - 1"
+      [pageSize]="pageSize()"
+      [pageSizeOptions]="pageSizes"
+      (page)="paged($event)"
+    />
+  </div>
+}

@@ -1,21 +1,7 @@
-/** The four priorities, lowest first, as the API writes them (docs/SPEC.md §5.1). */
-export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Critical';
+import { TaskPriority } from '../../shared/models/task-filters';
 
-export const PRIORITIES: readonly TaskPriority[] = ['Low', 'Medium', 'High', 'Critical'];
-
-/** Their names on the chips and in the menus. They're the team's words, so they stay as they are. */
-export function priorityLabel(priority: TaskPriority): string {
-  switch (priority) {
-    case 'Low':
-      return $localize`:@@priorityLow:Low`;
-    case 'Medium':
-      return $localize`:@@priorityMedium:Medium`;
-    case 'High':
-      return $localize`:@@priorityHigh:High`;
-    case 'Critical':
-      return $localize`:@@priorityCritical:Critical`;
-  }
-}
+export { PRIORITIES, priorityLabel } from '../../shared/models/task-filters';
+export type { TaskPriority } from '../../shared/models/task-filters';
 
 export interface TaskPersonDto {
   userId: string;
