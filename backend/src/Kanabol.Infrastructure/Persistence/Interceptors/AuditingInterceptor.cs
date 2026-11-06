@@ -1,5 +1,6 @@
 using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Common;
+using Kanabol.Domain.Projects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -24,12 +25,34 @@ public sealed class AuditingInterceptor(IClock clock, ICurrentUser currentUser) 
         return ValueTask.FromResult(result);
     }
 
+    /// <summary>
+    /// A change to a project's members is a change to the project, which then gets saved too, and so has
+    /// its version checked. Two requests that each take away one of the last two owners both see the
+    /// other owner stay, so without this both would save, and leave the project with none.
+    /// </summary>
+    private static void TouchProjectsWithChangedMembers(DbContext context)
+    {
+        var changedProjectIds = context.ChangeTracker.Entries<ProjectMember>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(entry => entry.Entity.ProjectId)
+            .ToHashSet();
+
+        var unchangedProjects = context.ChangeTracker.Entries<Project>()
+            .Where(entry => entry.State == EntityState.Unchanged && changedProjectIds.Contains(entry.Entity.Id));
+        foreach (var project in unchangedProjects)
+        {
+            project.Property(entity => entity.UpdatedAt).IsModified = true;
+        }
+    }
+
     private void Stamp(DbContext? context)
     {
         if (context is null)
         {
             return;
         }
+
+        TouchProjectsWithChangedMembers(context);
 
         var now = clock.UtcNow;
         Guid? userId = currentUser.IsAuthenticated ? currentUser.Id : null;
