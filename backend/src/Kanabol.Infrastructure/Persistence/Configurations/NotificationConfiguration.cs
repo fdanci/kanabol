@@ -11,7 +11,7 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
     public void Configure(EntityTypeBuilder<Notification> builder)
     {
         builder.Property(notification => notification.Type).HasConversion<string>();
-        builder.Property(notification => notification.Message).HasMaxLength(500);
+        builder.Property(notification => notification.Message).HasMaxLength(Notification.MaxMessageLength);
         builder.HasOne<User>().WithMany().HasForeignKey(notification => notification.UserId);
         builder.HasOne<TaskItem>().WithMany().HasForeignKey(notification => notification.TaskId).OnDelete(DeleteBehavior.Restrict);
     }

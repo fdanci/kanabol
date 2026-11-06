@@ -637,8 +637,76 @@ task_4() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 12.5: the new assignee is notified, unless they assigned it to themselves.
+
+creates_the_notified_project() {
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Notificari","key":"NOT"}')" || return 1
+  not_id=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$not_id/members" "{\"userId\":\"$dan_id\",\"role\":\"Member\"}")" || return 1
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$not_id")" '{"title":"Login SSO","priority":"Medium"}')" || return 1
+  not_task=$(body_field id)
+  [ -n "$not_task" ]
+}
+
+notifications_of() { # notifications_of <user id>: type, task and message of each, oldest first
+  in_db "SELECT type, task_id, message, read_at IS NULL FROM notifications WHERE user_id = '$1' ORDER BY created_at, id"
+}
+
+assigning_someone_notifies_them() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
+  is "TaskAssigned|$not_task|Administrator assigned you NOT-1: Login SSO|True" "$(notifications_of "$dan_id")"
+}
+
+assigning_yourself_notifies_nobody() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$admin_id\"}")" || return 1
+  is '' "$(notifications_of "$admin_id")" || return 1
+  is 1 "$(in_db "SELECT count(*) FROM notifications")"
+}
+
+creating_one_for_someone_notifies_them() {
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$not_id")" "{\"title\":\"Raport\",\"priority\":\"High\",\"assigneeId\":\"$dan_id\"}")" || return 1
+  second=$(body_field id)
+  is 2 "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$dan_id' AND type = 'TaskAssigned'")" || return 1
+  is "$second" "$(in_db "SELECT task_id FROM notifications WHERE user_id = '$dan_id' ORDER BY created_at DESC, id DESC LIMIT 1")"
+}
+
+dan_taking_it_himself_notifies_nobody() {
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
+  is 2 "$(in_db "SELECT count(*) FROM notifications")"
+}
+
+admin_name_is_known() {
+  is Administrator "$(in_db "SELECT display_name FROM users WHERE email = '$admin_email'")"
+}
+
+task_5() {
+  echo "12.5 A TaskAssigned notification for the new assignee"
+  check "Docker is running" docker_is_running
+  check "the handler is tracked" tracked backend/src/Kanabol.Application/Features/Notifications/TaskAssignedEventHandler.cs
+  check "the handler's tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskAssignedNotificationTests' 8
+  check "and the notification's own" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~NotificationTests' 2
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "a user without permissions signs in" dan_is_ready
+  check "the admin's id is known" admin_id_is_known
+  check "the first admin is named Administrator, as the seed has it" admin_name_is_known
+  check "a project with a member and a task is created" creates_the_notified_project
+  check "assigning a task to someone else notifies them, unread" assigning_someone_notifies_them
+  check "assigning it to yourself notifies nobody" assigning_yourself_notifies_nobody
+  check "creating a task for someone notifies them" creating_one_for_someone_notifies_them
+  check "taking a task yourself notifies nobody" dan_taking_it_himself_notifies_nobody
+  check "the notification is logged" log_has_entry "User {AssigneeUserId} notified of being assigned task {TaskId}, notification {NotificationId}" "\"AssigneeUserId\":\"$dan_id\""
+  check "the log has no unhandled exception, nor a failed handler" no_errors_or_failed_handlers
+}
+
+no_errors_or_failed_handlers() {
+  no_errors_in_the_log || return 1
+  if grep -F 'failed on domain event' "$api_log"; then
+    return 1
+  fi
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2 3 4
+  set -- 2 3 4 5
 fi
 
 for task in "$@"; do

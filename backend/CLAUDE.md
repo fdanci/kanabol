@@ -131,6 +131,7 @@ In Docker and production, settings come from environment variables:
 - Changes go through `TaskChanges`: an open task, a real member, an open project (409 `Project.Archived` otherwise), then the task's `xmin`, so the second of two changes at once gets 409 `Task.ChangedMeanwhile` and changes nothing. The entity writes the history, and a value that doesn't change writes none.
 - Overdue means open past the deadline, outside a done column, as in the project list. The search finds a part of the title in any case, and `%` or `_` are only characters there.
 - Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
+- `TaskAssignedEvent` gives the new assignee a `TaskAssigned` notification, unless they assigned the task to themselves, also when a task is created for someone (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, for SignalR in group 14, and its message is English, cut at 500 characters.
 
 ## Browser logs
 
