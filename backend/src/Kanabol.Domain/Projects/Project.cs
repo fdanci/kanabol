@@ -40,7 +40,11 @@ public sealed class Project : AuditableEntity, IArchivable
 
     public string? Description { get; private set; }
 
-    /// <summary>The number the next task gets. Numbers aren't reused, even after a task is archived.</summary>
+    /// <summary>
+    /// The number the next task gets. Numbers aren't reused, even after a task is archived. Only the
+    /// database moves it, with one UPDATE … RETURNING in the transaction that saves the task, so any
+    /// number of creations at once get different numbers (ITaskNumbers, SPEC sections 5.1 and 5.3).
+    /// </summary>
     public int NextTaskNumber { get; private set; }
 
     public DateTimeOffset? ArchivedAt { get; private set; }
@@ -80,12 +84,6 @@ public sealed class Project : AuditableEntity, IArchivable
         Name = name.Trim();
         Description = NormalizeDescription(description);
     }
-
-    /// <summary>
-    /// Only through TaskItem.Create. The project is saved with the task, so its version guards the
-    /// counter: two tasks created at the same moment can't take the same number (SPEC section 5.3).
-    /// </summary>
-    internal int TakeTaskNumber() => NextTaskNumber++;
 
     public BoardColumn AddColumn(string name, int position, bool isDone)
     {

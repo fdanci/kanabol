@@ -36,6 +36,27 @@ public sealed class TasksEndpointTests(ApiFixture api) : ProjectApiTest(api)
         body.RootElement.GetProperty("canChange").GetBoolean().Should().BeTrue();
     }
 
+    // SPEC sections 5.1 and 5.3 (decided 2026-11-06): one UPDATE … RETURNING takes the number, so nothing races.
+    [Fact]
+    public async Task Post_TenAtOnce_Return201WithTenDifferentKeys()
+    {
+        var (member, token) = await SignedIn(Permissions.TasksCreate);
+        var project = await CreateProject(builder => builder.WithKey("ZECE").OwnedBy(member));
+
+        var responses = await Task.WhenAll(Enumerable.Range(1, 10)
+            .Select(index => Send(HttpMethod.Post, TasksOf(project.Id), token, new { title = $"Task {index}", priority = "Low" })));
+
+        responses.Select(response => response.StatusCode).Should().AllBeEquivalentTo(HttpStatusCode.Created);
+        var keys = new List<string>();
+        foreach (var response in responses)
+        {
+            using var body = await JsonFrom(response);
+            keys.Add(body.RootElement.GetProperty("key").GetString()!);
+        }
+
+        keys.Should().BeEquivalentTo(Enumerable.Range(1, 10).Select(number => $"ZECE-{number}"));
+    }
+
     [Fact]
     public async Task Post_ByAMemberWithoutTasksCreate_Returns403PermissionRequired()
     {

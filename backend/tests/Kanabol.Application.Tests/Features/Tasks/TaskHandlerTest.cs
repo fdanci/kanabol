@@ -62,8 +62,9 @@ public abstract class TaskHandlerTest(PostgresFixture postgres) : ProjectHandler
     {
         await using var db = Postgres.CreateContext();
         db.TaskItems.AddRange(tasks);
+        var next = tasks.Max(task => task.Number) + 1;
         await db.Projects.IgnoreQueryFilters().Where(stored => stored.Id == project.Id)
-            .ExecuteUpdateAsync(set => set.SetProperty(stored => stored.NextTaskNumber, project.NextTaskNumber));
+            .ExecuteUpdateAsync(set => set.SetProperty(stored => stored.NextTaskNumber, stored => stored.NextTaskNumber > next ? stored.NextTaskNumber : next));
         await db.SaveChangesAsync();
     }
 

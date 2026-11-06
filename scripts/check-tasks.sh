@@ -452,28 +452,28 @@ viewer_needs_a_real_membership() {
 }
 
 # Creations sent at the same moment, by one curl that doesn't wait for one before the next: each gets its
-# own number, and none of them sees a 409 (SPEC sections 5.1 and 5.3). A creation only loses a round when
-# another one is saved first, so of four at once none loses more than three times, which the three retries
-# cover. Ten at once can leave one with a 409 (Tasks.md, group 12, in Blocked).
-four_at_once_get_four_numbers() { # four_at_once_get_four_numbers [project key]: PAR unless given
+# own number, and none of them sees a 409 (SPEC sections 5.1 and 5.3). The number comes from one
+# UPDATE … RETURNING in the transaction of the creation, with no retry (decided 2026-11-06, task 13.1),
+# so ten at once give ten 201s; with the three retries of group 12 they gave two 409s.
+ten_at_once_get_ten_numbers() { # ten_at_once_get_ten_numbers [project key]: PAR unless given
   key=${1:-PAR}
   status_is 201 "$(as "$admin_token" POST /api/projects "{\"name\":\"In paralel $key\",\"key\":\"$key\"}")" || return 1
   par_id=$(body_field id)
   url="$API_URL$(tasks_of "$par_id")"
-  curl -sS --max-time 60 -Z --parallel-immediate --parallel-max 4 \
+  curl -sS --max-time 60 -Z --parallel-immediate --parallel-max 10 \
     -H "Authorization: Bearer $admin_token" -H 'Content-Type: application/json' \
     -d '{"title":"In paralel","priority":"Low"}' -w '\nSTATUS %{http_code}\n' \
-    "$url" "$url" "$url" "$url" >"$scratch/parallel" 2>&1 || {
+    "$url" "$url" "$url" "$url" "$url" "$url" "$url" "$url" "$url" "$url" >"$scratch/parallel" 2>&1 || {
     tail -n 5 "$scratch/parallel"
     return 1
   }
-  is 4 "$(grep -c '^STATUS 201$' "$scratch/parallel")" || {
+  is 10 "$(grep -c '^STATUS 201$' "$scratch/parallel")" || {
     grep '^STATUS' "$scratch/parallel" | sort | uniq -c
     grep -o '"code":"[^"]*"' "$scratch/parallel" | sort | uniq -c
     return 1
   }
-  is 4 "$(grep -o "\"key\":\"$key-[0-9]*\"" "$scratch/parallel" | sort -u | wc -l | tr -d ' ')" || return 1
-  is '4|4|1|4|5' "$(in_db "SELECT count(*), count(DISTINCT t.number), min(t.number), max(t.number), max(p.next_task_number) FROM task_items t JOIN projects p ON p.id = t.project_id WHERE t.project_id = '$par_id'")"
+  is 10 "$(grep -o "\"key\":\"$key-[0-9]*\"" "$scratch/parallel" | sort -u | wc -l | tr -d ' ')" || return 1
+  is '10|10|1|10|11|10' "$(in_db "SELECT count(*), count(DISTINCT t.number), min(t.number), max(t.number), max(p.next_task_number), count(DISTINCT t.position) FROM task_items t JOIN projects p ON p.id = t.project_id WHERE t.project_id = '$par_id'")"
 }
 
 task_3() {
@@ -498,7 +498,7 @@ task_3() {
   check "a key no task has is not found" a_key_no_task_has_is_not_found
   check "a member without tasks.create can't create one, but reads them" creating_needs_tasks_create
   check "projects.view_all with tasks.create creates one only once a member" viewer_needs_a_real_membership
-  check "four creations at the same moment get four numbers, and no 409" four_at_once_get_four_numbers
+  check "ten creations at the same moment get ten numbers, and no 409" ten_at_once_get_ten_numbers
   check "the creation is logged, with the key" log_has_entry "Task {TaskId} created as {TaskKey} in project {ProjectId}" '"TaskKey":"TSK-1"'
   check "the log has no unhandled exception" no_errors_in_the_log
 }
@@ -871,6 +871,8 @@ archived_ones_are_hidden_by_default() {
 two_creations_at_once_get_two_numbers() {
   named_tests_pass Kanabol.Application.Tests \
     CreateTaskCommandHandlerTests.Create_TwoAtOnce_GetDifferentNumbersAndNoConflict \
+    CreateTaskCommandHandlerTests.Create_TenAtOnce_GetTenNumbersAndTenPlacesWithoutAConflict \
+    CreateTaskCommandHandlerTests.Create_WhileAnotherOneHasTakenItsNumber_WaitsForItsCommitThenTakesTheNextOne \
     CreateTaskCommandHandlerTests.Create_WhileAMemberIsAdded_StillSucceeds
 }
 
@@ -880,9 +882,9 @@ task_9() {
   check "every change writes its history" every_change_writes_its_history
   check "assigning someone outside the project is an error" assigning_a_non_member_is_an_error
   check "archived tasks don't show by default" archived_ones_are_hidden_by_default
-  check "two creations at once get different numbers and no 409" two_creations_at_once_get_two_numbers
+  check "two and ten creations at once get different numbers and no 409" two_creations_at_once_get_two_numbers
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
-  check "and on it, four creations at once get four numbers and no 409" four_at_once_get_four_numbers PAQ
+  check "and on it, ten creations at once get ten numbers and no 409" ten_at_once_get_ten_numbers PAQ
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 

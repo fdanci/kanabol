@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
@@ -5,14 +6,17 @@ using Kanabol.Domain.Users;
 namespace Kanabol.Tests.Shared.Builders;
 
 /// <summary>
-/// Builds through TaskItem.Create, so each task takes the next number of the project object given.
-/// Saving the tasks without that project leaves its counter behind in the database: a test that then
-/// creates a task through a handler saves the project too, or uses a project of its own.
+/// Builds through TaskItem.Create. Only the database moves a project's counter, so the builder numbers
+/// the tasks of each project object itself, one after another from its counter, unless WithNumber says.
+/// Saving them leaves the counter behind in the database: a test that then creates a task through a
+/// handler moves it past them first (TaskHandlerTest.AddTasks), or uses a project of its own.
 /// </summary>
 public sealed class TaskItemBuilder
 {
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 6, 9, 0, 0, TimeSpan.Zero);
+    private static readonly ConditionalWeakTable<Project, StrongBox<int>> _lastNumbers = [];
 
+    private int? _number;
     private Project? _project;
     private BoardColumn? _column;
     private TaskPriority _priority = TaskPriority.Medium;
@@ -33,6 +37,12 @@ public sealed class TaskItemBuilder
     public TaskItemBuilder InColumn(BoardColumn column)
     {
         _column = column;
+        return this;
+    }
+
+    public TaskItemBuilder WithNumber(int number)
+    {
+        _number = number;
         return this;
     }
 
@@ -81,7 +91,9 @@ public sealed class TaskItemBuilder
     public TaskItem Build()
     {
         var project = _project ?? throw new InvalidOperationException("A task needs a project: call InProject first.");
-        var task = TaskItem.Create(project, _column!, _title, _description, _priority, _position, _assigneeId, _dueDate, _createdById, _createdAt);
+        var number = _number
+            ?? Interlocked.Increment(ref _lastNumbers.GetValue(project, unnumbered => new StrongBox<int>(unnumbered.NextTaskNumber - 1)).Value);
+        var task = TaskItem.Create(project, _column!, number, _title, _description, _priority, _position, _assigneeId, _dueDate, _createdById, _createdAt);
         task.ClearDomainEvents();
         return task;
     }
