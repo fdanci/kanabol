@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v1.8 — 2026-11-06 (v1.7 + deciziile grupului 8b: reactivarea și resetarea parolei în §4.4, `MustChangePassword` în verificarea din baza de date, `users.is_active` ca concurrency token în §4.4, §5.1 și §5.3, ținta merge-ului în `main` ridicată la 150 s în §14.6, parola proprie în §16).
+> Stare: v1.9 — 2026-11-06 (v1.8 + `check-web.sh` în §14.7. v1.8 — 2026-11-06: v1.7 + deciziile grupului 8b: reactivarea și resetarea parolei în §4.4, `MustChangePassword` în verificarea din baza de date, `users.is_active` ca concurrency token în §4.4, §5.1 și §5.3, ținta merge-ului în `main` ridicată la 150 s în §14.6, parola proprie în §16).
 
 ---
 
@@ -1184,6 +1184,7 @@ Fiecare grup din `Tasks.md` are verificările lui în `scripts/check-*.sh`. Nu r
 - `check-tests.sh`, `check-auth.sh`, `check-permissions.sh`, `check-users.sh`, `check-pipeline.sh` și `check-docker.sh` au nevoie de Docker pornit.
 - `check-backend.sh`, `check-auth.sh`, `check-permissions.sh` și `check-users.sh` au nevoie de un PostgreSQL al cărui utilizator poate crea baze de date, din `KANABOL_CHECK_DB` sau din user secret-ul `ConnectionStrings:Default`. Lucrează în baze proprii și le șterg la final.
 - `check-docker.sh 5` are nevoie de porturile 5432, 5341 și 5200 libere.
+- `check-web.sh` (grupul 9) n-are nevoie de Docker sau de PostgreSQL, doar de pachetele instalate de `scripts/setup.sh`.
 
 Dacă mai târziu apare un server de CI (GitHub Actions, Gitea), `scripts/test-all.sh` e exact ce rulează și acolo — fără duplicare de logică.
 
