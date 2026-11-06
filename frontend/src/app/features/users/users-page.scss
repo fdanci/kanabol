@@ -1,0 +1,54 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+.placeholder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-4);
+  height: 40px;
+  padding: 0 var(--kb-space-4);
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  min-width: 0;
+  font-weight: 500;
+  color: var(--kb-text-900);
+}
+
+.me {
+  flex: none;
+  font-weight: 400;
+  color: var(--kb-text-600);
+}
+
+.email,
+.created,
+.active {
+  color: var(--kb-text-600);
+}
+
+.created {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.states {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--kb-space-1);
+}
+
+.actions {
+  width: 48px;
+  text-align: right;
+}

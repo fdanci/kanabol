@@ -241,6 +241,55 @@ html {
       container-text-color: var(--kb-navy-900),
     )
   );
+  // Tables (6.0.9): 40px rows of 13px text, a 28px header in caption 600, no lines between rows.
+  // The zebra and the line under the header come from kb-table.
+  @include mat.table-overrides(
+    (
+      background-color: transparent,
+      header-container-height: 28px,
+      row-item-container-height: 40px,
+      header-headline-color: var(--kb-text-600),
+      header-headline-size: 12px,
+      header-headline-line-height: 16px,
+      header-headline-weight: 600,
+      header-headline-tracking: normal,
+      row-item-label-text-color: var(--kb-text-700),
+      row-item-label-text-size: 13px,
+      row-item-label-text-line-height: 20px,
+      row-item-label-text-tracking: normal,
+      row-item-outline-width: 0,
+    )
+  );
+  // The paginator is a 36px bar under the table (6.4).
+  @include mat.paginator-overrides(
+    (
+      container-size: 36px,
+      container-background-color: var(--kb-surface-0),
+      container-text-color: var(--kb-text-600),
+      container-text-size: 12px,
+      container-text-line-height: 16px,
+      container-text-tracking: normal,
+      select-trigger-text-size: 12px,
+      form-field-container-height: 28px,
+      form-field-container-vertical-padding: 4px,
+      enabled-icon-color: var(--kb-text-600),
+      disabled-icon-color: var(--kb-border-300),
+    )
+  );
+  // A select is a field (6.0.4) whose list opens as a translucent popover, like a menu (6.0.6).
+  @include mat.select-overrides(
+    (
+      panel-background-color: var(--kb-glass-bg),
+      container-elevation-shadow: var(--kb-shadow-popover),
+      trigger-text-size: 13px,
+      trigger-text-line-height: 20px,
+      trigger-text-tracking: normal,
+      enabled-trigger-text-color: var(--kb-text-900),
+      placeholder-text-color: var(--kb-text-500),
+      enabled-arrow-color: var(--kb-text-600),
+      focused-arrow-color: var(--kb-accent-600),
+    )
+  );
 }
 
 // Controls come in three sizes (6.0.1, 6.0.3): Material is set to large, 32px, and these bring a
@@ -299,6 +348,16 @@ kb-navbar {
       state-layer-size: 28px,
       icon-size: 16px,
       icon-color: var(--kb-navy-900),
+    )
+  );
+}
+
+// A destructive menu item: danger text and icon (6.0.6). <button mat-menu-item class="kb-menu-danger">.
+.kb-menu-danger {
+  @include mat.menu-overrides(
+    (
+      item-label-text-color: var(--kb-danger-600),
+      item-icon-color: var(--kb-danger-600),
     )
   );
 }

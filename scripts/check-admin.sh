@@ -78,6 +78,15 @@ bundle_has() { # bundle_has <text>
   built && in_file "$1" "$scratch/bundle.js"
 }
 
+css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
+  built || return 1
+  tr -d ' 
+' <"$(ls "$scratch"/dist/browser/styles-*.css | head -n 1)" | grep -qF -- "$1" || {
+    echo "not in the built CSS: $1"
+    return 1
+  }
+}
+
 # The texts as ng extract-i18n writes them for translation, made once per run.
 extracted() {
   [ -f "$scratch/locale/messages.xlf" ] && return 0
@@ -120,8 +129,32 @@ task_1() {
   check "the build reads the permissions the API knows" bundle_has '/permissions'
 }
 
+# ---- 10.2
+
+task_2() {
+  echo "10.2 Users"
+  for file in models.ts users-api.ts users-store.ts user-fields.ts user-sheet.ts user-sheet.html role-sheet.ts     password-sheet.ts sheet.scss users-page.ts users-page.html users.routes.ts; do
+    check "features/users/$file is tracked" tracked "$app/features/users/$file"
+  done
+  check "shared/ui/paginator-labels.ts is tracked" tracked "$app/shared/ui/paginator-labels.ts"
+  check "the specs of the users pass" specs_pass "src/app/features/users/*.spec.ts" 23
+  check "a sheet asks before it throws changes away" specs_pass src/app/shared/ui/confirm-dialog.spec.ts 7
+  check "a locked account and a password to change have chips with icons" specs_pass src/app/shared/ui/chip.spec.ts 3
+  check "the paginators speak Romanian" specs_pass src/app/app.config.spec.ts 8
+  check "/users loads with its first visit, behind users.manage" lazy_behind users usersManage features/users/users.routes
+  check "table rows are 40px" css_has '--mat-table-row-item-container-height:40px'
+  check "under a 28px header" css_has '--mat-table-header-container-height:28px'
+  check "with no lines between them" css_has '--mat-table-row-item-outline-width:0'
+  check "but zebra stripes" css_has '.kb-table-row:nth-child('
+  check "the ⋮ of a row shows on hover" css_has '.kb-row-actions{opacity:0'
+  check "the paginator is a 36px bar" css_has '--mat-paginator-container-size:36px'
+  check "a destructive menu item is red" css_has '--mat-menu-item-label-text-color:var(--kb-danger-600)'
+  check "the states of an account are named" messages_have 'Parolă de schimbat'
+  check "a deactivation says what follows from it" messages_have 'Rămâne în istoric și îl poți activa oricând.'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 
 for task in "$@"; do

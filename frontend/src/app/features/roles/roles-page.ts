@@ -128,13 +128,7 @@ export class RolesPage {
     if (!this.editor()?.changed()) {
       return true;
     }
-    return this.confirmation.ask({
-      title: $localize`Renunți la modificări?`,
-      message: $localize`Ce ai schimbat la acest rol nu a fost salvat și se pierde.`,
-      confirmLabel: $localize`Renunță`,
-      icon: 'undo',
-      destructive: true,
-    });
+    return this.confirmation.discardChanges();
   }
 
   /** The changes stay in the form. errorInterceptor has shown anything that isn't about a field. */

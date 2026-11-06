@@ -5,12 +5,9 @@ import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButton } from '@angular/material/button';
 import { Router } from '@angular/router';
 import { AuthStore } from '../../core/auth/auth-store';
+import { PASSWORD_MAX, PASSWORD_MIN } from '../../shared/models/password-policy';
 import { problemIn } from '../../shared/models/problem-details';
 import { Lockup } from '../../shared/ui/lockup';
-
-/** The password policy of docs/SPEC.md §4.5. Whether it's too common only the server knows. */
-export const PASSWORD_MIN = 10;
-export const PASSWORD_MAX = 256;
 
 export interface PasswordRule {
   label: string;

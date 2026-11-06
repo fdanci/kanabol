@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, Injectable, inject } from '@angular/core';
 import { MatButton } from '@angular/material/button';
-import { MAT_DIALOG_DATA, MatDialog, MatDialogClose } from '@angular/material/dialog';
-import { firstValueFrom } from 'rxjs';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogClose, MatDialogRef } from '@angular/material/dialog';
+import { filter, firstValueFrom } from 'rxjs';
 import { SHEET_WIDTH } from './sheet';
 
 export interface ConfirmationRequest {
@@ -126,4 +126,40 @@ export class Confirmation {
     });
     return (await firstValueFrom(opened.afterClosed())) === true;
   }
+
+  /** Before unsaved changes are thrown away: by leaving a form, Esc or a click beside a sheet. */
+  discardChanges(): Promise<boolean> {
+    return this.ask({
+      title: $localize`Renunți la modificări?`,
+      message: $localize`Ce ai schimbat nu a fost salvat și se pierde.`,
+      confirmLabel: $localize`Renunță`,
+      icon: 'undo',
+      destructive: true,
+    });
+  }
+}
+
+/**
+ * Makes Esc and a click beside a sheet ask before they throw away what was typed in it
+ * (docs/UI_UX_SPEC.md §6.0.5). Untouched, the sheet just closes, as it would with Anulează.
+ */
+export function askBeforeClosing(
+  ref: MatDialogRef<unknown>,
+  changed: () => boolean,
+  confirmation: Confirmation,
+): void {
+  ref.disableClose = true;
+  const leave = async (): Promise<void> => {
+    if (!changed() || (await confirmation.discardChanges())) {
+      ref.close();
+    }
+  };
+  ref.backdropClick().subscribe(() => void leave());
+  ref
+    .keydownEvents()
+    .pipe(filter((event) => event.key === 'Escape'))
+    .subscribe((event) => {
+      event.preventDefault();
+      void leave();
+    });
 }

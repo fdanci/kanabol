@@ -1,0 +1,129 @@
+<form (submit)="submit($event)" novalidate>
+  <h2 id="kb-sheet-title" class="kb-title">
+    @if (creating) {
+      <ng-container i18n>Utilizator nou</ng-container>
+    } @else {
+      <ng-container i18n>Editează contul</ng-container>
+    }
+  </h2>
+  @if (creating) {
+    <p class="lead" i18n>Intră în cont cu parola inițială, pe care o schimbă la prima intrare.</p>
+  }
+
+  <div class="kb-form-group">
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="user-email" i18n>Email</label>
+      <div>
+        <input
+          #emailInput
+          id="user-email"
+          class="kb-field"
+          type="email"
+          autocomplete="off"
+          [attr.maxlength]="emailMax"
+          [value]="email.value()"
+          [attr.aria-invalid]="email.error() !== null"
+          [attr.aria-describedby]="email.error() !== null ? 'user-email-error' : null"
+          (input)="email.value.set(emailInput.value)"
+          (blur)="email.touched.set(true)"
+        />
+        @if (email.error(); as message) {
+          <p id="user-email-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="user-name" i18n>Nume</label>
+      <div>
+        <input
+          #nameInput
+          id="user-name"
+          class="kb-field"
+          autocomplete="off"
+          [attr.maxlength]="nameMax"
+          [value]="name.value()"
+          [attr.aria-invalid]="name.error() !== null"
+          [attr.aria-describedby]="name.error() !== null ? 'user-name-error' : null"
+          (input)="name.value.set(nameInput.value)"
+          (blur)="name.touched.set(true)"
+        />
+        @if (name.error(); as message) {
+          <p id="user-name-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    @if (creating) {
+      <div class="kb-form-row">
+        <span id="user-role-label" class="kb-form-label kb-required" i18n>Rol</span>
+        <div>
+          <mat-select
+            id="user-role"
+            class="kb-field kb-select"
+            panelClass="kb-menu"
+            aria-labelledby="user-role-label"
+            [required]="true"
+            [value]="role.value()"
+            (valueChange)="role.value.set($event)"
+            (closed)="role.touched.set(true)"
+          >
+            @for (option of roles(); track option.id) {
+              <mat-option [value]="option.id">{{ option.name }}</mat-option>
+            }
+          </mat-select>
+          @if (role.error(); as message) {
+            <p id="user-role-error" class="kb-field-error">{{ message }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="kb-form-row">
+        <label class="kb-form-label kb-required" for="user-password" i18n>Parolă inițială</label>
+        <div>
+          <span class="password">
+            <input
+              #passwordInput
+              id="user-password"
+              class="kb-field"
+              autocomplete="new-password"
+              [type]="shown() ? 'text' : 'password'"
+              [attr.maxlength]="passwordMax"
+              [value]="password.value()"
+              [attr.aria-invalid]="password.error() !== null"
+              [attr.aria-describedby]="password.error() !== null ? 'user-password-error' : null"
+              (input)="password.value.set(passwordInput.value)"
+              (blur)="password.touched.set(true)"
+            />
+            <button
+              matButton
+              class="kb-sm reveal"
+              type="button"
+              [attr.aria-pressed]="shown()"
+              (click)="shown.set(!shown())"
+              i18n
+            >
+              arată
+            </button>
+          </span>
+          @if (password.error(); as message) {
+            <p id="user-password-error" class="kb-field-error">{{ message }}</p>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <div class="actions">
+    <button matButton="outlined" class="kb-bezel" type="button" (click)="cancel()" i18n>
+      Anulează
+    </button>
+    <button matButton="filled" class="kb-default" type="submit" [disabled]="busy()">
+      @if (creating) {
+        <ng-container i18n>Creează</ng-container>
+      } @else {
+        <ng-container i18n>Salvează</ng-container>
+      }
+    </button>
+  </div>
+</form>

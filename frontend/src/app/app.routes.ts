@@ -44,7 +44,12 @@ export const routes: Routes = [
       placeholder('projects', $localize`Proiectele mele`),
       placeholder('my-tasks', $localize`Task-urile mele`),
       placeholder('notifications', $localize`Notificări`),
-      ...withPermission(PERMISSIONS.usersManage, placeholder('users', $localize`Utilizatori`)),
+      ...withPermission(PERMISSIONS.usersManage, {
+        path: 'users',
+        title: $localize`Utilizatori · Kanabol`,
+        loadChildren: () =>
+          import('./features/users/users.routes').then((users) => users.USERS_ROUTES),
+      }),
       ...withPermission(PERMISSIONS.rolesManage, {
         path: 'roles',
         title: $localize`Roluri · Kanabol`,

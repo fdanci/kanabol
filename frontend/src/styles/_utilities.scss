@@ -248,3 +248,85 @@ textarea.kb-field {
 .kb-menu {
   --_icon: 16px;
 }
+
+// Tables (6.0.9, 6.4): a flat card around a mat-table, zebra rows and one line under the sticky
+// header. kb-table-card goes around, kb-table on the table and kb-table-row on each mat-row.
+// overflow: clip rounds the corners without making the card a scroll container, which would keep
+// the header from sticking.
+.kb-table-card {
+  overflow: clip;
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+}
+
+.kb-table {
+  width: 100%;
+
+  thead th {
+    background: var(--kb-surface-0);
+    box-shadow: inset 0 -1px 0 var(--kb-border-200);
+  }
+}
+
+.kb-table-row {
+  transition: background-color var(--kb-dur-fast) var(--kb-ease);
+
+  &:nth-child(even) {
+    background: color-mix(in srgb, var(--kb-navy-900) 3%, var(--kb-surface-0));
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--kb-navy-900) 5%, var(--kb-surface-0));
+  }
+}
+
+// The ⋮ at the end of a row shows on hover, with the focus inside, and while its menu is open.
+.kb-row-actions {
+  opacity: 0;
+  transition: opacity var(--kb-dur-fast) var(--kb-ease);
+}
+
+.kb-table-row:is(:hover, :focus-within) .kb-row-actions,
+.kb-row-actions[aria-expanded='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .kb-row-actions {
+    opacity: 1;
+  }
+}
+
+// Below 768px each row becomes a card, its cells stacked and the ⋮ top right (section 10).
+@media (max-width: 767px) {
+  .kb-table {
+    thead {
+      display: none;
+    }
+
+    tr.kb-table-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      height: auto;
+      padding: var(--kb-space-2) var(--kb-space-3);
+    }
+
+    td {
+      display: block;
+      padding: 2px 0;
+    }
+
+    td:last-child {
+      grid-row: 1;
+      grid-column: 2;
+    }
+  }
+}
+
+// A mat-select as a field (6.0.4): <mat-select class="kb-field kb-select">. Its list is a popover.
+.kb-field.kb-select {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}

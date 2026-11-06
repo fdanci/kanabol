@@ -54,7 +54,10 @@ function refused(status: number, code: string): Observable<never> {
 
 describe('RolesPage', () => {
   let api: FakeRolesApi;
-  let confirmation: { ask: ReturnType<typeof vi.fn> };
+  let confirmation: {
+    ask: ReturnType<typeof vi.fn>;
+    discardChanges: ReturnType<typeof vi.fn>;
+  };
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   let fixture: ComponentFixture<RolesPage>;
   let element: HTMLElement;
@@ -62,7 +65,10 @@ describe('RolesPage', () => {
 
   beforeEach(() => {
     api = new FakeRolesApi();
-    confirmation = { ask: vi.fn(() => Promise.resolve(true)) };
+    confirmation = {
+      ask: vi.fn(() => Promise.resolve(true)),
+      discardChanges: vi.fn(() => Promise.resolve(true)),
+    };
     snackbar = { show: vi.fn(), error: vi.fn() };
     TestBed.configureTestingModule({
       providers: [
@@ -305,15 +311,13 @@ describe('RolesPage', () => {
     await select('Lead');
     await typeName('Lead dev');
 
-    confirmation.ask.mockResolvedValue(false);
+    confirmation.discardChanges.mockResolvedValue(false);
     await select('Oaspete');
-    expect(confirmation.ask).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Renunți la modificări?', confirmLabel: 'Renunță' }),
-    );
+    expect(confirmation.discardChanges).toHaveBeenCalled();
     expect(item('Lead').getAttribute('aria-current')).toBe('true');
     expect(nameField().value).toBe('Lead dev');
 
-    confirmation.ask.mockResolvedValue(true);
+    confirmation.discardChanges.mockResolvedValue(true);
     await select('Oaspete');
     expect(item('Oaspete').getAttribute('aria-current')).toBe('true');
     expect(nameField().value).toBe('Oaspete');
@@ -324,7 +328,7 @@ describe('RolesPage', () => {
     await select('Lead');
     await select('Oaspete');
 
-    expect(confirmation.ask).not.toHaveBeenCalled();
+    expect(confirmation.discardChanges).not.toHaveBeenCalled();
     expect(item('Oaspete').getAttribute('aria-current')).toBe('true');
   });
 

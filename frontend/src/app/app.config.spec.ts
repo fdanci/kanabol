@@ -5,6 +5,7 @@ import { ApplicationInitStatus, ErrorHandler, LOCALE_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DEFAULT_OPTIONS } from '@angular/material/dialog';
 import { MatIconRegistry } from '@angular/material/icon';
+import { MatPaginatorIntl } from '@angular/material/paginator';
 import { MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS } from '@angular/material/slide-toggle';
 import { MAT_TOOLTIP_DEFAULT_OPTIONS } from '@angular/material/tooltip';
 import { appConfig } from './app.config';
@@ -130,5 +131,16 @@ describe('appConfig', () => {
     );
     expect(formatDate(new Date(2026, 10, 4), 'shortDate', locale)).toBe('04.11.2026');
     expect(formatNumber(1234.5, locale)).toBe('1.234,5');
+  });
+
+  // docs/UI_UX_SPEC.md §6.4 and §11.
+  it('has the paginators speak Romanian, with Romanian numbers', () => {
+    const labels = TestBed.inject(MatPaginatorIntl);
+
+    expect(labels.itemsPerPageLabel).toBe('Pe pagină:');
+    expect(labels.nextPageLabel).toBe('Pagina următoare');
+    expect(labels.getRangeLabel(0, 25, 60)).toBe('1 – 25 din 60');
+    expect(labels.getRangeLabel(40, 25, 1012)).toBe('1.001 – 1.012 din 1.012');
+    expect(labels.getRangeLabel(0, 25, 0)).toBe('0 din 0');
   });
 });

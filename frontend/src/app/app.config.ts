@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { MAT_DIALOG_DEFAULT_OPTIONS, MatDialogConfig } from '@angular/material/dialog';
 import { MatIconRegistry } from '@angular/material/icon';
+import { MatPaginatorIntl } from '@angular/material/paginator';
 import {
   MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS,
   MatSlideToggleDefaultOptions,
@@ -24,6 +25,7 @@ import { authInterceptor } from './core/auth/auth-interceptor';
 import { AuthStore } from './core/auth/auth-store';
 import { ThemeStore } from './core/layout/theme-store';
 import { GlobalErrorHandler } from './core/logging/global-error-handler';
+import { PaginatorLabels } from './shared/ui/paginator-labels';
 
 // Dates as 04.11.2026 and numbers as 1.234,5 (docs/UI_UX_SPEC.md §11).
 registerLocaleData(localeRo, 'ro-RO');
@@ -61,6 +63,7 @@ export const appConfig: ApplicationConfig = {
         hasBackdrop: true,
       } satisfies MatDialogConfig,
     },
+    { provide: MatPaginatorIntl, useClass: PaginatorLabels },
     // The first one sees a request first and its answer last, so errorInterceptor only hears what's
     // left once the interceptors after it are done.
     provideHttpClient(
