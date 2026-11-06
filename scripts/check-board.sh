@@ -217,6 +217,8 @@ send() { # send <method> <path> [curl arguments...]: leaves the answer in the sc
   method=$1
   path=$2
   shift 2
+  # An answer that never came leaves no older one behind to be read as this one.
+  rm -f "$scratch/body" "$scratch/headers"
   curl -sS --max-time 30 -o "$scratch/body" -D "$scratch/headers" -w '%{http_code}' -X "$method" "$@" "$API_URL$path"
 }
 
@@ -284,9 +286,11 @@ no_errors_in_the_log() {
 }
 
 # The first admin past the forced password change, and Dan, a member without permissions.
+# The API may have stopped for a build since the tokens were taken: it comes back first, and the tokens,
+# signed with the same secret, still hold.
 admin_is_ready() {
-  [ -n "${admin_token:-}" ] && return 0
   api_is_up || return 1
+  [ -n "${admin_token:-}" ] && return 0
   status_is 200 "$(login "$admin_email" "$admin_password")" || return 1
   first_token=$(body_field accessToken)
   status_is 200 "$(as "$first_token" POST /api/auth/change-password "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"$new_admin_password\"}")" || return 1
@@ -295,8 +299,8 @@ admin_is_ready() {
 }
 
 dan_is_ready() {
-  [ -n "${dan_token:-}" ] && return 0
   admin_is_ready || return 1
+  [ -n "${dan_token:-}" ] && return 0
   status_is 201 "$(as "$admin_token" POST /api/roles '{"name":"Fara permisiuni","permissions":[]}')" || return 1
   plain_role=$(body_field id)
   status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"dan@example.com\",\"displayName\":\"Dan Ionescu\",\"roleId\":\"$plain_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
