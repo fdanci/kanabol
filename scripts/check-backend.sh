@@ -562,6 +562,9 @@ internal sealed class NoAccess : IProjectAccess
 
     public Task<Result> EnsureOwnerAsync(Guid projectId, Guid userId, CancellationToken ct) =>
         Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
+
+    public Task<Result> EnsureRealMemberAsync(Guid projectId, Guid userId, CancellationToken ct) =>
+        Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
 }
 
 internal sealed class NullStorage : IFileStorage
