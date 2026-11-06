@@ -56,6 +56,10 @@ const BY_CODE: Record<string, () => string> = {
     $localize`Proiectul are nevoie de un owner. Fă întâi pe altcineva owner.`,
   'Project.ChangedMeanwhile': () =>
     $localize`Proiectul s-a schimbat între timp. Reîncarcă pagina și reîncearcă.`,
+  // What keeps a task whole (docs/SPEC.md §5.1, §5.3).
+  'Task.NotFound': () => $localize`Task-ul nu mai există sau a fost arhivat.`,
+  'Task.ChangedMeanwhile': () =>
+    $localize`Task-ul s-a schimbat între timp. L-am citit din nou, reîncearcă.`,
 };
 
 function messageFor(status: number, problem: ProblemDetails | null): string {

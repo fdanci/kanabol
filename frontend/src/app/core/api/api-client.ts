@@ -25,6 +25,10 @@ export class ApiClient {
     return this.http.put<T>(this.url(path), body, options);
   }
 
+  patch<T>(path: string, body: unknown, options?: RequestOptions): Observable<T> {
+    return this.http.patch<T>(this.url(path), body, options);
+  }
+
   delete<T = void>(path: string, options?: RequestOptions): Observable<T> {
     return this.http.delete<T>(this.url(path), options);
   }

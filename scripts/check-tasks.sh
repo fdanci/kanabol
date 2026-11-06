@@ -880,8 +880,161 @@ task_9() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 12.7: the task panel, from its specs, its routes, its texts and its production build.
+
+web=frontend
+app=$web/src/app
+tasks=$app/features/tasks
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+lacks() { # lacks <extended regex> <file...>
+  ! grep -nE -- "$@" || return 1
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*' '__').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+# The production build, made once per run.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  cat "$scratch"/dist/browser/*.js >"$scratch/bundle.js" && touch "$scratch/built"
+}
+
+bundle_has() { # bundle_has <text>
+  built && in_file "$1" "$scratch/bundle.js"
+}
+
+# The texts as ng extract-i18n writes them for translation, made once per run.
+extracted() {
+  [ -f "$scratch/locale/messages.xlf" ] && return 0
+  (cd "$web" && npx ng extract-i18n --output-path "$scratch/locale") >"$scratch/extract.log" 2>&1 || {
+    plain "$scratch/extract.log" | tail -n 25
+    return 1
+  }
+}
+
+messages_have() { # messages_have <text>
+  extracted && in_file "$1" "$scratch/locale/messages.xlf"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+# docs/SPEC.md §16: nothing a user wrote reaches the page as HTML, anywhere in the app. Comments may
+# name what the code doesn't do.
+no_html_from_text() {
+  files=$(git ls-files "$app" | grep -E '\.(ts|html)$' | grep -v '\.spec\.ts$')
+  # shellcheck disable=SC2086
+  found=$(grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|bypassSecurityTrust|document\.write' $files |
+    grep -vE '^[^:]+:[0-9]+:\s*(\*|//|/\*|<!--)')
+  [ -z "$found" ] || {
+    echo "$found"
+    return 1
+  }
+}
+
+no_colors_by_hand() {
+  lacks '#[0-9a-fA-F]{3,8}\b' "$tasks"/*.scss "$tasks"/*.ts "$app/shared/ui/markdown.ts" "$app/shared/ui/deadline-chip.ts"
+}
+
+no_deep_selectors() {
+  lacks '::ng-deep|\.mat-mdc-|\.mdc-' "$tasks"/*.scss "$tasks"/*.ts "$app/shared/ui/markdown.ts"
+}
+
+# /tasks/KAN-12 loads with its first visit, and the panel has an outlet of its own next to the page.
+the_panel_has_its_routes() {
+  node -e "
+    const fs = require('fs');
+    const routes = fs.readFileSync('$app/app.routes.ts', 'utf8');
+    if (!/path: 'tasks',[^}]*loadChildren: \\(\\) =>\\s*import\\('.\\/features\\/tasks\\/tasks.routes'\\)/.test(routes)) {
+      console.log('no lazy route for /tasks'); process.exit(1);
+    }
+    if (!/path: 'task\\/:key',\\s*outlet: TASK_PANEL_OUTLET,\\s*loadComponent/.test(routes)) {
+      console.log('no lazy panel route in its outlet'); process.exit(1);
+    }
+    const shell = fs.readFileSync('$app/core/layout/shell.ts', 'utf8');
+    if (!shell.includes('<router-outlet name=\"panel\" />')) { console.log('the shell has no panel outlet'); process.exit(1); }
+    const outlet = fs.readFileSync('$app/shared/task-panel.ts', 'utf8');
+    if (!outlet.includes(\"TASK_PANEL_OUTLET = 'panel'\")) { console.log('the outlet is not named panel'); process.exit(1); }
+  "
+}
+
+# docs/UI_UX_SPEC.md §6.0.5: 920px, from the right, the window's height less 12px on each side.
+the_panel_is_920_from_the_right() {
+  in_file "width: '920px'," "$tasks/task-panel.ts" &&
+    in_file "height: 'calc(100vh - 24px)'," "$tasks/task-panel.ts" &&
+    in_file "position: { top: '12px', right: '12px' }," "$tasks/task-panel.ts" &&
+    in_file 'grid-template-columns: minmax(0, 1fr) 300px;' "$tasks/task-panel.scss"
+}
+
+every_task_error_has_a_message() {
+  codes=$(grep -o '"Task\.[A-Za-z]*"' backend/src/Kanabol.Application/Features/Tasks/TaskErrors.cs | tr -d '"' | sort -u)
+  [ -n "$codes" ] || return 1
+  for code in $codes; do
+    in_file "'$code':" "$app/core/api/error-interceptor.ts" || {
+      echo "no message for $code in error-interceptor.ts"
+      return 1
+    }
+  done
+}
+
+task_7() {
+  echo "12.7 The task panel"
+  for file in models.ts tasks-api.ts task-changes.ts task-fields.ts task-panel-store.ts task-panel.ts \
+    task-panel.html task-panel.scss task-panel-route.ts task-link-page.ts tasks.routes.ts task-testing.ts; do
+    check "features/tasks/$file is tracked" tracked "$tasks/$file"
+  done
+  for file in shared/task-panel.ts shared/ui/markdown.ts shared/ui/markdown-parser.ts shared/ui/deadline-chip.ts; do
+    check "$file is tracked" tracked "$app/$file"
+  done
+  check "the specs of the panel pass" specs_pass "src/app/features/tasks/task-*.spec.ts" 31
+  check "markdown is read and rendered without HTML" specs_pass "src/app/shared/ui/markdown*.spec.ts" 21
+  check "the deadline chip reads as the UI spec has it" specs_pass src/app/shared/ui/deadline-chip.spec.ts 4
+  check "the API client sends a PATCH" specs_pass src/app/core/api/api-client.spec.ts 5
+  check "the shell still opens its pages" specs_pass src/app/core/layout/layout.spec.ts 15
+  check "the projects pages still pass" specs_pass "src/app/features/projects/*.spec.ts" 63
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "nothing in the app puts text into the page as HTML" no_html_from_text
+  check "the panel's pages write no colors by hand" no_colors_by_hand
+  check "nor reach into Material's classes" no_deep_selectors
+  check "/tasks/KAN-12 and the panel's outlet are routes" the_panel_has_its_routes
+  check "the panel is 920px, from the right, in two columns" the_panel_is_920_from_the_right
+  check "every refusal of a task has a Romanian message" every_task_error_has_a_message
+  check "archiving asks first" messages_have 'Arhivezi task-ul'
+  check "the description says it takes markdown" messages_have 'Markdown de bază'
+  check "a task without a description says so" messages_have 'Fără descriere.'
+  check "the build opens tasks by key" bundle_has '/tasks/by-key/'
+  check "and its links can't reach back to the page" bundle_has 'noopener noreferrer'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2 3 4 5 6 9
+  set -- 2 3 4 5 6 7 9
 fi
 
 for task in "$@"; do

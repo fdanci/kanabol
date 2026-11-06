@@ -4,6 +4,7 @@ import { permissionGuard } from './core/auth/permission-guard';
 import { PERMISSIONS, Permission } from './core/auth/permissions';
 import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './core/layout/pages';
 import { Shell } from './core/layout/shell';
+import { TASK_PANEL_OUTLET } from './shared/task-panel';
 
 /** A page whose group hasn't been built yet: the sidebar already links to it. */
 function placeholder(path: string, title: string): Route {
@@ -48,6 +49,19 @@ export const routes: Routes = [
           import('./features/projects/projects.routes').then(
             (projects) => projects.PROJECTS_ROUTES,
           ),
+      },
+      {
+        path: 'tasks',
+        title: $localize`Task · Kanabol`,
+        loadChildren: () =>
+          import('./features/tasks/tasks.routes').then((tasks) => tasks.TASKS_ROUTES),
+      },
+      // A task's panel, over whatever page it was opened from: /projects/p1/list(panel:task/KAN-12).
+      {
+        path: 'task/:key',
+        outlet: TASK_PANEL_OUTLET,
+        loadComponent: () =>
+          import('./features/tasks/task-panel-route').then((panel) => panel.TaskPanelRoute),
       },
       placeholder('my-tasks', $localize`Task-urile mele`),
       placeholder('notifications', $localize`Notificări`),
