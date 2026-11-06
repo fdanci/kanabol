@@ -28,6 +28,11 @@
   --kb-fill-danger: #b42318;
   --kb-fill-shade: #052063; /* le închide la hover, la apăsare și pe bordură */
   --kb-ink: #052063; /* fundal închis sub text alb în ambele teme: tooltip, snackbar */
+  --kb-on-ink-accent: #91c4fb; /* acțiuni și linkuri pe --kb-ink, la fel în dark */
+
+  /* Lockup-ul din navbar: culorile mark-ului (§14.4), nu ale temei */
+  --kb-logo-bar: #052063;
+  --kb-logo-disc: #91c4fb;
 
   /* Focus: halo mac-like, 4px, semitransparent */
   --kb-focus-ring: 0 0 0 4px color-mix(in srgb, var(--kb-accent-600) 30%, transparent);
@@ -102,6 +107,7 @@
   --kb-danger-600: #f87171;
   --kb-danger-bg: #2d0f0d;
   --kb-archived-400: #55617d;
+  --kb-logo-bar: #ffffff;
   --kb-shadow-bezel: 0 0.5px 1px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
   --kb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
   --kb-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);

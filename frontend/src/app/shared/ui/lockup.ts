@@ -1,9 +1,10 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 
 /**
- * The mark and the wordmark (docs/UI_UX_SPEC.md §14): inline, so it takes the theme's colors and
- * costs no request. The geometry is §14.1's, on the mark's own viewBox. Mark 24px high, text 17px,
- * gap 8px. The bar and the inner discs follow navy-900, which turns light in dark.
+ * The mark and the wordmark (docs/UI_UX_SPEC.md §14): inline, so it costs no request. The geometry
+ * is §14.1's, on the mark's own viewBox. Mark 24px high, text 17px, gap 8px. The mark takes its
+ * own colors, not the theme's (§14.4): logo-bar for the bar and the inner discs, navy in light and
+ * white in dark, and logo-disc for the outer discs in both, as kanabol-mark-on-dark.svg has them.
  */
 @Component({
   selector: 'kb-lockup',
@@ -37,11 +38,11 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
     }
 
     .disc {
-      fill: var(--kb-sky-300);
+      fill: var(--kb-logo-disc);
     }
 
     .body {
-      fill: var(--kb-navy-900);
+      fill: var(--kb-logo-bar);
     }
 
     .line {
