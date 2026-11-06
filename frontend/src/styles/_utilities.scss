@@ -249,6 +249,33 @@ textarea.kb-field {
   --_icon: 16px;
 }
 
+// A filter toggle (6.0.11): a 26px bezel pill, fill-accent with white text while on. A button with
+// aria-pressed: <button class="kb-filter-chip" [attr.aria-pressed]="on">.
+.kb-filter-chip {
+  height: 26px;
+  padding: 0 var(--kb-space-3);
+  border: 1px solid var(--kb-border-300);
+  border-radius: var(--kb-radius-pill);
+  background: var(--kb-surface-0);
+  box-shadow: var(--kb-shadow-bezel);
+  color: var(--kb-text-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--kb-dur-fast) var(--kb-ease);
+
+  &:hover:not([aria-pressed='true']) {
+    background: color-mix(in srgb, var(--kb-navy-900) 4%, var(--kb-surface-0));
+  }
+
+  &[aria-pressed='true'] {
+    border-color: var(--kb-fill-accent);
+    background: var(--kb-fill-accent);
+    color: #fff;
+  }
+}
+
 // Tables (6.0.9, 6.4): a flat card around a mat-table, zebra rows and one line under the sticky
 // header. kb-table-card goes around, kb-table on the table and kb-table-row on each mat-row.
 // overflow: clip rounds the corners without making the card a scroll container, which would keep

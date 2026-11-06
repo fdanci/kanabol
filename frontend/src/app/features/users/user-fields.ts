@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Signal, WritableSignal, computed, linkedSignal, signal } from '@angular/core';
 import { PASSWORD_MAX, PASSWORD_MIN } from '../../shared/models/password-policy';
 import { problemIn } from '../../shared/models/problem-details';
+import { Field } from '../../shared/ui/field';
 
 /** The longest email and name the API takes (User.MaxEmailLength, User.MaxDisplayNameLength). */
 export const EMAIL_MAX = 320;
@@ -37,31 +37,6 @@ export function passwordProblem(value: string): string | null {
     return $localize`Cel mult ${PASSWORD_MAX}:max: de caractere.`;
   }
   return null;
-}
-
-/**
- * One field of a sheet: its value, the problem the form finds in it once it was left or the form
- * sent, and the one the API found, until the value changes.
- */
-export class Field {
-  readonly value: WritableSignal<string>;
-  readonly touched = signal(false);
-  readonly refused: WritableSignal<string | null>;
-  readonly error: Signal<string | null>;
-
-  constructor(
-    readonly initial: string,
-    check: (value: string) => string | null,
-    submitted: Signal<boolean>,
-  ) {
-    this.value = signal(initial);
-    this.refused = linkedSignal({ source: this.value, computation: () => null });
-    this.error = computed(
-      () => this.refused() ?? (this.touched() || submitted() ? check(this.value()) : null),
-    );
-  }
-
-  readonly changed = (): boolean => this.value() !== this.initial;
 }
 
 /**

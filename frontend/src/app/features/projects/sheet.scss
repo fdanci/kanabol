@@ -1,0 +1,44 @@
+// The sheets of the projects pages (UI spec 6.0.5): padding 24px, the title, an optional sentence
+// under it, the form group, and the buttons bottom right after 24px of space.
+:host {
+  display: block;
+  padding: var(--kb-space-6);
+}
+
+h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.lead {
+  margin: var(--kb-space-1) 0 0;
+  color: var(--kb-text-600);
+}
+
+.kb-form-group {
+  margin-top: var(--kb-space-4);
+}
+
+// Room for five capitals, as the key is short and never changes.
+.key {
+  max-width: 120px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--kb-space-2);
+  margin-top: var(--kb-space-6);
+}
+
+// A user in the list of the member sheet: avatar, name, and the email after it.
+.candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  min-width: 0;
+}
+
+.email {
+  color: var(--kb-text-600);
+}

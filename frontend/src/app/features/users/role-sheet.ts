@@ -4,7 +4,8 @@ import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { MatOption, MatSelect } from '@angular/material/select';
 import { Confirmation, askBeforeClosing } from '../../shared/ui/confirm-dialog';
 import { AssignableRoleDto, UserDto } from './models';
-import { Field, roleProblem } from './user-fields';
+import { Field } from '../../shared/ui/field';
+import { roleProblem } from './user-fields';
 import { UsersStore } from './users-store';
 
 /**

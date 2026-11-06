@@ -20,7 +20,7 @@ Run from `frontend/`:
 - Lint: `npm run lint`
 - Check formatting: `npx prettier --check .`
 - Extract the texts for translation: `npx ng extract-i18n --output-path <folder>`. Romanian is the source language, and v1 has no other.
-- Run the acceptance checks of the skeleton and authentication, from the repo root: `scripts/check-web.sh [task-number...]`, and those of the users and roles pages: `scripts/check-admin.sh [task-number...]`. Its task 3 also starts the real API, so it needs Docker and PostgreSQL like `scripts/check-users.sh`.
+- Run the acceptance checks of the skeleton and authentication, from the repo root: `scripts/check-web.sh [task-number...]`, those of the users and roles pages: `scripts/check-admin.sh [task-number...]`, and those of the projects: `scripts/check-projects.sh [task-number...]`. Task 3 of check-admin.sh and tasks 1 and 2 of check-projects.sh also start the real API, so they need Docker and PostgreSQL like `scripts/check-users.sh`.
 
 ## How a request goes
 
@@ -45,9 +45,20 @@ Run from `frontend/`:
 - Lists of the API come in a `Page<T>` (`shared/models/page.ts`). The password policy is in `shared/models/password-policy.ts`.
 - Icons inside Material components are `<mat-icon>`, which draws with the self-hosted Material Symbols at the size its place gives it. Elsewhere a `span.material-symbols-outlined` with its own `font-size` is fine.
 - Feedback on an action goes through `Snackbar` (`show`, and `error` with the correlation id). Lasting context goes in a `kb-banner`.
-- Shared pieces live in `shared/ui`: `kb-banner`, `kb-chip`, `kb-empty-state`, `kb-skeleton`, `kb-upload-zone`, `kb-avatar`, `kb-page-header`, `kb-lockup`. Pages start with a `kb-page-header`.
+- Shared pieces live in `shared/ui`: `kb-banner`, `kb-chip`, `kb-empty-state`, `kb-skeleton`, `kb-upload-zone`, `kb-avatar`, `kb-page-header`, `kb-lockup`, and `kb-segmented-nav` for the views of one thing, as router links in the page header. Pages start with a `kb-page-header`.
+- A sheet's fields are `Field`s (`shared/ui/field.ts`): the value, the problem the form finds once the field was left or the form sent, and the one the API found, until the value changes.
+- A filter toggle is a `button.kb-filter-chip` with `aria-pressed`.
+- Times go through the `relativeTime` pipe, with `fullDate` in a tooltip (docs/UI_UX_SPEC.md §11): relative under 7 days, the date after that.
+- An effect that starts a load wraps it in `untracked`, or the signals the load reads start it again, without end.
 - Fonts and icons are self-hosted, because the app runs on the LAN. Nothing comes from Google Fonts or a CDN.
 - Text is in Romanian, in sentence case, and goes through `i18n`: the `i18n` attribute in templates, `$localize` in code. Dates and numbers format as `ro-RO`.
+
+## Projects
+
+- `/projects` lists what the API lets the user open, for anyone signed in. `/projects/:id` opens on `board`, next to `list`, `members`, `reports` and `settings`; the board, the list and the reports are placeholders until their groups.
+- `ProjectPage` provides one `ProjectStore` for its views, so they share the project and another project starts from nothing. `canManage` from the API (an owner, or `projects.manage`) shows Setări and the changes, and an archived project changes nothing until it's restored.
+- The member sheet looks for users through `GET /api/projects/{id}/member-candidates`, so an owner without `users.manage` can still add someone.
+- The last owner's row has no ⋮: the API refuses to remove or demote them anyway (409 `Project.LastOwner`).
 
 ## Access rules
 

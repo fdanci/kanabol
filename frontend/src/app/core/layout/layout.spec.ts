@@ -270,10 +270,10 @@ describe('layout', () => {
     });
 
     it('opens a page inside the shell', async () => {
-      const harness = await RouterTestingHarness.create('/projects');
+      const harness = await RouterTestingHarness.create('/my-tasks');
 
-      expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Proiectele mele');
-      expect(document.title).toBe('Proiectele mele · Kanabol');
+      expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Task-urile mele');
+      expect(document.title).toBe('Task-urile mele · Kanabol');
     });
 
     // At the address typed, without the page (docs/UI_UX_SPEC.md §6.8).

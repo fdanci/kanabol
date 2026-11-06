@@ -6,9 +6,9 @@ import { PASSWORD_MAX } from '../../shared/models/password-policy';
 import { Confirmation, askBeforeClosing } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { AssignableRoleDto, UserDto } from './models';
+import { Field } from '../../shared/ui/field';
 import {
   EMAIL_MAX,
-  Field,
   NAME_MAX,
   emailProblem,
   nameProblem,

@@ -1,0 +1,59 @@
+@switch (store.state()) {
+  @case ('missing') {
+    <kb-empty-state icon="search_off" [title]="missingTitle">
+      <p i18n>A fost mutat, sau adresa e greșită.</p>
+      <a kbEmptyAction matButton="outlined" class="kb-bezel" routerLink="/projects" i18n
+        >Înapoi la proiecte</a
+      >
+    </kb-empty-state>
+  }
+  @case ('forbidden') {
+    <kb-empty-state icon="lock" [title]="forbiddenTitle">
+      <p i18n>Cere unui owner al proiectului să te adauge în el.</p>
+      <a kbEmptyAction matButton="outlined" class="kb-bezel" routerLink="/projects" i18n
+        >Înapoi la proiecte</a
+      >
+    </kb-empty-state>
+  }
+  @case ('error') {
+    <kb-empty-state icon="error" [title]="loadFailed">
+      <p i18n>Verifică conexiunea și reîncearcă.</p>
+      <button
+        kbEmptyAction
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        (click)="retry()"
+        i18n
+      >
+        Reîncearcă
+      </button>
+    </kb-empty-state>
+  }
+  @default {
+    @if (store.project(); as project) {
+      <kb-page-header [title]="project.name" [crumbs]="crumbs()">
+        <kb-segmented-nav [segments]="segments()" [label]="segmentsLabel" />
+      </kb-page-header>
+
+      <div class="content">
+        @if (project.archivedAt) {
+          <kb-banner class="archived" variant="info">
+            <ng-container i18n
+              >Acest proiect e arhivat: se poate citi, dar nu și schimba.</ng-container
+            >
+            @if (project.canManage) {
+              <ng-container i18n> Îl poți restaura din Setări.</ng-container>
+            }
+          </kb-banner>
+        }
+        <router-outlet />
+      </div>
+    } @else {
+      <div class="loading" aria-busy="true">
+        <kb-skeleton width="240px" height="28px" />
+        <kb-skeleton width="160px" />
+      </div>
+    }
+  }
+}

@@ -1,0 +1,85 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+.filters {
+  display: flex;
+  gap: var(--kb-space-2);
+  margin-bottom: var(--kb-space-3);
+}
+
+.placeholder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-4);
+  height: 40px;
+  padding: 0 var(--kb-space-4);
+}
+
+// The whole row opens the board.
+tr.kb-table-row {
+  cursor: pointer;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  min-width: 0;
+
+  a {
+    font-weight: 500;
+    color: var(--kb-text-900);
+  }
+}
+
+.key {
+  flex: none;
+  font-size: 12px;
+  color: var(--kb-text-500);
+}
+
+.owners,
+.updated {
+  color: var(--kb-text-600);
+}
+
+.updated {
+  white-space: nowrap;
+}
+
+// Overlapping avatars, the next one over the last (UI spec 7.3).
+.stack {
+  display: inline-flex;
+  align-items: center;
+
+  kb-avatar {
+    box-shadow: 0 0 0 2px var(--kb-surface-0);
+  }
+
+  kb-avatar + kb-avatar {
+    margin-left: -6px;
+  }
+}
+
+.more {
+  margin-left: var(--kb-space-1);
+  font-size: 12px;
+  color: var(--kb-text-600);
+}
+
+.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.late {
+  color: var(--kb-danger-600);
+  font-weight: 500;
+}

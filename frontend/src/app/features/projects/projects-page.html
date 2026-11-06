@@ -1,0 +1,160 @@
+<kb-page-header [title]="heading" [crumbs]="crumbs">
+  <button
+    *kbHasPermission="permissions.projectsCreate"
+    matButton="filled"
+    class="kb-default kb-regular"
+    type="button"
+    (click)="create()"
+    i18n
+  >
+    Proiect nou
+  </button>
+</kb-page-header>
+
+<div class="content">
+  <div class="filters">
+    <button
+      type="button"
+      class="kb-filter-chip"
+      [attr.aria-pressed]="store.includeArchived()"
+      (click)="toggleArchived()"
+      i18n
+    >
+      Și cele arhivate
+    </button>
+  </div>
+
+  @if (store.state() === 'error') {
+    <kb-empty-state icon="error" [title]="loadFailed">
+      <p i18n>Verifică conexiunea și reîncearcă.</p>
+      <button
+        kbEmptyAction
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        (click)="reload()"
+        i18n
+      >
+        Reîncearcă
+      </button>
+    </kb-empty-state>
+  } @else if (store.state() === 'loading' && store.projects().length === 0) {
+    <div class="kb-table-card placeholder" aria-busy="true">
+      @for (row of [1, 2, 3, 4]; track row) {
+        <div class="placeholder-row">
+          <kb-skeleton width="30%" />
+          <kb-skeleton width="15%" />
+          <kb-skeleton width="80px" />
+        </div>
+      }
+    </div>
+  } @else if (store.totalCount() === 0) {
+    <kb-empty-state icon="folder" [title]="emptyTitle">
+      @if (canCreate()) {
+        <p i18n>Creează un proiect, apoi adaugă-ți echipa în el.</p>
+      } @else {
+        <p i18n>Când te adaugă cineva într-un proiect, apare aici.</p>
+      }
+      @if (canCreate()) {
+        <button
+          kbEmptyAction
+          matButton="filled"
+          class="kb-default"
+          type="button"
+          (click)="create()"
+          i18n
+        >
+          Creează primul proiect
+        </button>
+      }
+    </kb-empty-state>
+  } @else {
+    <div class="kb-table-card" [attr.aria-busy]="store.state() === 'loading'">
+      <table
+        mat-table
+        class="kb-table"
+        [dataSource]="store.projects()"
+        i18n-aria-label
+        aria-label="Proiecte"
+      >
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef i18n>Nume</th>
+          <td mat-cell *matCellDef="let project" class="name">
+            <span class="title">
+              <a class="kb-truncate" [routerLink]="['/projects', project.id, 'board']">{{
+                project.name
+              }}</a>
+              <span class="key kb-mono">{{ project.key }}</span>
+              @if (project.archivedAt) {
+                <kb-chip kind="archived" i18n>Arhivat</kb-chip>
+              }
+            </span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="owners">
+          <th mat-header-cell *matHeaderCellDef i18n>Owner</th>
+          <td mat-cell *matCellDef="let project" class="owners">{{ ownerNames(project) }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="members">
+          <th mat-header-cell *matHeaderCellDef i18n>Membri</th>
+          <td mat-cell *matCellDef="let project" class="members">
+            <span class="stack" role="img" [attr.aria-label]="membersLabel(project)">
+              @for (member of project.memberPreview; track member.userId) {
+                <kb-avatar [name]="member.displayName" [matTooltip]="member.displayName" />
+              }
+              @if (more(project) > 0) {
+                <span class="more">+{{ more(project) }}</span>
+              }
+            </span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="open">
+          <th mat-header-cell *matHeaderCellDef class="number" i18n>Task-uri deschise</th>
+          <td mat-cell *matCellDef="let project" class="number open">
+            {{ project.openTaskCount }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="overdue">
+          <th mat-header-cell *matHeaderCellDef class="number" i18n>Întârziate</th>
+          <td
+            mat-cell
+            *matCellDef="let project"
+            class="number overdue"
+            [class.late]="project.overdueTaskCount > 0"
+          >
+            {{ project.overdueTaskCount }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="updated">
+          <th mat-header-cell *matHeaderCellDef i18n>Actualizat</th>
+          <td mat-cell *matCellDef="let project" class="updated">
+            <span [matTooltip]="fullDate(project.updatedAt)">{{
+              project.updatedAt | relativeTime
+            }}</span>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="columns; sticky: true"></tr>
+        <tr
+          mat-row
+          *matRowDef="let project; columns: columns"
+          class="kb-table-row"
+          (click)="open(project, $event)"
+        ></tr>
+      </table>
+
+      <mat-paginator
+        [length]="store.totalCount()"
+        [pageIndex]="store.page() - 1"
+        [pageSize]="store.pageSize()"
+        [pageSizeOptions]="pageSizes"
+        (page)="turn($event)"
+      />
+    </div>
+  }
+</div>

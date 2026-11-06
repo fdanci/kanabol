@@ -568,8 +568,200 @@ task_2() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 11.3: the frontend, from its specs, its routes, its texts and its production build.
+
+web=frontend
+app=$web/src/app
+projects=$app/features/projects
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+lacks() { # lacks <extended regex> <file...>
+  ! grep -nE -- "$@" || return 1
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*' '__').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+# The production build, made once per run.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  cat "$scratch"/dist/browser/*.js >"$scratch/bundle.js" && touch "$scratch/built"
+}
+
+bundle_has() { # bundle_has <text>
+  built && in_file "$1" "$scratch/bundle.js"
+}
+
+css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
+  built || return 1
+  tr -d '
+' <"$(ls "$scratch"/dist/browser/styles-*.css | head -n 1)" | grep -qF -- "$1" || {
+    echo "not in the built CSS: $1"
+    return 1
+  }
+}
+
+# The texts as ng extract-i18n writes them for translation, made once per run.
+extracted() {
+  [ -f "$scratch/locale/messages.xlf" ] && return 0
+  (cd "$web" && npx ng extract-i18n --output-path "$scratch/locale") >"$scratch/extract.log" 2>&1 || {
+    plain "$scratch/extract.log" | tail -n 25
+    return 1
+  }
+}
+
+messages_have() { # messages_have <text>
+  extracted && in_file "$1" "$scratch/locale/messages.xlf"
+}
+
+# /projects loads with its first visit, for anyone signed in: the API decides what each one sees.
+projects_route_is_lazy_and_open() {
+  node -e "
+    const source = require('fs').readFileSync('$app/app.routes.ts', 'utf8');
+    if (!/path: 'projects',[^}]*loadChildren: \\(\\) =>\\s*import\\('.\\/features\\/projects\\/projects.routes'\\)/.test(source)) {
+      console.log('no lazy route for projects in app.routes.ts'); process.exit(1);
+    }
+    if (/withPermission\\([^,]+, \\{\\s*path: 'projects'/.test(source)) { console.log('projects sits behind a permission'); process.exit(1); }
+    if (source.includes(\"placeholder('projects'\")) { console.log('the placeholder for projects is still there'); process.exit(1); }
+  "
+}
+
+# Each view of a project is a child route of /projects/:id, which opens on the board.
+project_views_are_routes() {
+  for view in board list members reports settings; do
+    in_file "path: '$view'" "$projects/projects.routes.ts" || {
+      echo "no route for $view"
+      return 1
+    }
+  done
+  in_file "redirectTo: 'board'" "$projects/projects.routes.ts"
+}
+
+# Every refusal ProjectErrors.cs names has a Romanian message for the snackbar.
+every_project_error_has_a_message() {
+  codes=$(grep -o '"Project\.[A-Za-z]*"' backend/src/Kanabol.Application/Features/Projects/ProjectErrors.cs | tr -d '"' | sort -u)
+  [ -n "$codes" ] || return 1
+  for code in $codes; do
+    in_file "'$code':" "$app/core/api/error-interceptor.ts" || {
+      echo "no message for $code in error-interceptor.ts"
+      return 1
+    }
+  done
+}
+
+# A chip's text on the neutral chip background, color-mix(navy 6%, surface-0) (UI spec 6.5), has to
+# pass AA at 12px in both themes, computed from the tokens.
+chip_reads() { # chip_reads <kind>
+  node -e "
+    const fs = require('fs');
+    const chip = fs.readFileSync('$app/shared/ui/chip.ts', 'utf8');
+    const rule = chip.match(/((?::host\\([a-z-]+\\),?\\s*)*:host\\(\\.$1\\)[^{]*)\\{([^}]*)\\}/);
+    const text = rule && (rule[0].match(/--_fg:\\s*var\\(--kb-([a-z0-9-]+)\\)/) || [])[1];
+    if (!text) { console.log('no text color for .$1 in chip.ts'); process.exit(1); }
+    const source = fs.readFileSync('$web/src/styles/_tokens.scss', 'utf8');
+    const split = source.indexOf('@mixin dark');
+    const tokens = (part) => Object.fromEntries([...part.matchAll(/--kb-([a-z0-9-]+)\\s*:\\s*(#[0-9a-fA-F]{6})\\s*;/g)].map((m) => [m[1], m[2]]));
+    const light = tokens(source.slice(0, split));
+    const dark = { ...light, ...tokens(source.slice(split)) };
+    const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const mix = (a, b, share) => channels(a).map((c, i) => c * share + channels(b)[i] * (1 - share));
+    const luminance = (rgb) => {
+      const [r, g, b] = rgb.map((c) => c / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    let bad = 0;
+    for (const [mode, t] of [['light', light], ['dark', dark]]) {
+      const [high, low] = [luminance(channels(t[text])), luminance(mix(t['navy-900'], t['surface-0'], 0.06))].sort((x, y) => y - x);
+      const ratio = (high + 0.05) / (low + 0.05);
+      if (ratio < 4.5) { console.log(mode + ': ' + text + ' on the neutral chip is ' + ratio.toFixed(2) + ':1'); bad++; }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+the_archived_chip_is_text_600() {
+  node -e "
+    const chip = require('fs').readFileSync('$app/shared/ui/chip.ts', 'utf8');
+    const rule = chip.match(/((?::host\\([a-z-]+\\),?\\s*)*:host\\(\\.archived\\)[^{]*)\\{([^}]*)\\}/);
+    if (!rule || !/--_fg:\\s*var\\(--kb-text-600\\)/.test(rule[0])) { console.log('.archived is not text-600'); process.exit(1); }
+    if (/:host\\(\\.archived\\)[^{]*\\{[^}]*archived-400/.test(chip)) { console.log('.archived still uses archived-400'); process.exit(1); }
+  "
+}
+
+no_colors_by_hand() {
+  lacks '#[0-9a-fA-F]{3,8}\b' "$projects"/*.scss "$projects"/*.ts "$app/shared/ui/segmented-nav.ts"
+}
+
+no_deep_selectors() {
+  lacks '::ng-deep|\.mat-mdc-|\.mdc-' "$projects"/*.scss "$projects"/*.ts "$app/shared/ui/segmented-nav.ts"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+task_3() {
+  echo "11.3 The projects pages"
+  for file in models.ts projects-api.ts projects-store.ts project-store.ts project-fields.ts projects-page.ts \
+    projects-page.html project-sheet.ts project-sheet.html project-page.ts project-page.html \
+    project-members.ts project-members.html member-sheet.ts member-sheet.html project-settings.ts \
+    project-settings.html project-placeholder.ts sheet.scss projects.routes.ts; do
+    check "features/projects/$file is tracked" tracked "$projects/$file"
+  done
+  check "shared/ui/segmented-nav.ts is tracked" tracked "$app/shared/ui/segmented-nav.ts"
+  check "shared/ui/field.ts is tracked, for every sheet" tracked "$app/shared/ui/field.ts"
+  check "shared/pipes/relative-time-pipe.ts is tracked" tracked "$app/shared/pipes/relative-time-pipe.ts"
+  check "the specs of the projects pass" specs_pass "src/app/features/projects/*.spec.ts" 59
+  check "times read as the UI spec writes them" specs_pass src/app/shared/pipes/relative-time-pipe.spec.ts 5
+  check "the users pages still pass, with the shared field" specs_pass "src/app/features/users/*.spec.ts" 23
+  check "the shell still opens its pages" specs_pass src/app/core/layout/layout.spec.ts 15
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "/projects loads with its first visit, for anyone signed in" projects_route_is_lazy_and_open
+  check "a project has its board, list, members, reports and settings, from the board" project_views_are_routes
+  check "every refusal of a project has a Romanian message" every_project_error_has_a_message
+  check "the Arhivat chip is text-600, as UI spec v1.7 has it" the_archived_chip_is_text_600
+  check "and it passes AA, in both themes" chip_reads archived
+  check "as Dezactivat still does" chip_reads inactive
+  check "the pages write no colors by hand" no_colors_by_hand
+  check "nor reach into Material's classes" no_deep_selectors
+  check "a filter toggle is a 26px pill, fill-accent while on" css_has ".kb-filter-chip[aria-pressed=true]{border-color:var(--kb-fill-accent);background:var(--kb-fill-accent)"
+  check "the list is named and offers a new project" messages_have 'Proiect nou'
+  check "a new project explains its key" messages_have 'Nu se mai schimbă.'
+  check "an archived project says so" messages_have 'Acest proiect e arhivat'
+  check "a member is added from a search" messages_have 'Adaugă un membru'
+  check "the last owner's refusal is explained" messages_have 'Proiectul are nevoie de un owner.'
+  check "a closed project says who can open it" messages_have 'Cere unui owner al proiectului să te adauge în el.'
+  check "the build asks for whom to add" bundle_has 'member-candidates'
+  check "and archives with DELETE, restoring with /restore" bundle_has '/restore'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do

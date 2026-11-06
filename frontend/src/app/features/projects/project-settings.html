@@ -1,0 +1,118 @@
+@if (project(); as project) {
+  <form class="card" (submit)="save($event)" novalidate>
+    <h2 class="kb-title" i18n>Detalii</h2>
+
+    <div class="kb-form-group">
+      <div class="kb-form-row">
+        <label class="kb-form-label kb-required" for="settings-name" i18n>Nume</label>
+        <div>
+          <input
+            #nameInput
+            id="settings-name"
+            class="kb-field"
+            autocomplete="off"
+            [readOnly]="!store.canChange()"
+            [attr.maxlength]="nameMax"
+            [value]="form().name.value()"
+            [attr.aria-invalid]="form().name.error() !== null"
+            [attr.aria-describedby]="form().name.error() !== null ? 'settings-name-error' : null"
+            (input)="form().name.value.set(nameInput.value)"
+            (blur)="form().name.touched.set(true)"
+          />
+          @if (form().name.error(); as message) {
+            <p id="settings-name-error" class="kb-field-error">{{ message }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="kb-form-row">
+        <span class="kb-form-label" i18n>Cheie</span>
+        <div>
+          <span class="key kb-mono">{{ project.key }}</span>
+          <p class="kb-form-help" i18n>
+            Apare în cheile task-urilor, ca {{ project.key }}-123, și nu se schimbă.
+          </p>
+        </div>
+      </div>
+
+      <div class="kb-form-row">
+        <label class="kb-form-label" for="settings-description" i18n>Descriere</label>
+        <div>
+          <textarea
+            #descriptionInput
+            id="settings-description"
+            class="kb-field"
+            rows="4"
+            [readOnly]="!store.canChange()"
+            [attr.maxlength]="descriptionMax"
+            [value]="form().description.value()"
+            [attr.aria-invalid]="form().description.error() !== null"
+            [attr.aria-describedby]="
+              form().description.error() !== null ? 'settings-description-error' : null
+            "
+            (input)="form().description.value.set(descriptionInput.value)"
+            (blur)="form().description.touched.set(true)"
+          ></textarea>
+          @if (form().description.error(); as message) {
+            <p id="settings-description-error" class="kb-field-error">{{ message }}</p>
+          }
+        </div>
+      </div>
+    </div>
+
+    @if (store.canChange()) {
+      <div class="actions">
+        <button
+          matButton="filled"
+          class="kb-default"
+          type="submit"
+          [disabled]="busy() || !changed()"
+          i18n
+        >
+          Salvează
+        </button>
+      </div>
+    }
+  </form>
+
+  @if (project.canManage) {
+    <section class="card">
+      <h2 class="kb-title" i18n>Arhivare</h2>
+      @if (project.archivedAt) {
+        <p class="explain" i18n>
+          Arhivat pe {{ project.archivedAt | date: 'dd.MM.yyyy' }}. Restaurat, revine în lista de
+          proiecte și se poate schimba din nou.
+        </p>
+        <div class="actions">
+          <button
+            matButton="filled"
+            class="kb-default"
+            type="button"
+            [disabled]="busy()"
+            (click)="restore(project)"
+            i18n
+          >
+            Restaurează proiectul
+          </button>
+        </div>
+      } @else {
+        <p class="explain" i18n>
+          Un proiect arhivat dispare din lista de proiecte, cu tot ce are în el, și nu se mai
+          schimbă. Nu se șterge nimic: un owner îl poate restaura oricând.
+        </p>
+        <div class="actions">
+          <button
+            matButton="filled"
+            class="kb-danger"
+            type="button"
+            [disabled]="busy()"
+            (click)="archive(project)"
+            i18n
+          >
+            Arhivează proiectul
+          </button>
+        </div>
+      }
+    </section>
+  }
+}

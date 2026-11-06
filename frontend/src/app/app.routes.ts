@@ -41,7 +41,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [
       placeholder('', $localize`Panou principal`),
-      placeholder('projects', $localize`Proiectele mele`),
+      {
+        path: 'projects',
+        title: $localize`Proiecte · Kanabol`,
+        loadChildren: () =>
+          import('./features/projects/projects.routes').then(
+            (projects) => projects.PROJECTS_ROUTES,
+          ),
+      },
       placeholder('my-tasks', $localize`Task-urile mele`),
       placeholder('notifications', $localize`Notificări`),
       ...withPermission(PERMISSIONS.usersManage, {
