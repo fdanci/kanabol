@@ -195,4 +195,74 @@ describe('authInterceptor', () => {
     http.expectNone('/api/auth/refresh');
     expect(caught).toBeInstanceOf(HttpErrorResponse);
   });
+
+  describe('at the edges', () => {
+    it('leaves errors other than 401 alone, without refreshing', async () => {
+      await signedIn();
+      let caught: unknown;
+      client.get('/api/users').subscribe({ error: (error: unknown) => (caught = error) });
+
+      http.expectOne('/api/users').flush(null, { status: 403, statusText: 'Forbidden' });
+      await settle();
+
+      http.expectNone('/api/auth/refresh');
+      expect((caught as HttpErrorResponse).status).toBe(403);
+    });
+
+    it('fails every waiting request once when the refresh is refused, with one refresh', async () => {
+      await signedIn();
+      const router = TestBed.inject(Router);
+      vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+      const failures: number[] = [];
+      for (const path of ['/api/users', '/api/roles', '/api/permissions']) {
+        client
+          .get(path)
+          .subscribe({ error: (error: HttpErrorResponse) => failures.push(error.status) });
+      }
+
+      for (const path of ['/api/users', '/api/roles', '/api/permissions']) {
+        http.expectOne(path).flush(null, { status: 401, statusText: 'Unauthorized' });
+      }
+      await settle();
+      http.expectOne('/api/auth/refresh').flush(null, { status: 401, statusText: 'Unauthorized' });
+      await settle();
+
+      http.expectNone('/api/auth/refresh');
+      expect(failures).toEqual([401, 401, 401]);
+      expect(store.isSignedIn()).toBe(false);
+    });
+
+    // A server that is away for a moment doesn't end anyone's session.
+    it('passes on a refresh that fails on the network, and keeps the session', async () => {
+      await signedIn();
+      let caught: unknown;
+      client.get('/api/users').subscribe({ error: (error: unknown) => (caught = error) });
+
+      http.expectOne('/api/users').flush(null, { status: 401, statusText: 'Unauthorized' });
+      await settle();
+      http.expectOne('/api/auth/refresh').error(new ProgressEvent('error'));
+      await settle();
+
+      expect((caught as HttpErrorResponse).status).toBe(0);
+      expect(store.accessToken()).toBe('first-token');
+      expect(store.isSignedIn()).toBe(true);
+    });
+
+    it('refreshes for a request sent before the session came back', async () => {
+      let answer: unknown;
+      client.get('/api/auth/me').subscribe((body) => (answer = body));
+
+      const first = http.expectOne('/api/auth/me');
+      expect(bearerOf(first)).toBeNull();
+      first.flush(null, { status: 401, statusText: 'Unauthorized' });
+      await settle();
+      http.expectOne('/api/auth/refresh').flush(token('restored-token'));
+      await settle();
+      const retried = http.expectOne('/api/auth/me');
+      retried.flush(ME);
+
+      expect(bearerOf(retried)).toBe('Bearer restored-token');
+      expect(answer).toEqual(ME);
+    });
+  });
 });

@@ -249,6 +249,14 @@ task_8() {
   check "the password rules are listed" messages_have 'Diferită de parola curentă'
 }
 
+# ---- 9.10
+
+task_10() {
+  echo "9.10 The specs of the session"
+  check "the store's, with the races between requests and between tabs" specs_pass src/app/core/auth/auth-store.spec.ts 20
+  check "the interceptor's, with a refresh refused, failed or already done" specs_pass src/app/core/auth/auth-interceptor.spec.ts 13
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -281,7 +289,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3 9 5 6 4 8
+  set -- 1 7 2 3 9 5 6 4 8 10
 fi
 
 for task in "$@"; do

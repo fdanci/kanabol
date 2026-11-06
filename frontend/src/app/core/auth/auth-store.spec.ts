@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injector } from '@angular/core';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { AuthApi } from './auth-api';
-import { AuthStore } from './auth-store';
+import { AuthStore, REFRESH_LOCK } from './auth-store';
 import { AccessTokenDto, CurrentUserDto } from './models';
 
 const ANA: CurrentUserDto = {
@@ -249,5 +249,67 @@ describe('AuthStore', () => {
     expect(store.isSignedIn()).toBe(false);
     expect(store.accessToken()).toBeNull();
     expect(store.user()).toBeNull();
+  });
+
+  describe('at the edges', () => {
+    it('lets the next refresh try again after one failed on the network', async () => {
+      api.refresh.mockReturnValueOnce(refused(0));
+      const store = tab(api);
+
+      await expect(store.refresh()).rejects.toBeInstanceOf(HttpErrorResponse);
+      expect(await store.refresh()).toBe('refreshed-token');
+
+      expect(api.refresh).toHaveBeenCalledTimes(2);
+    });
+
+    it('answers everyone waiting on a refused refresh with no token', async () => {
+      const answer = new Subject<AccessTokenDto>();
+      api.refresh.mockReturnValue(answer);
+      const store = tab(api);
+      await store.login('ana@example.com', 'o parola buna');
+
+      const waiting = [
+        store.refreshAfter('login-token'),
+        store.refreshAfter('login-token'),
+        store.refresh(),
+      ];
+      answer.error(new HttpErrorResponse({ status: 401, url: '/api/auth/refresh' }));
+
+      expect(await Promise.all(waiting)).toEqual([null, null, null]);
+      expect(api.refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes when it has no token at all', async () => {
+      const store = tab(api);
+
+      expect(await store.refreshAfter(null)).toBe('refreshed-token');
+      expect(api.refresh).toHaveBeenCalledTimes(1);
+    });
+
+    // The lock is per name, so tabs of other apps on the same origin don't wait on it.
+    it('takes its turn under its own name, and lets the next tab go even when it fails', async () => {
+      const { requested } = fakeLocks();
+      const failing = new FakeAuthApi();
+      failing.refresh.mockReturnValue(refused(0));
+      const first = tab(failing);
+      const second = tab(api);
+
+      const results = await Promise.allSettled([first.refresh(), second.refresh()]);
+
+      expect(results.map((result) => result.status)).toEqual(['rejected', 'fulfilled']);
+      expect(requested).toEqual([REFRESH_LOCK, REFRESH_LOCK]);
+      expect(REFRESH_LOCK).toBe('kb.auth.refresh');
+    });
+
+    it('restores a session whose password has to change, and goes no further', async () => {
+      api.refresh.mockReturnValue(of(session('refreshed-token', true)));
+      api.me.mockReturnValue(of({ ...ANA, mustChangePassword: true }));
+      const store = tab(api);
+
+      await store.restore();
+
+      expect(store.isSignedIn()).toBe(true);
+      expect(store.mustChangePassword()).toBe(true);
+    });
   });
 });
