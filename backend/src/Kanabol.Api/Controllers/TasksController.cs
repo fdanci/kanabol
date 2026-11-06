@@ -7,6 +7,7 @@ using Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
 using Kanabol.Application.Features.Tasks.Commands.AssignTask;
 using Kanabol.Application.Features.Tasks.Commands.ChangeTaskDescription;
 using Kanabol.Application.Features.Tasks.Commands.CreateTask;
+using Kanabol.Application.Features.Tasks.Commands.MoveTask;
 using Kanabol.Application.Features.Tasks.Commands.RenameTask;
 using Kanabol.Application.Features.Tasks.Commands.RestoreTask;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskDueDate;
@@ -127,6 +128,14 @@ public sealed class TasksController : ControllerBase
         [FromServices] ICommandHandler<SetTaskDueDateCommand, TaskItemDto> handler,
         CancellationToken ct) =>
         (await handler.Handle(new SetTaskDueDateCommand(id, request.DueDate), ct)).ToActionResult();
+
+    [HttpPatch("{id:guid}/position")]
+    public async Task<IActionResult> MoveTask(
+        Guid id,
+        MoveTaskRequest request,
+        [FromServices] ICommandHandler<MoveTaskCommand, TaskItemDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position), ct)).ToActionResult();
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> ArchiveTask(

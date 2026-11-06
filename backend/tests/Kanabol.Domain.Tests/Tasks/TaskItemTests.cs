@@ -297,6 +297,28 @@ public sealed class TaskItemTests
         move.Should().Throw<ArgumentOutOfRangeException>();
     }
 
+    // What a move does to the tasks around it isn't a change of theirs: no history, no event.
+    [Fact]
+    public void ShiftTo_AnotherPlace_MovesItQuietly()
+    {
+        var task = NewTask();
+
+        task.ShiftTo(3);
+
+        task.Position.Should().Be(3);
+        task.ColumnId.Should().Be(Todo.Id);
+        task.History.Should().BeEmpty();
+        task.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ShiftTo_ANegativePlace_Throws()
+    {
+        var shift = () => NewTask().ShiftTo(-1);
+
+        shift.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     [Fact]
     public void Archive_Always_RecordsWhenAndWhoWritesTheHistoryAndRaisesTaskArchived()
     {

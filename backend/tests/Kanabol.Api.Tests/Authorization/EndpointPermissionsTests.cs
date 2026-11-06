@@ -51,7 +51,7 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
             .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Tasks")
             .ToList();
 
-        found.Should().HaveCount(11);
+        found.Should().HaveCount(12);
         found.Where(endpoint => endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any())
             .Select(endpoint => (endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ActionName, endpoint.Metadata.GetMetadata<HasPermissionAttribute>()!.Permission))
             .Should().BeEquivalentTo([("CreateTask", Permissions.TasksCreate), ("RestoreTask", Permissions.TasksArchive)]);

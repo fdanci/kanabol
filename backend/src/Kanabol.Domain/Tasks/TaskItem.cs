@@ -210,6 +210,16 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new TaskMovedEvent(Id, ProjectId, from, column.Id, position, changedById));
     }
 
+    /// <summary>
+    /// Another place in the same column, to keep the column's order without gaps around a move. It isn't
+    /// a change of this task, so it writes no history and raises nothing: the moved task's event says it all.
+    /// </summary>
+    public void ShiftTo(int position)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(position);
+        Position = position;
+    }
+
     /// <summary>Archiving twice keeps the first time, and who did it.</summary>
     public void Archive(Guid archivedById, DateTimeOffset now)
     {

@@ -705,8 +705,111 @@ no_errors_or_failed_handlers() {
   fi
 }
 
+# ---- 12.6: moving a task to a place in a column, with 409 when two moves cross.
+
+creates_the_board_project() {
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Board","key":"BRD"}')" || return 1
+  brd_id=$(body_field id)
+  todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 0")
+  doing=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 1")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND is_done")
+  for title in A B C D; do
+    status_is 201 "$(as "$admin_token" POST "$(tasks_of "$brd_id")" "{\"title\":\"$title\",\"priority\":\"Low\"}")" || return 1
+    eval "task_$title=\$(body_field id)"
+  done
+  [ -n "$task_D" ] && [ -n "$doing" ]
+}
+
+board_of() { # board_of <project id>: each column's titles in order, and whether its places are 0, 1, 2...
+  in_db "SELECT c.position, string_agg(t.title, ' ' ORDER BY t.position), bool_and(t.position = sub.rank) FROM board_columns c
+    JOIN task_items t ON t.column_id = c.id AND t.archived_at IS NULL
+    JOIN (SELECT id, (row_number() OVER (PARTITION BY column_id ORDER BY position, number) - 1)::int AS rank FROM task_items WHERE archived_at IS NULL) sub ON sub.id = t.id
+    WHERE c.project_id = '$1' GROUP BY c.position ORDER BY c.position"
+}
+
+a_move_puts_it_in_place() {
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_A/position" "{\"columnId\":\"$doing\",\"position\":0}")" || return 1
+  in_file '"position":0' "$scratch/body" && in_file '"columnName":"În lucru"' "$scratch/body" || return 1
+  is '0|B C D|True
+1|A|True' "$(board_of "$brd_id")"
+}
+
+a_reorder_keeps_the_places() {
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_D/position" "{\"columnId\":\"$todo\",\"position\":0}")" || return 1
+  is '0|D B C|True
+1|A|True' "$(board_of "$brd_id")"
+}
+
+no_place_means_the_end() {
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_B/position" "{\"columnId\":\"$doing\"}")" || return 1
+  in_file '"position":1' "$scratch/body"
+}
+
+the_done_column_completes_it() {
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_C/position" "{\"columnId\":\"$done_column\",\"position\":0}")" || return 1
+  is 'True' "$(in_db "SELECT completed_at IS NOT NULL FROM task_items WHERE id = '$task_C'")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_C/position" "{\"columnId\":\"$todo\"}")" || return 1
+  is 'True' "$(in_db "SELECT completed_at IS NULL FROM task_items WHERE id = '$task_C'")"
+}
+
+only_a_column_change_is_written_down() {
+  is "ColumnId|$todo|$doing" "$(in_db "SELECT field, old_value, new_value FROM task_history_entries WHERE task_id = '$task_A'")" || return 1
+  is 0 "$(in_db "SELECT count(*) FROM task_history_entries WHERE task_id = '$task_D'")"
+}
+
+a_column_of_another_project_is_refused() {
+  other_column=$(in_db "SELECT id FROM board_columns WHERE project_id <> '$brd_id' LIMIT 1")
+  code_is 400 Validation "$(as "$admin_token" PATCH "/api/tasks/$task_A/position" "{\"columnId\":\"$other_column\",\"position\":0}")" || return 1
+  in_file '"columnId":' "$scratch/body"
+}
+
+# Two moves through one column, sent at the same moment: either both land one after the other, or the
+# second gets 409 Task.ChangedMeanwhile. Never a 500, and the places stay 0, 1, 2... either way.
+two_moves_at_once_keep_the_order() {
+  printf '{"columnId":"%s","position":0}' "$todo" >"$scratch/move-1"
+  printf '{"columnId":"%s","position":0}' "$doing" >"$scratch/move-2"
+  # --next starts the second request with its own body; -Z still sends both at once.
+  curl -sS --max-time 60 -Z --parallel-immediate \
+    -H "Authorization: Bearer $admin_token" -H 'Content-Type: application/json' -X PATCH -w '\nSTATUS %{http_code}\n' \
+    -d "@$scratch/move-1" "$API_URL/api/tasks/$task_B/position" --next \
+    -H "Authorization: Bearer $admin_token" -H 'Content-Type: application/json' -X PATCH -w '\nSTATUS %{http_code}\n' \
+    -d "@$scratch/move-2" "$API_URL/api/tasks/$task_D/position" >"$scratch/moves" 2>&1 || {
+    tail -n 5 "$scratch/moves"
+    return 1
+  }
+  statuses=$(grep '^STATUS' "$scratch/moves" | sort | paste -sd' ' -)
+  case "$statuses" in
+    'STATUS 200 STATUS 200') ;;
+    'STATUS 200 STATUS 409') in_file '"code":"Task.ChangedMeanwhile"' "$scratch/moves" || return 1 ;;
+    *)
+      echo "unexpected answers: $statuses"
+      return 1
+      ;;
+  esac
+  board_of "$brd_id" | grep -v '|True$' && return 1
+  return 0
+}
+
+task_6() {
+  echo "12.6 Moving a task, with 409 on the versions"
+  check "Docker is running" docker_is_running
+  check "the handler's tests pass, two moves at once among them" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~MoveTaskCommandHandlerTests' 20
+  check "the endpoint's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~TaskMoveEndpointTests' 3
+  check "the entity's tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~TaskItemTests' 32
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "a project with four tasks is created" creates_the_board_project
+  check "a task moves to a place in another column, closing the gap it left" a_move_puts_it_in_place
+  check "a reorder in the column keeps the places 0, 1, 2..." a_reorder_keeps_the_places
+  check "without a place it goes last" no_place_means_the_end
+  check "the done column completes it, and leaving it clears that" the_done_column_completes_it
+  check "only a change of column is written in the history" only_a_column_change_is_written_down
+  check "a column of another project is refused" a_column_of_another_project_is_refused
+  check "two moves at once never break the order" two_moves_at_once_keep_the_order
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2 3 4 5
+  set -- 2 3 4 5 6
 fi
 
 for task in "$@"; do
