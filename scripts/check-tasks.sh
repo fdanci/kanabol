@@ -808,8 +808,80 @@ task_6() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 12.9: the four rules Tasks.md names for the group, each by the tests that hold it.
+
+test_exists() { # test_exists <project> <fully qualified name>: the test is there, so its filter can't run nothing
+  dotnet test "backend/tests/$1/$1.csproj" --nologo --no-build --list-tests 2>/dev/null | tr -d '\r' | grep -qF "$2" || {
+    echo "no test $2 in $1"
+    return 1
+  }
+}
+
+named_tests_pass() { # named_tests_pass <project> <test name...>: each exists, and all of them pass
+  project=$1
+  shift
+  dotnet build "backend/tests/$project/$project.csproj" --nologo -v q >/dev/null 2>&1 || return 1
+  filter=
+  for name in "$@"; do
+    test_exists "$project" "$name" || return 1
+    filter="${filter:+$filter|}FullyQualifiedName~$name"
+  done
+  tests_pass "$project" "$filter" "$#"
+}
+
+every_change_writes_its_history() {
+  named_tests_pass Kanabol.Domain.Tests \
+    TaskItemTests.Changes_InARow_EachWriteTheirOwnEntryInOrder \
+    TaskItemTests.Rename_WhenTheTitleChanges_WritesTheHistoryAndRaisesTaskUpdated \
+    TaskItemTests.MoveTo_AnotherColumn_WritesTheColumnsAndRaisesTaskMoved \
+    TaskItemTests.Archive_Always_RecordsWhenAndWhoWritesTheHistoryAndRaisesTaskArchived || return 1
+  named_tests_pass Kanabol.Application.Tests \
+    TaskChangeCommandHandlerTests.Rename_ByAMember_ChangesTheTitleAndWritesWhoAndWhen \
+    TaskChangeCommandHandlerTests.ChangeDescription_ByAMember_ChangesItAndWritesTheHistory \
+    TaskChangeCommandHandlerTests.SetPriority_ByAMember_ChangesItAndWritesTheHistory \
+    TaskChangeCommandHandlerTests.SetDueDate_ByAMember_SetsAndClearsItAndWritesTheHistory \
+    TaskChangeCommandHandlerTests.Assign_ToAnActiveMember_AssignsThemAndWritesTheHistory \
+    TaskChangeCommandHandlerTests.Archive_ByAMember_ArchivesItWritesTheHistoryAndKeepsTheRow \
+    TaskChangeCommandHandlerTests.Restore_OfAnArchivedTask_BringsItBackAndWritesTheHistory \
+    MoveTaskCommandHandlerTests.Move_ToAnotherColumn_WritesTheColumnsInTheHistoryAndAReorderDoesNot
+}
+
+assigning_a_non_member_is_an_error() {
+  named_tests_pass Kanabol.Application.Tests \
+    TaskChangeCommandHandlerTests.Assign_ToSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIdAndChangesNothing \
+    TaskChangeCommandHandlerTests.Assign_ToADeactivatedMember_ReturnsAValidationErrorOnAssigneeId \
+    CreateTaskCommandHandlerTests.Create_ForSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeId || return 1
+  named_tests_pass Kanabol.Api.Tests TaskChangesEndpointTests.PutAssignee_ToSomeoneOutsideTheProject_Returns400OnAssigneeId
+}
+
+archived_ones_are_hidden_by_default() {
+  named_tests_pass Kanabol.Application.Tests \
+    GetProjectTasksQueryHandlerTests.List_ByDefault_LeavesTheArchivedOnesOut \
+    GetProjectTasksQueryHandlerTests.List_WithIncludeArchivedAndTasksArchive_GivesThemToo \
+    TaskQueryHandlerTests.ByKey_OfAnArchivedTask_ReturnsNotFound \
+    TaskQueryHandlerTests.ById_OfAnArchivedTask_ReturnsNotFoundUnlessAskedForWithTasksArchive
+}
+
+two_creations_at_once_get_two_numbers() {
+  named_tests_pass Kanabol.Application.Tests \
+    CreateTaskCommandHandlerTests.Create_TwoAtOnce_GetDifferentNumbersAndNoConflict \
+    CreateTaskCommandHandlerTests.Create_WhileAMemberIsAdded_StillSucceeds
+}
+
+task_9() {
+  echo "12.9 The group's tests: history, assignees, archived tasks, creations at once"
+  check "Docker is running" docker_is_running
+  check "every change writes its history" every_change_writes_its_history
+  check "assigning someone outside the project is an error" assigning_a_non_member_is_an_error
+  check "archived tasks don't show by default" archived_ones_are_hidden_by_default
+  check "two creations at once get different numbers and no 409" two_creations_at_once_get_two_numbers
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "and on it, four creations at once get four numbers and no 409" four_at_once_get_four_numbers
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2 3 4 5 6
+  set -- 2 3 4 5 6 9
 fi
 
 for task in "$@"; do
