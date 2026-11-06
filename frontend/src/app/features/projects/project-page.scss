@@ -18,3 +18,13 @@
   gap: var(--kb-space-2);
   padding: var(--kb-space-6) var(--kb-space-6) var(--kb-space-4);
 }
+
+/* The board brings its own gutter and scrolls sideways under the header. */
+.content.full-bleed {
+  max-width: none;
+  padding: 0;
+}
+
+.content.full-bleed .archived {
+  margin: 0 var(--kb-space-6) var(--kb-space-4);
+}

@@ -13,7 +13,7 @@ import { Page } from '../../shared/models/page';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskProjectDto, TaskSummaryDto } from './models';
-import { TaskChanges } from './task-changes';
+import { TaskChanges } from '../../shared/task-changes';
 import { TaskListPage } from './task-list-page';
 import { aMember, aProject, aTask } from './task-testing';
 import { TaskListQuery, TasksApi } from './tasks-api';

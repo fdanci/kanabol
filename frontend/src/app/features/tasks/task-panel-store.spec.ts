@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { Subject, of } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { TaskItemDto } from './models';
-import { TaskChanges } from './task-changes';
+import { TaskChanges } from '../../shared/task-changes';
 import { aMember, aProject, aTask, refused } from './task-testing';
 import { TaskPanelStore } from './task-panel-store';
 import { TasksApi } from './tasks-api';

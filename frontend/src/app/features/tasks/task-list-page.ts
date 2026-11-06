@@ -47,7 +47,7 @@ import { Skeleton } from '../../shared/ui/skeleton';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskFilterBar } from '../../shared/ui/task-filter-bar';
 import { TaskItemDto, TaskSummaryDto, priorityLabel } from './models';
-import { TaskChanges } from './task-changes';
+import { TaskChanges } from '../../shared/task-changes';
 import { TaskListStore } from './task-list-store';
 import { TaskSheet } from './task-sheet';
 

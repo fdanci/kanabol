@@ -1,0 +1,44 @@
+@switch (store.state()) {
+  @case ('error') {
+    <kb-empty-state icon="error" [title]="loadFailed">
+      <p i18n>Verifică conexiunea și reîncearcă.</p>
+      <button
+        kbEmptyAction
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        (click)="retry()"
+        i18n
+      >
+        Reîncearcă
+      </button>
+    </kb-empty-state>
+  }
+  @case ('loading') {
+    <div class="board" aria-busy="true">
+      @for (column of [1, 2, 3]; track column) {
+        <div class="placeholder-column">
+          <kb-skeleton width="120px" height="18px" />
+          @for (card of [1, 2]; track card) {
+            <kb-skeleton width="100%" height="72px" />
+          }
+        </div>
+      }
+    </div>
+  }
+  @default {
+    <div class="board" cdkDropListGroup role="group" [attr.aria-label]="boardLabel">
+      @for (column of store.columns(); track column.id) {
+        <kb-board-column
+          [column]="column"
+          [cards]="store.cardsIn(column.id)"
+          [canMove]="store.canMove()"
+          [canCreate]="store.canCreate()"
+          (opened)="open($event)"
+          (dropped)="dropped($event)"
+          (created)="create($event)"
+        />
+      }
+    </div>
+  }
+}

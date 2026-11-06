@@ -1,0 +1,116 @@
+using Kanabol.Application.Common;
+using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Features.Tasks;
+using Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
+using Kanabol.Application.Features.Tasks.Queries.GetBoard;
+using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Tasks;
+using Kanabol.Tests.Shared.Builders;
+using Kanabol.Tests.Shared.Database;
+
+namespace Kanabol.Application.Tests.Features.Tasks;
+
+/// <summary>
+/// The board of a project (UI spec section 7.4): its columns from the left and every open task, in its
+/// place, however many there are, since the board shows them all and filters them in the browser.
+/// </summary>
+public sealed class GetBoardQueryHandlerTests(PostgresFixture postgres) : TaskHandlerTest(postgres)
+{
+    private Task<Result<BoardDto>> Board(Guid projectId) => Ask<GetBoardQuery, BoardDto>(new GetBoardQuery(projectId));
+
+    [Fact]
+    public async Task Board_ForAnOwner_GivesTheColumnsAndTheOpenTasksInTheirPlaces()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        var project = await CreateProject(builder => builder.WithKey("BRD").OwnedBy(owner).WithMember(member));
+        var first = await CreateTaskAs(owner, project, "Primul", assigneeId: member.Id);
+        await CreateTaskAs(owner, project, "Al doilea");
+        var archived = await CreateTaskAs(owner, project, "Arhivat");
+        (await Handle<ArchiveTaskCommand, Unit>(new ArchiveTaskCommand(archived.Id))).IsSuccess.Should().BeTrue();
+
+        var board = (await Board(project.Id)).Value;
+
+        board.Should().BeEquivalentTo(new { ProjectId = project.Id, ProjectKey = "BRD", IsArchived = false, CanMove = true, CanManage = true });
+        board.Columns.Select(column => (column.Name, column.Position, column.IsDone)).Should().Equal(("De făcut", 0, false), ("În lucru", 1, false), ("Gata", 2, true));
+        board.Tasks.Select(task => (task.Key, task.Title, task.ColumnId, task.Position)).Should().Equal(
+            ("BRD-1", "Primul", ColumnAt(project, 0).Id, 0),
+            ("BRD-2", "Al doilea", ColumnAt(project, 0).Id, 1));
+        board.Tasks[0].Should().BeEquivalentTo(new
+        {
+            first.Id,
+            Number = 1,
+            Priority = TaskPriority.Medium,
+            DueDate = (DateTimeOffset?)null,
+            Assignee = new TaskPersonDto(member.Id, member.DisplayName),
+            CompletedAt = (DateTimeOffset?)null,
+            CommentCount = 0,
+            AttachmentCount = 0,
+        });
+    }
+
+    // The list comes in pages of at most 100; the board has no pages.
+    [Fact]
+    public async Task Board_WithMoreThanAPageOfTasks_GivesThemAll()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        await AddTasks(project, [.. Enumerable.Range(0, 120).Select(position => new TaskItemBuilder().InProject(project).AtPosition(position).Build())]);
+        SignIn(owner);
+
+        (await Board(project.Id)).Value.Tasks.Should().HaveCount(120).And.BeInAscendingOrder(task => task.Position);
+    }
+
+    [Fact]
+    public async Task Board_ForAMember_CanMoveButNotManage()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        SignIn(member);
+
+        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { CanMove = true, CanManage = false });
+    }
+
+    // SPEC section 4.4: projects.view_all and projects.manage read; only a real member moves tasks.
+    [Theory]
+    [InlineData(Permissions.ProjectsViewAll, false)]
+    [InlineData(Permissions.ProjectsManage, true)]
+    public async Task Board_ForOneWhoSeesItThroughAPermission_CannotMove(string permission, bool canManage)
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        await SignInWith(permission);
+
+        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { CanMove = false, CanManage = canManage });
+    }
+
+    [Fact]
+    public async Task Board_OfAnArchivedProject_OpensButChangesNothing()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        await Archive(project, owner);
+        SignIn(owner);
+
+        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { IsArchived = true, CanMove = false, CanManage = false });
+    }
+
+    [Fact]
+    public async Task Board_ForSomeoneOutsideTheProject_ReturnsMemberRequired()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        SignIn(await CreateUser("dan@example.com"));
+
+        (await Board(project.Id)).Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task Board_OfAProjectThatDoesNotExist_ReturnsNotFound()
+    {
+        SignIn(await CreateUser());
+
+        (await Board(Guid.CreateVersion7())).Error.Should().Be(ProjectErrors.NotFound);
+    }
+}

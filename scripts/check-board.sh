@@ -477,8 +477,154 @@ task_2() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- The frontend: specs, lint, the production build and the texts.
+
+web=frontend
+app=$web/src/app
+board=$app/features/board
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*' '__').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+# The production build, made once per run.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  cat "$scratch"/dist/browser/*.js >"$scratch/bundle.js" && touch "$scratch/built"
+}
+
+bundle_has() { # bundle_has <text>
+  built && in_file "$1" "$scratch/bundle.js"
+}
+
+# The texts as ng extract-i18n writes them for translation, made once per run.
+extracted() {
+  [ -f "$scratch/locale/messages.xlf" ] && return 0
+  (cd "$web" && npx ng extract-i18n --output-path "$scratch/locale") >"$scratch/extract.log" 2>&1 || {
+    plain "$scratch/extract.log" | tail -n 25
+    return 1
+  }
+}
+
+messages_have() { # messages_have <text>
+  extracted && in_file "$1" "$scratch/locale/messages.xlf"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+no_colors_by_hand() {
+  lacks '#[0-9a-fA-F]{3,8}\b' "$board"/*.ts "$board"/*.scss "$board"/*.html
+}
+
+no_deep_selectors() {
+  lacks '::ng-deep|\.mat-mdc-|\.mdc-' "$board"/*.ts "$board"/*.scss
+}
+
+# ---- 13.3: the board, with drag and drop, moving at once and back when refused.
+
+the_board_loads_with_its_first_visit() {
+  grep -qF "path: 'board'," "$app/features/projects/projects.routes.ts" &&
+    grep -qF "import('../board/board-page').then((page) => page.BoardPage)" "$app/features/projects/projects.routes.ts" || {
+    echo "/projects/:id/board doesn't load the board feature"
+    return 1
+  }
+}
+
+the_board_is_cdk_drag_and_drop() {
+  in_file 'cdkDropListGroup' "$board/board-page.html" &&
+    in_file 'cdkDropList' "$board/board-column.ts" &&
+    in_file 'cdkDrag' "$board/board-column.ts" &&
+    in_file '(cdkDropListDropped)' "$board/board-column.ts"
+}
+
+the_store_reads_through_a_resource() {
+  in_file 'resource({' "$board/board-store.ts" &&
+    in_file "params: () => this.projectId()," "$board/board-store.ts" &&
+    in_file '/position' "$board/board-api.ts"
+}
+
+# docs/SPEC.md §6.1: the board reaches the panel and its changes through shared/, not the tasks feature.
+the_board_imports_no_other_feature() {
+  lacks "from '\.\./(tasks|projects|users|roles)/" "$board"/*.ts
+}
+
+creates_the_cards_project() {
+  dan_is_ready || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Carduri","key":"CRD"}')" || return 1
+  crd_id=$(body_field id)
+  for title in 'Primul card' 'Al doilea card' 'Arhivat'; do
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$crd_id/tasks" "{\"title\":\"$title\",\"priority\":\"Low\"}")" || return 1
+  done
+  archived_id=$(body_field id)
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$archived_id")"
+}
+
+the_board_answers_every_open_task() {
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$crd_id/board")" || return 1
+  is 'CRD|true|true|3' "$(json "[b.projectKey, b.canMove, b.canManage, b.columns.length].join('|')")" || return 1
+  is 'CRD-1:0,CRD-2:1' "$(json "b.tasks.map(t => t.key + ':' + t.position).join(',')")" || return 1
+  code_is 403 Project.MemberRequired "$(as "$dan_token" GET "/api/projects/$crd_id/board")"
+}
+
+task_3() {
+  echo "13.3 The board, with drag and drop, moving at once and back when refused"
+  for file in board-page.ts board-page.html board-page.scss board-column.ts task-card.ts board-store.ts \
+    board-api.ts board-moves.ts models.ts; do
+    check "features/board/$file is tracked" tracked "$board/$file"
+  done
+  check "TaskChanges moved to shared/" tracked "$app/shared/task-changes.ts"
+  check "the board endpoint is tracked" tracked backend/src/Kanabol.Application/Features/Tasks/Queries/GetBoard/GetBoardQueryHandler.cs
+  check "the solution builds without warnings" solution_builds
+  check "the board endpoint's tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetBoardQueryHandlerTests' 8
+  check "and over HTTP" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~BoardEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 9
+  check "the board page's specs pass, a refused move among them" specs_pass src/app/features/board/board-page.spec.ts 14
+  check "the projects pages still pass, with the board in them" specs_pass "src/app/features/projects/*.spec.ts" 64
+  check "the tasks pages still pass, with TaskChanges in shared/" specs_pass "src/app/features/tasks/*.spec.ts" 49
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "/projects/:id/board is the board, loaded on its first visit" the_board_loads_with_its_first_visit
+  check "the cards move through the CDK's drag and drop" the_board_is_cdk_drag_and_drop
+  check "the store reads through resource() and moves through PATCH position" the_store_reads_through_a_resource
+  check "the board imports no other feature" the_board_imports_no_other_feature
+  check "the board writes no colors by hand" no_colors_by_hand
+  check "nor reaches into Material's classes" no_deep_selectors
+  check "the production build has the board" bundle_has 'kb-board-column'
+  check "the board says when it can't be read" messages_have 'Nu am putut încărca board-ul.'
+  check "a new card asks for its title" messages_have 'Titlul task-ului'
+  check "the real API starts in Production, with a member without permissions" dan_is_ready
+  check "a project with two open tasks and an archived one is created" creates_the_cards_project
+  check "its board has the columns and the open tasks in their places, and not for an outsider" the_board_answers_every_open_task
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do

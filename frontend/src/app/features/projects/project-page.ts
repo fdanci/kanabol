@@ -9,7 +9,15 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButton } from '@angular/material/button';
 import { Title } from '@angular/platform-browser';
-import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  PRIMARY_OUTLET,
+  Router,
+  RouterLink,
+  RouterOutlet,
+  UrlSegmentGroup,
+} from '@angular/router';
 import { filter, map } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
@@ -52,9 +60,21 @@ export class ProjectPage {
       initialValue: '',
     },
   );
+  private readonly router = inject(Router);
   private readonly navigated = toSignal(
-    inject(Router).events.pipe(filter((event) => event instanceof NavigationEnd)),
+    this.router.events.pipe(filter((event) => event instanceof NavigationEnd)),
   );
+
+  /**
+   * The board is full-bleed and scrolls sideways (docs/UI_UX_SPEC.md §7.4); the other views keep the
+   * page's width. The panel's outlet is left out, so a task open over the board changes nothing.
+   */
+  protected readonly fullBleed = computed(() => {
+    this.navigated();
+    const primary = this.router.parseUrl(this.router.url).root.children[PRIMARY_OUTLET] as
+      UrlSegmentGroup | undefined;
+    return primary?.segments.at(-1)?.path === 'board';
+  });
 
   protected readonly segmentsLabel = $localize`Vederile proiectului`;
   protected readonly missingTitle = $localize`Proiectul nu există`;

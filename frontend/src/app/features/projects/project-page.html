@@ -36,7 +36,7 @@
         <kb-segmented-nav [segments]="segments()" [label]="segmentsLabel" />
       </kb-page-header>
 
-      <div class="content">
+      <div class="content" [class.full-bleed]="fullBleed()">
         @if (project.archivedAt) {
           <kb-banner class="archived" variant="info">
             <ng-container i18n
