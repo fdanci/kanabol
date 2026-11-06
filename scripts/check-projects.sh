@@ -760,8 +760,109 @@ task_3() {
   check "and archives with DELETE, restoring with /restore" bundle_has '/restore'
 }
 
+# ---- 11.4: access by role, and the owner a project keeps.
+
+creates_eva_and_her_project() {
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"eva@example.com\",\"displayName\":\"Eva Rusu\",\"roleId\":\"$creator_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
+  eva_id=$(body_field id)
+  status_is 200 "$(login eva@example.com "$initial_password")" || return 1
+  forced=$(body_field accessToken)
+  status_is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$dan_password\"}")" || return 1
+  eva_token=$(body_field accessToken)
+  status_is 201 "$(as "$eva_token" POST /api/projects '{"name":"Al Evei","key":"EVA"}')" || return 1
+  eva_project=$(body_field id)
+  in_file '"myRole":"Owner"' "$scratch/body"
+}
+
+creator_role_exists() {
+  status_is 201 "$(as "$admin_token" POST /api/roles '{"name":"Creator de proiecte","permissions":["projects.create"]}')" || return 1
+  creator_role=$(body_field id)
+  [ -n "$creator_role" ]
+}
+
+viewer_is_ready() {
+  status_is 201 "$(as "$admin_token" POST /api/roles '{"name":"Vede tot","permissions":["projects.view_all"]}')" || return 1
+  viewer_role=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"vio@example.com\",\"displayName\":\"Vio Pop\",\"roleId\":\"$viewer_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
+  status_is 200 "$(login vio@example.com "$initial_password")" || return 1
+  forced=$(body_field accessToken)
+  status_is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$dan_password\"}")" || return 1
+  vio_token=$(body_field accessToken)
+  [ -n "$vio_token" ]
+}
+
+an_outsider_neither_reads_nor_changes() {
+  code_is 403 Project.MemberRequired "$(as "$dan_token" GET "/api/projects/$eva_project")" || return 1
+  code_is 403 Project.MemberRequired "$(as "$dan_token" GET "/api/projects/$eva_project/members")" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" PUT "/api/projects/$eva_project" '{"name":"Al lui Dan"}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" DELETE "/api/projects/$eva_project")"
+}
+
+a_member_reads_but_does_not_change() {
+  status_is 201 "$(as "$eva_token" POST "/api/projects/$eva_project/members" "{\"userId\":\"$dan_id\",\"role\":\"Member\"}")" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$eva_project/members")" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" POST "/api/projects/$eva_project/members" "{\"userId\":\"$admin_id\",\"role\":\"Owner\"}")" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" PUT "/api/projects/$eva_project/members/$dan_id" '{"role":"Owner"}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" GET "/api/projects/$eva_project/member-candidates")"
+}
+
+view_all_reads_but_does_not_change() {
+  status_is 200 "$(as "$vio_token" GET "/api/projects/$eva_project")" || return 1
+  in_file '"myRole":null' "$scratch/body" && in_file '"canManage":false' "$scratch/body" || return 1
+  status_is 200 "$(as "$vio_token" GET "/api/projects/$eva_project/members")" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$vio_token" PUT "/api/projects/$eva_project" '{"name":"Al lui Vio"}')"
+}
+
+manage_changes_a_project_it_is_not_in() {
+  status_is 200 "$(as "$admin_token" PUT "/api/projects/$eva_project" '{"name":"Al Evei, redenumit"}')" || return 1
+  in_file '"canManage":true' "$scratch/body" && in_file '"myRole":null' "$scratch/body"
+}
+
+the_owner_cannot_leave_alone() {
+  code_is 409 Project.LastOwner "$(as "$eva_token" DELETE "/api/projects/$eva_project/members/$eva_id")" || return 1
+  code_is 409 Project.LastOwner "$(as "$eva_token" PUT "/api/projects/$eva_project/members/$eva_id" '{"role":"Member"}')"
+}
+
+# Until the deactivated owner is settled (Tasks.md, group 11, in Blocked): deactivating the only owner
+# isn't refused, their token still valid opens nothing, and projects.manage hands the project on.
+a_deactivated_owner_is_shut_out() {
+  status_is 200 "$(as "$admin_token" POST "/api/users/$eva_id/deactivate")" || return 1
+  code_is 403 Project.MemberRequired "$(as "$eva_token" GET "/api/projects/$eva_project")" || return 1
+  is "Owner|False" "$(in_db "SELECT m.role, u.is_active FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = '$eva_project' AND m.user_id = '$eva_id'")"
+}
+
+manage_hands_the_project_on() {
+  code_is 409 Project.LastOwner "$(as "$admin_token" DELETE "/api/projects/$eva_project/members/$eva_id")" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/projects/$eva_project/members/$dan_id" '{"role":"Owner"}')" || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/projects/$eva_project/members/$eva_id")" || return 1
+  is "Owner|dan@example.com" "$(in_db "SELECT m.role, u.email FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = '$eva_project'")"
+}
+
+task_4() {
+  echo "11.4 Access by role, and always an owner"
+  check "Docker is running" docker_is_running
+  check "every endpoint answers each kind of caller as its role allows" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ProjectAccessMatrixTests' 54
+  check "the access rules pass, member, non-member and view_all" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectAccessTests|FullyQualifiedName~ProjectQueryHandlerTests|FullyQualifiedName~GetProjectsQueryHandlerTests' 50
+  check "the last owner stays, also when two requests race" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ProjectMemberCommandHandlerTests|FullyQualifiedName~ConcurrentMemberChangesTests' 27
+  check "and in the entity" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectTests' 34
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "a user without permissions signs in" dan_is_ready
+  check "the admin's id is known" admin_id_is_known
+  check "a role that may create projects exists" creator_role_exists
+  check "a user creates a project and owns it" creates_eva_and_her_project
+  check "a user with projects.view_all signs in" viewer_is_ready
+  check "someone outside the project neither reads nor changes it" an_outsider_neither_reads_nor_changes
+  check "a member reads it, but changes nothing" a_member_reads_but_does_not_change
+  check "projects.view_all reads it, but changes nothing" view_all_reads_but_does_not_change
+  check "projects.manage changes a project it isn't in" manage_changes_a_project_it_is_not_in
+  check "the only owner can't leave or step down" the_owner_cannot_leave_alone
+  check "a deactivated owner's token opens nothing, and they stay owner" a_deactivated_owner_is_shut_out
+  check "projects.manage hands the project on, and only then removes them" manage_hands_the_project_on
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do
