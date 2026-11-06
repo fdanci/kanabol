@@ -11,6 +11,7 @@ import { Title } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Observable, of, throwError } from 'rxjs';
+import { ApiClient } from '../../core/api/api-client';
 import { AuthStore } from '../../core/auth/auth-store';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
@@ -125,6 +126,26 @@ describe('ProjectPage', () => {
       providers: [
         provideRouter([{ path: 'projects', children: PROJECTS_ROUTES }]),
         { provide: ProjectsApi, useValue: api },
+        // The board is another feature's page: only its calls to the API are answered here.
+        {
+          provide: ApiClient,
+          useValue: {
+            get: (path: string) =>
+              of(
+                path.endsWith('/board')
+                  ? {
+                      projectId: 'p1',
+                      projectKey: 'KAN',
+                      isArchived: false,
+                      canMove: true,
+                      canManage: true,
+                      columns: [{ id: 'c1', name: 'De făcut', position: 0, isDone: false }],
+                      tasks: [],
+                    }
+                  : [],
+              ),
+          },
+        },
         { provide: Snackbar, useValue: snackbar },
         { provide: Confirmation, useValue: confirmation },
         {
@@ -234,11 +255,19 @@ describe('ProjectPage', () => {
       expect(api.get.mock.calls.map((call) => call[0])).toEqual(['p1', 'p2']);
     });
 
-    it('opens on the board', async () => {
+    // docs/UI_UX_SPEC.md §7.4: the board is full-bleed, the other views keep the page's width.
+    it('opens on the board, which takes the whole width', async () => {
       await visit('/projects/p1');
 
       expect(page().querySelector('kb-segmented-nav a.active')?.textContent.trim()).toBe('Board');
-      expect(text()).toContain('Pagina e în lucru');
+      expect(page().querySelector('kb-board-page kb-board-column')).not.toBeNull();
+      expect(page().querySelector('.content')?.classList).toContain('full-bleed');
+    });
+
+    it('keeps the page width on the other views', async () => {
+      await visit('/projects/p1/members');
+
+      expect(page().querySelector('.content')?.classList).not.toContain('full-bleed');
     });
 
     it('gives an owner every view, the reports and the settings among them', async () => {

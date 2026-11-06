@@ -45,9 +45,9 @@ public sealed class ProjectBuilder
     public Project Build()
     {
         var project = new Project(_name, _key, _description);
-        project.AddColumn("De făcut", position: 0, isDone: false);
-        project.AddColumn("În lucru", position: 1, isDone: false);
-        project.AddColumn("Gata", position: 2, isDone: true);
+        project.AddColumn("De făcut", isDone: false);
+        project.AddColumn("În lucru", isDone: false);
+        project.AddColumn("Gata", isDone: true);
         _members.ForEach(member => project.AddMember(member.UserId, member.Role));
         return project;
     }

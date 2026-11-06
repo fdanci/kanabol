@@ -10,6 +10,8 @@ namespace Kanabol.Infrastructure.Persistence.Interceptors;
 /// <summary>
 /// Publishes the events raised by saved entities once SaveChanges has committed. A handler that
 /// fails is logged and skipped: the data is already committed, so failing the save would be wrong.
+/// A save inside a transaction of its caller commits nothing yet, so its events wait for the first
+/// save after that transaction (TaskNumbers makes one right after its commit).
 /// </summary>
 public sealed class DomainEventsInterceptor(
     IServiceProvider services,
@@ -45,7 +47,11 @@ public sealed class DomainEventsInterceptor(
 
     public override int SavedChanges(SaveChangesCompletedEventData eventData, int result)
     {
-        PublishPending().GetAwaiter().GetResult();
+        if (!InsideATransaction(eventData.Context))
+        {
+            PublishPending().GetAwaiter().GetResult();
+        }
+
         return result;
     }
 
@@ -54,7 +60,11 @@ public sealed class DomainEventsInterceptor(
         int result,
         CancellationToken cancellationToken = default)
     {
-        await PublishPending();
+        if (!InsideATransaction(eventData.Context))
+        {
+            await PublishPending();
+        }
+
         return result;
     }
 
@@ -68,14 +78,18 @@ public sealed class DomainEventsInterceptor(
         return Task.CompletedTask;
     }
 
+    // EF's own transaction is over by the time a save ends, so one still open is the caller's.
+    private static bool InsideATransaction(DbContext? context) => context?.Database.CurrentTransaction is not null;
+
     // Entities are collected before saving because a deleted one leaves the tracker during the save.
+    // Those of earlier saves in the same transaction are still waiting, so they stay.
     private void Collect(DbContext? context)
     {
         if (context is not null)
         {
-            _pending = [.. context.ChangeTracker.Entries<Entity>()
+            _pending = [.. _pending.Union(context.ChangeTracker.Entries<Entity>()
                 .Select(entry => entry.Entity)
-                .Where(entity => entity.DomainEvents.Count > 0)];
+                .Where(entity => entity.DomainEvents.Count > 0))];
         }
     }
 

@@ -8,8 +8,8 @@ namespace Kanabol.Application.Features.Projects;
 /// <summary>
 /// What every change to a project goes through: it has to exist, archived or not, the person asking
 /// has to pass as its owner, and an archived project can only be restored. The save turns a change
-/// made meanwhile into a conflict: changing the members also changes the project's version, so two
-/// requests can't each take away one of the last two owners.
+/// made meanwhile into a conflict: changing the members or the columns also changes the project's
+/// version, so two requests can't each take away one of the last two owners, nor put two columns in one place.
 /// </summary>
 public sealed class ProjectChanges(IAppDbContext db, IProjectAccess projectAccess, ICurrentUser currentUser)
 {
@@ -44,6 +44,9 @@ public sealed class ProjectChanges(IAppDbContext db, IProjectAccess projectAcces
         {
             return ProjectErrors.NotFound;
         }
+
+        // Tracked, so they land in project.Columns.
+        await db.BoardColumns.Where(column => column.ProjectId == projectId).LoadAsync(ct);
 
         var access = await projectAccess.EnsureOwnerAsync(projectId, currentUser.Id, ct);
         if (access.IsFailure)

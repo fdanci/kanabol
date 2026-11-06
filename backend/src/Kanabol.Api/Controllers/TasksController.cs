@@ -12,6 +12,7 @@ using Kanabol.Application.Features.Tasks.Commands.RenameTask;
 using Kanabol.Application.Features.Tasks.Commands.RestoreTask;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskDueDate;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskPriority;
+using Kanabol.Application.Features.Tasks.Queries.GetBoard;
 using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskById;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskByKey;
@@ -31,6 +32,14 @@ namespace Kanabol.Api.Controllers;
 [Route("api/tasks")]
 public sealed class TasksController : ControllerBase
 {
+    /// <summary>The columns and every open task, without pages: the board filters them in the browser.</summary>
+    [HttpGet("/api/projects/{projectId:guid}/board")]
+    public async Task<IActionResult> GetBoard(
+        Guid projectId,
+        [FromServices] IQueryHandler<GetBoardQuery, BoardDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new GetBoardQuery(projectId), ct)).ToActionResult();
+
     [HttpGet("/api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> GetProjectTasks(
         Guid projectId,

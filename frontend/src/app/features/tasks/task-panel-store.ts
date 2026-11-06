@@ -5,7 +5,7 @@ import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
 import { problemIn } from '../../shared/models/problem-details';
 import { TaskColumnDto, TaskItemDto, TaskMemberDto, TaskPriority } from './models';
-import { TaskChanges } from './task-changes';
+import { TaskChanges } from '../../shared/task-changes';
 import { TasksApi } from './tasks-api';
 
 export type TaskPanelState = 'loading' | 'ready' | 'missing' | 'forbidden' | 'error';

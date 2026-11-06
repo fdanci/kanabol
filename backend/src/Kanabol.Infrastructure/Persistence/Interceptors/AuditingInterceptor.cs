@@ -26,15 +26,19 @@ public sealed class AuditingInterceptor(IClock clock, ICurrentUser currentUser) 
     }
 
     /// <summary>
-    /// A change to a project's members is a change to the project, which then gets saved too, and so has
-    /// its version checked. Two requests that each take away one of the last two owners both see the
-    /// other owner stay, so without this both would save, and leave the project with none.
+    /// A change to a project's members or columns is a change to the project, which then gets saved too,
+    /// and so has its version checked. Two requests that each take away one of the last two owners both
+    /// see the other owner stay, so without this both would save, and leave the project with none; two
+    /// columns added at once would both take the last place.
     /// </summary>
-    private static void TouchProjectsWithChangedMembers(DbContext context)
+    private static void TouchProjectsWithChangedParts(DbContext context)
     {
         var changedProjectIds = context.ChangeTracker.Entries<ProjectMember>()
             .Where(entry => entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
             .Select(entry => entry.Entity.ProjectId)
+            .Concat(context.ChangeTracker.Entries<BoardColumn>()
+                .Where(entry => entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+                .Select(entry => entry.Entity.ProjectId))
             .ToHashSet();
 
         var unchangedProjects = context.ChangeTracker.Entries<Project>()
@@ -52,7 +56,7 @@ public sealed class AuditingInterceptor(IClock clock, ICurrentUser currentUser) 
             return;
         }
 
-        TouchProjectsWithChangedMembers(context);
+        TouchProjectsWithChangedParts(context);
 
         var now = clock.UtcNow;
         Guid? userId = currentUser.IsAuthenticated ? currentUser.Id : null;

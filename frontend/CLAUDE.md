@@ -20,7 +20,7 @@ Run from `frontend/`:
 - Lint: `npm run lint`
 - Check formatting: `npx prettier --check .`
 - Extract the texts for translation: `npx ng extract-i18n --output-path <folder>`. Romanian is the source language, and v1 has no other.
-- Run the acceptance checks of the skeleton and authentication, from the repo root: `scripts/check-web.sh [task-number...]`, those of the users and roles pages: `scripts/check-admin.sh [task-number...]`, those of the projects: `scripts/check-projects.sh [task-number...]`, and those of the tasks: `scripts/check-tasks.sh [task-number...]` (7 and 8 need only the packages). Task 3 of check-admin.sh and tasks 1 and 2 of check-projects.sh also start the real API, so they need Docker and PostgreSQL like `scripts/check-users.sh`.
+- Run the acceptance checks of the skeleton and authentication, from the repo root: `scripts/check-web.sh [task-number...]`, those of the users and roles pages: `scripts/check-admin.sh [task-number...]`, those of the projects: `scripts/check-projects.sh [task-number...]`, those of the tasks: `scripts/check-tasks.sh [task-number...]` (7 and 8 need only the packages), and those of the board: `scripts/check-board.sh [task-number...]`. Task 3 of check-admin.sh and tasks 1 and 2 of check-projects.sh also start the real API, so they need Docker and PostgreSQL like `scripts/check-users.sh`.
 
 ## How a request goes
 
@@ -55,7 +55,7 @@ Run from `frontend/`:
 
 ## Projects
 
-- `/projects` lists what the API lets the user open, for anyone signed in. `/projects/:id` opens on `board`, next to `list`, `members`, `reports` and `settings`; the board and the reports are placeholders until their groups, and the list is the tasks feature's page, which `projects.routes.ts` loads.
+- `/projects` lists what the API lets the user open, for anyone signed in. `/projects/:id` opens on `board`, next to `list`, `members`, `reports` and `settings`; the reports are a placeholder until group 18, and the board and the list are other features' pages, which `projects.routes.ts` loads. On the board the page drops its width limit, since the board is full-bleed.
 - `ProjectPage` provides one `ProjectStore` for its views, so they share the project and another project starts from nothing. `canManage` from the API (an owner, or `projects.manage`) shows Setări and the changes, and an archived project changes nothing until it's restored.
 - The member sheet looks for users through `GET /api/projects/{id}/member-candidates`, so an owner without `users.manage` can still add someone.
 - The last active owner's row has no ⋮, nor has a deactivated owner's while no owner is active: the API refuses to remove or demote them anyway (409 `Project.LastOwner`). `ProjectStore.keepsAnActiveOwnerWithout` decides it.
@@ -70,6 +70,19 @@ Run from `frontend/`:
 - The List view (`TaskListPage`) keeps its filters, sort and page in the address, so a list can be shared and the back button goes through them. The filters are the board's (docs/UI_UX_SPEC.md §7.4), in `shared/` for group 13: `TaskFilters` and their query (`shared/models/task-filters.ts`), and `kb-task-filter-bar` (`shared/ui`). "Ale mele" is `assignee=me`, the tasks of whoever opens the link. A row opens the panel and keeps the query.
 - The headers sort through buttons of their own with a 12px chevron (UI spec §6.4), not `MatSort`, whose arrow Material draws.
 - `mat-select` takes an option whose value is `null` for no choice at all and shows nothing, so "Neasignat" and "Oricine" have the value `''`.
+
+## Board
+
+- `board-store.spec.ts` holds the store's moves and rollbacks against a fake API whose answers the specs hold and let go, and `board-moves.spec.ts` the pure `moveCard` and `placeAmong`; `board-page.spec.ts` drives the page, drops included, through the column's `dropped` output, with the fixtures in `board-testing.ts`.
+- `BoardPage` (`features/board`) reads `GET /api/projects/{id}/board`: the columns and every open task, without pages, since the board shows them all. `BoardStore` holds it as a `resource()` of the project's id, with the members as another, and keeps the old board while it reads it again, so the cards don't blink.
+- Cards move with CDK drag and drop: `cdkDropListGroup` on the board, a `cdkDropList` per column (`BoardColumn`), `cdkDrag` on each `TaskCard`. A drop moves the card at once (`moveCard` in `board-moves.ts`, which numbers the columns 0, 1, 2... as the API does), then sends `PATCH /api/tasks/{id}/position`; when the API refuses, the card goes back to its place and the board is read again. `errorInterceptor` has shown why by then.
+- The CDK gives the place among the cards a column shows; `placeAmong` turns it into the place among all its cards, which the filters may hide some of.
+- The card's look is on an inner `.card`, because the CDK moves the dragged copy with a `transform` on the host: the tilt of a picked-up card (UI spec §6.0.10) goes on the inner box, as do the placeholder's outline and the 200ms reordering.
+- Dragging and "+ Task" follow `canMove` from the API, a real member of an open project, and "+ Task" also `tasks.create`. "+ Task" opens a title field in the column; Enter creates the task at its end, with the default priority, and the field stays for the next one.
+- From the keyboard (UI spec §7.4): Space on a focused card picks it up, the arrows move it to another column, keeping its row as far as that column goes, or up and down, Space lets it go and Esc puts it back. Only letting go asks the API. `LiveAnnouncer` says each step in Romanian, every card is described by the keys' help, and the focus follows the card as it is drawn in its new column (`afterNextRender`).
+- The filters are the List view's (`kb-task-filter-bar`, `TaskFilters`) and live in the address the same way, without the archived ones. They work in the browser on the cards the board has (`cardFilter` in `board-filters.ts`); a column counts the cards it shows. A card dropped or let go among filtered cards lands just before the card it went above, or just after the last one shown, so the hidden ones keep their places.
+- For `canManage` (an owner or `projects.manage`, open project) each column has a ⋮ (`kb-menu`): "Redenumește" turns the name into a field in place (Enter and leaving it save, Esc gives up), "Mută la stânga" and "Mută la dreapta" where there is room, "Marchează ca terminată" or back, which reads the board again since its tasks change, and "Șterge" only for an empty column that isn't the last, after `Confirmation.ask`. A column with only archived tasks gets 409 `Column.NotEmpty`, which `BY_CODE` says in Romanian. "+ Coloană" at the right end opens a name field. The ⋮ is 28px with a 16px icon, from `mat.icon-button-overrides` on `kb-board-column` in `styles.scss`.
+- A card opens its panel with `openTaskPanel`, keeping the query, and `TaskChanges` (`shared/`, so the board needn't import the tasks feature) makes the board read itself again after the panel saves.
 
 ## Access rules
 

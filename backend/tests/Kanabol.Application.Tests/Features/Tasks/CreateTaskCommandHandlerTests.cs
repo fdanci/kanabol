@@ -15,8 +15,8 @@ namespace Kanabol.Application.Tests.Features.Tasks;
 
 /// <summary>
 /// Creating a task: tasks.create is the endpoint's, from the token, and the handler asks for a real
-/// membership (SPEC section 4.4). The number comes from the project's counter, whose version guards it,
-/// and a creation that loses that race takes the next number instead of answering 409 (SPEC 5.1, 5.3).
+/// membership (SPEC section 4.4). The number comes from one UPDATE … RETURNING on the project's counter,
+/// in the transaction that saves the task, so creations at once never race (SPEC 5.1, 5.3).
 /// </summary>
 public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : TaskHandlerTest(postgres)
 {
@@ -261,6 +261,7 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
         SignIn(owner);
         Result<TaskItemDto>? second = null;
 
+        // The first read of the clock comes after the reads of the project, its column and the access.
         var first = await PausedAtClockCall(
             1,
             () => HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project, "Primul")),
@@ -268,14 +269,56 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
 
         first.IsSuccess.Should().BeTrue(first.IsFailure ? first.Error.ToString() : "");
         second!.IsSuccess.Should().BeTrue();
-        new[] { first.Value.Key, second.Value.Key }.Should().BeEquivalentTo("RAC-1", "RAC-2");
-        first.Value.Key.Should().Be("RAC-2", "the one that waited lost the race and took the next number");
-        (await TasksOf(project)).Select(task => task.Number).Should().Equal(1, 2);
+        first.Value.Key.Should().Be("RAC-2", "the one that read the project first took the number second");
+        second.Value.Key.Should().Be("RAC-1");
+        (await TasksOf(project)).Select(task => (task.Number, task.Position)).Should().Equal((1, 0), (2, 1));
         (await NextTaskNumberOf(project)).Should().Be(3);
-        Logs.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Information && entry.Message.StartsWith($"Project {project.Id} changed while", StringComparison.Ordinal));
     }
 
-    // The side effect SPEC section 5.3 writes down: a change to the members bumps the project's version too.
+    // The UPDATE … RETURNING holds the project's row until the commit, so a creation that comes while
+    // another one has its number waits for that commit, then takes the next number and the next place.
+    [Fact]
+    public async Task Create_WhileAnotherOneHasTakenItsNumber_WaitsForItsCommitThenTakesTheNextOne()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.WithKey("RAD").OwnedBy(owner));
+        SignIn(owner);
+        Task<Result<TaskItemDto>>? second = null;
+
+        // The second read of the clock is the audit stamp of the save, inside the transaction.
+        var first = await PausedAtClockCall(
+            2,
+            () => HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project, "Primul")),
+            async () =>
+            {
+                second = HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project, "Al doilea"));
+                (await Task.WhenAny(second, Task.Delay(TimeSpan.FromMilliseconds(500)))).Should().NotBeSameAs(second, "it waits for the first one's commit");
+            });
+
+        first.Value.Key.Should().Be("RAD-1");
+        (await second!).Value.Key.Should().Be("RAD-2");
+        (await TasksOf(project)).Select(task => (task.Number, task.Position)).Should().Equal((1, 0), (2, 1));
+    }
+
+    // SPEC sections 5.1 and 5.3 (decided 2026-11-06): any number of creations at once get different numbers, and none a 409.
+    [Fact]
+    public async Task Create_TenAtOnce_GetTenNumbersAndTenPlacesWithoutAConflict()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.WithKey("ZECE").OwnedBy(owner));
+        SignIn(owner);
+
+        var results = await Task.WhenAll(Enumerable.Range(1, 10)
+            .Select(index => HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project, $"Task {index}"))));
+
+        results.Where(result => result.IsFailure).Select(result => result.Error).Should().BeEmpty();
+        var tasks = await TasksOf(project);
+        tasks.Select(task => task.Number).Should().Equal(Enumerable.Range(1, 10));
+        tasks.Select(task => task.Position).Should().BeEquivalentTo(Enumerable.Range(0, 10), "each one went at the end of the column");
+        (await NextTaskNumberOf(project)).Should().Be(11);
+    }
+
+    // SPEC section 5.3: the counter doesn't go through the project's xmin, so a change to the members doesn't touch a creation.
     [Fact]
     public async Task Create_WhileAMemberIsAdded_StillSucceeds()
     {
@@ -305,31 +348,51 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
             () => HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project)),
             async () => (await HandleInOwnScope<ArchiveProjectCommand, Unit>(new ArchiveProjectCommand(project.Id))).IsSuccess.Should().BeTrue());
 
-        created.Error.Should().Be(ProjectErrors.Archived);
+        created.Error.Should().Be(ProjectErrors.Archived, "the counter only moves in an open project");
         (await TasksOf(project)).Should().BeEmpty();
+        (await NextTaskNumberOf(project)).Should().Be(1);
     }
 
-    // At most 3 retries (SPEC section 5.1): a project that changes before every save gives up with the 409.
+    // No retry and no 409 left (SPEC section 5.1): a project changed since it was read still takes the task.
     [Fact]
-    public async Task Create_WhenTheProjectChangesBeforeEverySave_GivesUpAfterThreeRetries()
+    public async Task Create_WhenTheProjectIsRenamedMeanwhile_StillSucceedsAndKeepsTheNewName()
     {
         var owner = await CreateUser();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         SignIn(owner);
-        Clock.UtcNow.Returns(_ =>
-        {
-            // Every read of the clock comes just before a save, from the handler or the audit stamp.
-            using var db = Postgres.CreateContext();
-            db.Projects.IgnoreQueryFilters().Where(stored => stored.Id == project.Id)
-                .ExecuteUpdate(set => set.SetProperty(stored => stored.Name, stored => stored.Name));
-            return Now;
-        });
 
-        var result = await Create(NewTask(project));
+        var created = await PausedAtClockCall(
+            1,
+            () => HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project)),
+            async () =>
+            {
+                await using var db = Postgres.CreateContext();
+                await db.Projects.Where(stored => stored.Id == project.Id).ExecuteUpdateAsync(set => set.SetProperty(stored => stored.Name, "Alt nume"));
+            });
 
-        result.Error.Should().Be(ProjectErrors.ChangedMeanwhile);
-        (await TasksOf(project)).Should().BeEmpty();
-        (await NextTaskNumberOf(project)).Should().Be(1);
-        Logs.Entries.Count(entry => entry.Message.StartsWith($"Project {project.Id} changed while", StringComparison.Ordinal)).Should().Be(3);
+        created.Value.Number.Should().Be(1);
+        await using var check = Postgres.CreateContext();
+        (await check.Projects.SingleAsync(stored => stored.Id == project.Id)).Name.Should().Be("Alt nume");
+    }
+
+    // The side effect SPEC section 5.3 writes down: a change to the members that read the project before a
+    // creation took its number started from an old read, so it gets the 409.
+    [Fact]
+    public async Task AddMember_WhileATaskIsCreated_Returns409ChangedMeanwhile()
+    {
+        var owner = await CreateUser();
+        var user = await CreateUser("dan@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        SignIn(owner);
+
+        // The first read of the clock in that request is the audit stamp of its save.
+        var added = await PausedAtClockCall(
+            1,
+            () => HandleInOwnScope<AddProjectMemberCommand, ProjectMemberDto>(new AddProjectMemberCommand(project.Id, user.Id, ProjectRole.Member)),
+            async () => (await HandleInOwnScope<CreateTaskCommand, TaskItemDto>(NewTask(project))).IsSuccess.Should().BeTrue());
+
+        added.Error.Should().Be(ProjectErrors.ChangedMeanwhile);
+        (await MembersOf(project.Id)).Should().ContainSingle();
+        (await TasksOf(project)).Should().ContainSingle();
     }
 }

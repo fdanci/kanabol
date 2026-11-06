@@ -40,7 +40,11 @@ public sealed class Project : AuditableEntity, IArchivable
 
     public string? Description { get; private set; }
 
-    /// <summary>The number the next task gets. Numbers aren't reused, even after a task is archived.</summary>
+    /// <summary>
+    /// The number the next task gets. Numbers aren't reused, even after a task is archived. Only the
+    /// database moves it, with one UPDATE … RETURNING in the transaction that saves the task, so any
+    /// number of creations at once get different numbers (ITaskNumbers, SPEC sections 5.1 and 5.3).
+    /// </summary>
     public int NextTaskNumber { get; private set; }
 
     public DateTimeOffset? ArchivedAt { get; private set; }
@@ -57,9 +61,9 @@ public sealed class Project : AuditableEntity, IArchivable
         var project = new Project(name, key, description);
         project.AddMember(ownerId, ProjectRole.Owner);
 
-        for (var position = 0; position < _defaultColumns.Length; position++)
+        foreach (var (columnName, isDone) in _defaultColumns)
         {
-            project.AddColumn(_defaultColumns[position].Name, position, _defaultColumns[position].IsDone);
+            project.AddColumn(columnName, isDone);
         }
 
         return project;
@@ -81,17 +85,83 @@ public sealed class Project : AuditableEntity, IArchivable
         Description = NormalizeDescription(description);
     }
 
-    /// <summary>
-    /// Only through TaskItem.Create. The project is saved with the task, so its version guards the
-    /// counter: two tasks created at the same moment can't take the same number (SPEC section 5.3).
-    /// </summary>
-    internal int TakeTaskNumber() => NextTaskNumber++;
-
-    public BoardColumn AddColumn(string name, int position, bool isDone)
+    /// <summary>A new column at the right end of the board.</summary>
+    public BoardColumn AddColumn(string name, bool isDone)
     {
-        var column = new BoardColumn(Id, name, position, isDone);
+        var column = new BoardColumn(Id, name, _columns.Count, isDone);
         _columns.Add(column);
         return column;
+    }
+
+    public ColumnChange RenameColumn(Guid columnId, string name)
+    {
+        var column = FindColumn(columnId);
+        if (column is null)
+        {
+            return ColumnChange.NotFound;
+        }
+
+        column.Rename(name);
+        return ColumnChange.Done;
+    }
+
+    /// <summary>
+    /// Only the flag: the tasks in the column follow it through TaskItem.FollowColumn, which the handler
+    /// calls, since the project doesn't hold its tasks.
+    /// </summary>
+    public ColumnChange MarkColumnDone(Guid columnId, bool isDone)
+    {
+        var column = FindColumn(columnId);
+        if (column is null)
+        {
+            return ColumnChange.NotFound;
+        }
+
+        column.MarkDone(isDone);
+        return ColumnChange.Done;
+    }
+
+    /// <summary>To a place from 0, the others closing up around it; past the end it goes last.</summary>
+    public ColumnChange MoveColumn(Guid columnId, int position)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(position);
+        var column = FindColumn(columnId);
+        if (column is null)
+        {
+            return ColumnChange.NotFound;
+        }
+
+        var ordered = OrderedColumns().Where(other => other != column).ToList();
+        ordered.Insert(Math.Min(position, ordered.Count), column);
+        Renumber(ordered);
+        return ColumnChange.Done;
+    }
+
+    /// <summary>
+    /// Only an empty column goes, and never the last one: a task always starts in a column. Whether it
+    /// holds a task, archived ones included, isn't the project's to know, so the handler says.
+    /// </summary>
+    public ColumnChange RemoveColumn(Guid columnId, bool holdsTasks)
+    {
+        var column = FindColumn(columnId);
+        if (column is null)
+        {
+            return ColumnChange.NotFound;
+        }
+
+        if (holdsTasks)
+        {
+            return ColumnChange.NotEmpty;
+        }
+
+        if (_columns.Count == 1)
+        {
+            return ColumnChange.LastColumn;
+        }
+
+        _columns.Remove(column);
+        Renumber(OrderedColumns());
+        return ColumnChange.Done;
     }
 
     public MembershipChange AddMember(Guid userId, ProjectRole role)
@@ -169,6 +239,18 @@ public sealed class Project : AuditableEntity, IArchivable
         string.IsNullOrWhiteSpace(description) ? null : description.Trim();
 
     private ProjectMember? FindMember(Guid userId) => _members.Find(member => member.UserId == userId);
+
+    private BoardColumn? FindColumn(Guid columnId) => _columns.Find(column => column.Id == columnId);
+
+    private List<BoardColumn> OrderedColumns() => [.. _columns.OrderBy(column => column.Position)];
+
+    private static void Renumber(List<BoardColumn> ordered)
+    {
+        for (var position = 0; position < ordered.Count; position++)
+        {
+            ordered[position].PlaceAt(position);
+        }
+    }
 
     /// <summary>
     /// Whether taking this owner away leaves no active owner behind. A deactivated owner still counts as

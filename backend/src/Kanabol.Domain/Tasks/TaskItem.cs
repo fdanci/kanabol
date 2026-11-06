@@ -69,13 +69,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     public IReadOnlyCollection<TaskHistoryEntry> History => _history;
 
     /// <summary>
-    /// A new task in an open project, with the project's next number. One created straight into a done
-    /// column is completed at once, and one created for someone is assigned to them, which they hear of
-    /// like any assignment (SPEC section 4.3).
+    /// A new task in an open project, with the number the database took from the project's counter
+    /// (ITaskNumbers). One created straight into a done column is completed at once, and one created for
+    /// someone is assigned to them, which they hear of like any assignment (SPEC section 4.3).
     /// </summary>
     public static TaskItem Create(
         Project project,
         BoardColumn column,
+        int number,
         string title,
         string? description,
         TaskPriority priority,
@@ -95,15 +96,16 @@ public sealed class TaskItem : AuditableEntity, IArchivable
             throw new ArgumentException("A task starts in a column of its own project.", nameof(column));
         }
 
+        ArgumentOutOfRangeException.ThrowIfLessThan(number, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(position);
 
         var task = new TaskItem(project, column, title, description, priority, position)
         {
+            Number = number,
             DueDate = dueDate?.ToUniversalTime(),
             AssigneeId = assigneeId,
             CompletedAt = column.IsDone ? now : null,
         };
-        task.Number = project.TakeTaskNumber();
         task.Raise(new TaskCreatedEvent(task.Id, project.Id, task.Number, createdById));
         if (assigneeId is not null)
         {
@@ -214,6 +216,20 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// Another place in the same column, to keep the column's order without gaps around a move. It isn't
     /// a change of this task, so it writes no history and raises nothing: the moved task's event says it all.
     /// </summary>
+    /// <summary>
+    /// Its column became a done column, or stopped being one: the task is completed now, or open again,
+    /// as if it had just entered that column (SPEC section 5.1). Its place and its history stay.
+    /// </summary>
+    public void FollowColumn(BoardColumn column, DateTimeOffset now)
+    {
+        if (column.Id != ColumnId)
+        {
+            throw new ArgumentException("A task follows only the column it's in.", nameof(column));
+        }
+
+        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
+    }
+
     public void ShiftTo(int position)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);

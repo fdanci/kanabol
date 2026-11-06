@@ -44,6 +44,7 @@ public static class DependencyInjection
             .ConfigureWarnings(warnings => warnings.Ignore(
                 CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddScoped<ITaskNumbers, TaskNumbers>();
         services.AddScoped<DatabaseSeeder>();
         services.AddHostedService<DatabaseInitializer>();
 

@@ -60,6 +60,11 @@ const BY_CODE: Record<string, () => string> = {
   'Task.NotFound': () => $localize`Task-ul nu mai există sau a fost arhivat.`,
   'Task.ChangedMeanwhile': () =>
     $localize`Task-ul s-a schimbat între timp. L-am citit din nou, reîncearcă.`,
+  // The columns of a board (docs/UI_UX_SPEC.md §7.4).
+  'Column.NotFound': () => $localize`Coloana nu mai e pe board. Reîncarcă pagina.`,
+  'Column.NotEmpty': () =>
+    $localize`Coloana mai are task-uri, poate și arhivate. Mută-le întâi în altă coloană.`,
+  'Column.LastColumn': () => $localize`Board-ul are nevoie de cel puțin o coloană.`,
 };
 
 function messageFor(status: number, problem: ProblemDetails | null): string {
