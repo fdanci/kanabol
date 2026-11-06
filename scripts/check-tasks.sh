@@ -1014,11 +1014,11 @@ every_task_error_has_a_message() {
 
 task_7() {
   echo "12.7 The task panel"
-  for file in models.ts tasks-api.ts task-changes.ts task-fields.ts task-panel-store.ts task-panel.ts \
+  for file in models.ts tasks-api.ts task-fields.ts task-panel-store.ts task-panel.ts \
     task-panel.html task-panel.scss task-panel-route.ts task-link-page.ts tasks.routes.ts task-testing.ts; do
     check "features/tasks/$file is tracked" tracked "$tasks/$file"
   done
-  for file in shared/task-panel.ts shared/ui/markdown.ts shared/ui/markdown-parser.ts shared/ui/deadline-chip.ts; do
+  for file in shared/task-panel.ts shared/task-changes.ts shared/ui/markdown.ts shared/ui/markdown-parser.ts shared/ui/deadline-chip.ts; do
     check "$file is tracked" tracked "$app/$file"
   done
   check "the specs of the panel pass" specs_pass "src/app/features/tasks/task-*.spec.ts" 31

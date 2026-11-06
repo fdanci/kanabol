@@ -56,7 +56,10 @@ docker_is_running() {
   "$docker_cli" info --format '{{.ServerVersion}}'
 }
 
+# A build copies the DLLs into the API's bin folder, which the API started by an earlier task holds open
+# on Windows: the API stops first, and api_is_up starts it again, on the same database, when a check needs it.
 solution_builds() {
+  stop_api
   dotnet build backend/Kanabol.sln -warnaserror --no-incremental --nologo
 }
 
@@ -65,6 +68,7 @@ formatting_is_clean() {
 }
 
 tests_pass() { # tests_pass <project> <filter> <minimum passed>
+  stop_api
   log="$scratch/tests-$1.log"
   dotnet test "backend/tests/$1/$1.csproj" --nologo --filter "$2" >"$log" 2>&1 || {
     tail -n 25 "$log"
@@ -87,6 +91,7 @@ test_exists() { # test_exists <project> <name>: the test is there, so its filter
 named_tests_pass() { # named_tests_pass <project> <test name...>: each exists, and all of them pass
   project=$1
   shift
+  stop_api
   dotnet build "backend/tests/$project/$project.csproj" --nologo -v q >/dev/null 2>&1 || return 1
   filter=
   for name in "$@"; do
@@ -183,11 +188,15 @@ api_is_up() {
   done
 }
 
+stop_api() {
+  [ -n "${api_pid:-}" ] || return 0
+  kill "$api_pid" 2>/dev/null
+  wait "$api_pid" 2>/dev/null
+  api_pid=
+}
+
 cleanup() {
-  if [ -n "$api_pid" ]; then
-    kill "$api_pid" 2>/dev/null
-    wait "$api_pid" 2>/dev/null
-  fi
+  stop_api
   if [ -n "$admin_connection" ]; then
     sql "$admin_connection" "DROP DATABASE IF EXISTS $check_db WITH (FORCE)" >/dev/null
   fi
@@ -321,7 +330,7 @@ the_counter_moves_in_the_transaction() {
 }
 
 no_retry_left() {
-  lacks 'MaxRetries|ReloadAsync|DbUpdateException|ChangedMeanwhile|for \(' "$create_handler" &&
+  lacks 'MaxRetries|ReloadAsync|DbUpdateConcurrencyException|IsUniqueViolation|ChangedMeanwhile|for \(' "$create_handler" &&
     lacks 'TakeTaskNumber|NextTaskNumber\+\+' backend/src/Kanabol.Domain/Projects/Project.cs
 }
 
