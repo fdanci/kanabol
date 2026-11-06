@@ -58,7 +58,7 @@ Run from `frontend/`:
 - `/projects` lists what the API lets the user open, for anyone signed in. `/projects/:id` opens on `board`, next to `list`, `members`, `reports` and `settings`; the board, the list and the reports are placeholders until their groups.
 - `ProjectPage` provides one `ProjectStore` for its views, so they share the project and another project starts from nothing. `canManage` from the API (an owner, or `projects.manage`) shows Setări and the changes, and an archived project changes nothing until it's restored.
 - The member sheet looks for users through `GET /api/projects/{id}/member-candidates`, so an owner without `users.manage` can still add someone.
-- The last owner's row has no ⋮: the API refuses to remove or demote them anyway (409 `Project.LastOwner`).
+- The last active owner's row has no ⋮, nor has a deactivated owner's while no owner is active: the API refuses to remove or demote them anyway (409 `Project.LastOwner`). `ProjectStore.keepsAnActiveOwnerWithout` decides it.
 
 ## Access rules
 

@@ -9,6 +9,9 @@ public sealed class ProjectTests
     private static readonly Guid _other = Guid.CreateVersion7();
     private static readonly DateTimeOffset _now = new(2026, 11, 6, 12, 0, 0, TimeSpan.Zero);
 
+    // Whose accounts are active, as the handler reads them: everyone, unless a test says otherwise.
+    private static readonly HashSet<Guid> _everyoneActive = [_owner, _other];
+
     [Fact]
     public void Create_Always_MakesTheCreatorItsOnlyOwner()
     {
@@ -113,7 +116,7 @@ public sealed class ProjectTests
         var project = Project.Create("Kanabol", "KAN", null, _owner);
         project.AddMember(_other, ProjectRole.Owner);
 
-        project.ChangeMemberRole(_owner, ProjectRole.Member).Should().Be(MembershipChange.Done);
+        project.ChangeMemberRole(_owner, ProjectRole.Member, _everyoneActive).Should().Be(MembershipChange.Done);
 
         project.Members.Single(member => member.UserId == _owner).Role.Should().Be(ProjectRole.Member);
     }
@@ -124,7 +127,7 @@ public sealed class ProjectTests
         var project = Project.Create("Kanabol", "KAN", null, _owner);
         project.AddMember(_other, ProjectRole.Member);
 
-        project.ChangeMemberRole(_owner, ProjectRole.Member).Should().Be(MembershipChange.LastOwner);
+        project.ChangeMemberRole(_owner, ProjectRole.Member, _everyoneActive).Should().Be(MembershipChange.LastOwner);
 
         project.Members.Single(member => member.UserId == _owner).Role.Should().Be(ProjectRole.Owner);
     }
@@ -135,7 +138,7 @@ public sealed class ProjectTests
         var project = Project.Create("Kanabol", "KAN", null, _owner);
         project.AddMember(_other, ProjectRole.Member);
 
-        project.ChangeMemberRole(_other, ProjectRole.Owner).Should().Be(MembershipChange.Done);
+        project.ChangeMemberRole(_other, ProjectRole.Owner, _everyoneActive).Should().Be(MembershipChange.Done);
 
         project.Members.Count(member => member.Role == ProjectRole.Owner).Should().Be(2);
     }
@@ -145,14 +148,14 @@ public sealed class ProjectTests
     {
         var project = Project.Create("Kanabol", "KAN", null, _owner);
 
-        project.ChangeMemberRole(_owner, ProjectRole.Owner).Should().Be(MembershipChange.Done);
+        project.ChangeMemberRole(_owner, ProjectRole.Owner, _everyoneActive).Should().Be(MembershipChange.Done);
 
         project.Members.Single().Role.Should().Be(ProjectRole.Owner);
     }
 
     [Fact]
     public void ChangeMemberRole_WhenNotAMember_Refuses() =>
-        Project.Create("Kanabol", "KAN", null, _owner).ChangeMemberRole(_other, ProjectRole.Owner).Should().Be(MembershipChange.NotAMember);
+        Project.Create("Kanabol", "KAN", null, _owner).ChangeMemberRole(_other, ProjectRole.Owner, _everyoneActive).Should().Be(MembershipChange.NotAMember);
 
     [Fact]
     public void RemoveMember_WhenAMember_RemovesThem()
@@ -160,7 +163,7 @@ public sealed class ProjectTests
         var project = Project.Create("Kanabol", "KAN", null, _owner);
         project.AddMember(_other, ProjectRole.Member);
 
-        project.RemoveMember(_other).Should().Be(MembershipChange.Done);
+        project.RemoveMember(_other, _everyoneActive).Should().Be(MembershipChange.Done);
 
         project.Members.Should().ContainSingle(member => member.UserId == _owner);
     }
@@ -171,7 +174,7 @@ public sealed class ProjectTests
         var project = Project.Create("Kanabol", "KAN", null, _owner);
         project.AddMember(_other, ProjectRole.Owner);
 
-        project.RemoveMember(_owner).Should().Be(MembershipChange.Done);
+        project.RemoveMember(_owner, _everyoneActive).Should().Be(MembershipChange.Done);
 
         project.Members.Should().ContainSingle(member => member.UserId == _other && member.Role == ProjectRole.Owner);
     }
@@ -182,14 +185,97 @@ public sealed class ProjectTests
         var project = Project.Create("Kanabol", "KAN", null, _owner);
         project.AddMember(_other, ProjectRole.Member);
 
-        project.RemoveMember(_owner).Should().Be(MembershipChange.LastOwner);
+        project.RemoveMember(_owner, _everyoneActive).Should().Be(MembershipChange.LastOwner);
+
+        project.Members.Should().HaveCount(2);
+    }
+
+    // "Always an owner" means an active one (SPEC section 4.4, Owner dezactivat).
+    [Fact]
+    public void RemoveMember_WhenTheOnlyOtherOwnerIsDeactivated_RefusesAndKeepsThem()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Owner);
+
+        project.RemoveMember(_owner, [_owner]).Should().Be(MembershipChange.LastOwner);
 
         project.Members.Should().HaveCount(2);
     }
 
     [Fact]
+    public void ChangeMemberRole_WhenTheOnlyOtherOwnerIsDeactivated_RefusesAndKeepsTheOwner()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Owner);
+
+        project.ChangeMemberRole(_owner, ProjectRole.Member, [_owner]).Should().Be(MembershipChange.LastOwner);
+
+        project.Members.Should().OnlyContain(member => member.Role == ProjectRole.Owner);
+    }
+
+    [Fact]
+    public void RemoveMember_OfADeactivatedOwnerWhenAnActiveOneStays_RemovesThem()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Owner);
+
+        project.RemoveMember(_other, [_owner]).Should().Be(MembershipChange.Done);
+
+        project.Members.Should().ContainSingle(member => member.UserId == _owner);
+    }
+
+    [Fact]
+    public void ChangeMemberRole_OfADeactivatedOwnerWhenAnActiveOneStays_MakesThemAMember()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Owner);
+
+        project.ChangeMemberRole(_other, ProjectRole.Member, [_owner]).Should().Be(MembershipChange.Done);
+
+        project.Members.Single(member => member.UserId == _other).Role.Should().Be(ProjectRole.Member);
+    }
+
+    [Fact]
+    public void RemoveMember_OfTheOnlyOwnerWhenTheyAreDeactivated_Refuses()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Member);
+
+        project.RemoveMember(_owner, [_other]).Should().Be(MembershipChange.LastOwner);
+
+        project.Members.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void ChangeMemberRole_OfTheOnlyOwnerWhenTheyAreDeactivated_Refuses()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Member);
+
+        project.ChangeMemberRole(_owner, ProjectRole.Member, [_other]).Should().Be(MembershipChange.LastOwner);
+    }
+
+    [Fact]
+    public void RemoveMember_OfAMemberWhenNoOwnerIsActive_RemovesThem()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Member);
+
+        project.RemoveMember(_other, [_other]).Should().Be(MembershipChange.Done);
+    }
+
+    [Fact]
+    public void ChangeMemberRole_WhenPromotingAMemberWhileNoOwnerIsActive_MakesThemAnOwner()
+    {
+        var project = Project.Create("Kanabol", "KAN", null, _owner);
+        project.AddMember(_other, ProjectRole.Member);
+
+        project.ChangeMemberRole(_other, ProjectRole.Owner, [_other]).Should().Be(MembershipChange.Done);
+    }
+
+    [Fact]
     public void RemoveMember_WhenNotAMember_Refuses() =>
-        Project.Create("Kanabol", "KAN", null, _owner).RemoveMember(_other).Should().Be(MembershipChange.NotAMember);
+        Project.Create("Kanabol", "KAN", null, _owner).RemoveMember(_other, _everyoneActive).Should().Be(MembershipChange.NotAMember);
 
     [Fact]
     public void Archive_Always_RecordsWhenAndWho()

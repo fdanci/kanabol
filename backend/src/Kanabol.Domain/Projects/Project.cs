@@ -99,8 +99,11 @@ public sealed class Project : AuditableEntity, IArchivable
         return MembershipChange.Done;
     }
 
-    /// <summary>Refused when it would leave the project without an owner (SPEC section 4.4).</summary>
-    public MembershipChange ChangeMemberRole(Guid userId, ProjectRole role)
+    /// <summary>
+    /// Refused when it would leave the project without an active owner (SPEC section 4.4). Whose accounts
+    /// are active isn't the project's to know, so the handler reads it and passes it in.
+    /// </summary>
+    public MembershipChange ChangeMemberRole(Guid userId, ProjectRole role, IReadOnlyCollection<Guid> activeMemberIds)
     {
         var member = FindMember(userId);
         if (member is null)
@@ -113,7 +116,7 @@ public sealed class Project : AuditableEntity, IArchivable
             return MembershipChange.Done;
         }
 
-        if (IsTheLastOwner(member))
+        if (IsTheLastActiveOwner(member, activeMemberIds))
         {
             return MembershipChange.LastOwner;
         }
@@ -122,8 +125,8 @@ public sealed class Project : AuditableEntity, IArchivable
         return MembershipChange.Done;
     }
 
-    /// <summary>Refused when it would leave the project without an owner (SPEC section 4.4).</summary>
-    public MembershipChange RemoveMember(Guid userId)
+    /// <summary>Refused when it would leave the project without an active owner (SPEC section 4.4).</summary>
+    public MembershipChange RemoveMember(Guid userId, IReadOnlyCollection<Guid> activeMemberIds)
     {
         var member = FindMember(userId);
         if (member is null)
@@ -131,7 +134,7 @@ public sealed class Project : AuditableEntity, IArchivable
             return MembershipChange.NotAMember;
         }
 
-        if (IsTheLastOwner(member))
+        if (IsTheLastActiveOwner(member, activeMemberIds))
         {
             return MembershipChange.LastOwner;
         }
@@ -161,6 +164,11 @@ public sealed class Project : AuditableEntity, IArchivable
 
     private ProjectMember? FindMember(Guid userId) => _members.Find(member => member.UserId == userId);
 
-    private bool IsTheLastOwner(ProjectMember member) =>
-        member.Role == ProjectRole.Owner && _members.Count(other => other.Role == ProjectRole.Owner) == 1;
+    /// <summary>
+    /// Whether taking this owner away leaves no active owner behind. A deactivated owner still counts as
+    /// leaving none: the project then waits for projects.manage to make a new owner first.
+    /// </summary>
+    private bool IsTheLastActiveOwner(ProjectMember member, IReadOnlyCollection<Guid> activeMemberIds) =>
+        member.Role == ProjectRole.Owner
+        && !_members.Exists(other => other.UserId != member.UserId && other.Role == ProjectRole.Owner && activeMemberIds.Contains(other.UserId));
 }

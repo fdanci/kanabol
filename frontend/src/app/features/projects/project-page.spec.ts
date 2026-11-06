@@ -310,6 +310,30 @@ describe('ProjectPage', () => {
       expect(row('Ana Pop').querySelector('.kb-row-actions')).not.toBeNull();
     });
 
+    it('gives the last active owner no menu, even beside a deactivated owner', async () => {
+      api.memberList = [
+        member('me', 'Florin Danci', 'Owner'),
+        member('u3', 'Bob Ionescu', 'Owner', false),
+        member('u2', 'Ana Pop', 'Member'),
+      ];
+      await visit('/projects/p1/members');
+
+      expect(row('Florin Danci').querySelector('.kb-row-actions')).toBeNull();
+      expect(row('Bob Ionescu').querySelector('.kb-row-actions')).not.toBeNull();
+    });
+
+    it('gives a deactivated owner no menu when no owner is active, until a new one is made', async () => {
+      api.memberList = [
+        member('u3', 'Bob Ionescu', 'Owner', false),
+        member('u2', 'Ana Pop', 'Member'),
+      ];
+      api.project = { ...api.project, myRole: null };
+      await visit('/projects/p1/members');
+
+      expect(row('Bob Ionescu').querySelector('.kb-row-actions')).toBeNull();
+      expect(row('Ana Pop').querySelector('.kb-row-actions')).not.toBeNull();
+    });
+
     it('lets a member see the others, and change nothing', async () => {
       api.project = { ...api.project, myRole: 'Member', canManage: false };
       await visit('/projects/p1/members');

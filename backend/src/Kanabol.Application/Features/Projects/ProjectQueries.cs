@@ -53,6 +53,16 @@ public static class ProjectQueries
             .ThenBy(row => row.user.Email)
             .Select(row => new ProjectMemberDto(row.user.Id, row.user.Email, row.user.DisplayName, row.member.Role, row.user.IsActive));
 
+    /// <summary>
+    /// The members whose accounts are active, which the project needs to keep an active owner
+    /// (SPEC section 4.4). The project doesn't load its users, so the handler reads them here.
+    /// </summary>
+    public static Task<List<Guid>> ActiveMemberIdsOf(this IAppDbContext db, Guid projectId, CancellationToken ct) =>
+        db.ProjectMembers
+            .Where(member => member.ProjectId == projectId)
+            .Join(db.Users.Where(user => user.IsActive), member => member.UserId, user => user.Id, (_, user) => user.Id)
+            .ToListAsync(ct);
+
     public static Task<bool> ProjectExists(this IAppDbContext db, Guid projectId, CancellationToken ct) =>
         db.Projects.IgnoreQueryFilters().AnyAsync(project => project.Id == projectId, ct);
 }

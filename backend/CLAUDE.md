@@ -107,7 +107,7 @@ In Docker and production, settings come from environment variables:
 
 - A key is 2 to 5 letters from A to Z, stored in capitals and unique among archived projects too (`ux_projects_key`), since task keys like `KAN-123` stay valid. `next_task_number` starts at 1.
 - An archived project still opens, but only restoring changes it: anything else answers 409 `Project.Archived`.
-- A project always keeps an owner: removing or demoting the last one answers 409 `Project.LastOwner`, also for `projects.manage`. A change to the members also saves the project, so its `xmin` is checked: two owners taking each other away at once get one 409 `Project.ChangedMeanwhile` (`AuditingInterceptor`).
+- A project always keeps an active owner: removing or demoting an owner when no other active owner stays answers 409 `Project.LastOwner`, also for `projects.manage`. Deactivating a user isn't refused for their projects, so the handlers read which members are active and give those ids to `Project.RemoveMember` and `ChangeMemberRole`. A project left with only deactivated owners waits for `projects.manage` to make a new owner, after which the old ones can go. A change to the members also saves the project, so its `xmin` is checked: two owners taking each other away at once get one 409 `Project.ChangedMeanwhile` (`AuditingInterceptor`).
 - The list holds the caller's projects, or every one with `projects.view_all` or `projects.manage`, read from the database as `IProjectAccess` does, and nothing for a deactivated user. Archived projects come only with `includeArchived=true`. Open tasks are outside a done column, overdue ones open past their deadline, and neither counts archived tasks.
 - Roles go over the wire as text, `"Owner"` or `"Member"`.
 

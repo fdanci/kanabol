@@ -182,12 +182,34 @@ describe('ProjectStore', () => {
     expect(store.members()).toEqual([]);
   });
 
-  it('reads the members and counts the owners', async () => {
+  it('reads the members, and knows when an owner is the last active one', async () => {
     await store.load('p1');
     await store.loadMembers();
 
     expect(store.members().map((each) => each.userId)).toEqual(['me', 'ana']);
-    expect(store.ownerCount()).toBe(1);
+    expect(store.keepsAnActiveOwnerWithout('me')).toBe(false);
+    expect(store.keepsAnActiveOwnerWithout('ana')).toBe(true);
+  });
+
+  it('counts only the active owners as staying (SPEC section 4.4)', async () => {
+    api['members'].mockReturnValueOnce(
+      of([member('me', 'Owner'), { ...member('bob', 'Owner'), isActive: false }, member('ana')]),
+    );
+    await store.load('p1');
+    await store.loadMembers();
+
+    expect(store.keepsAnActiveOwnerWithout('me')).toBe(false);
+    expect(store.keepsAnActiveOwnerWithout('bob')).toBe(true);
+  });
+
+  it('knows that no owner stays when none of them is active', async () => {
+    api['members'].mockReturnValueOnce(
+      of([{ ...member('bob', 'Owner'), isActive: false }, member('ana')]),
+    );
+    await store.load('p1');
+    await store.loadMembers();
+
+    expect(store.keepsAnActiveOwnerWithout('bob')).toBe(false);
   });
 
   it('saves the name and description, keeping the answer', async () => {

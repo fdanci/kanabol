@@ -89,9 +89,12 @@ export class ProjectMembers {
     return $localize`Acțiuni pentru ${member.displayName}:name:`;
   }
 
-  /** The last owner can neither stop being one nor leave: the API refuses both. */
-  protected isLastOwner(member: ProjectMemberDto): boolean {
-    return member.role === 'Owner' && this.store.ownerCount() === 1;
+  /**
+   * The last active owner can neither stop being one nor leave, and neither can a deactivated owner
+   * while no owner is active: the API refuses both (409 Project.LastOwner).
+   */
+  protected isLastActiveOwner(member: ProjectMemberDto): boolean {
+    return member.role === 'Owner' && !this.store.keepsAnActiveOwnerWithout(member.userId);
   }
 
   protected async add(): Promise<void> {

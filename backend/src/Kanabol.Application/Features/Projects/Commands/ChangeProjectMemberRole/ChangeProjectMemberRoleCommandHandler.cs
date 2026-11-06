@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Application.Features.Projects.Commands.ChangeProjectMemberRole;
 
-/// <summary>Project.ChangeMemberRole refuses to leave the project without an owner (SPEC section 4.4).</summary>
+/// <summary>Project.ChangeMemberRole refuses to leave the project without an active owner (SPEC section 4.4).</summary>
 public sealed class ChangeProjectMemberRoleCommandHandler(
     IAppDbContext db,
     ProjectChanges changes,
@@ -21,7 +21,8 @@ public sealed class ChangeProjectMemberRoleCommandHandler(
             return loaded.Error;
         }
 
-        var change = loaded.Value.ChangeMemberRole(command.UserId, command.Role);
+        var activeMemberIds = await db.ActiveMemberIdsOf(command.ProjectId, ct);
+        var change = loaded.Value.ChangeMemberRole(command.UserId, command.Role, activeMemberIds);
         if (change != MembershipChange.Done)
         {
             return change == MembershipChange.LastOwner ? ProjectErrors.LastOwner : ProjectErrors.MemberNotFound;
