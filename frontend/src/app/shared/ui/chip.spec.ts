@@ -26,8 +26,18 @@ describe('Chip', () => {
     }
   });
 
+  it('gives a locked account and a password to change an icon too, not only a color', async () => {
+    for (const [kind, icon] of [
+      ['locked', 'lock_clock'],
+      ['password-change', 'key'],
+    ] as const) {
+      const shown = (await chip(kind)).querySelector('.material-symbols-outlined')!;
+      expect(shown.textContent.trim()).toBe(icon);
+    }
+  });
+
   it('has no icon for a role or a plain label', async () => {
-    for (const kind of ['owner', 'member', 'archived', 'neutral'] as const) {
+    for (const kind of ['owner', 'member', 'archived', 'inactive', 'neutral'] as const) {
       expect((await chip(kind)).querySelector('.material-symbols-outlined')).toBeNull();
     }
   });

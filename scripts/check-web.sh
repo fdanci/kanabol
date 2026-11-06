@@ -85,6 +85,15 @@ bundle_has() { # bundle_has <text>
   built && in_file "$1" "$scratch/bundle.js"
 }
 
+# A string literal, in whichever quotes the minifier picked: it went from "ro-RO" to `ro-RO` when
+# group 10 added code, without anything about the locale changing.
+bundle_has_string() { # bundle_has_string <text, without regex characters>
+  built && grep -qE "[\"'\`]$1[\"'\`]" "$scratch/bundle.js" || {
+    echo "no string literal $1 in the bundle"
+    return 1
+  }
+}
+
 css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
   built || return 1
   tr -d ' 
@@ -228,7 +237,7 @@ task_4() {
   check "the toolbar has no global search" no_search_in_the_toolbar
   check "the lockup is inline SVG" lockup_is_inline
   check "the sidebar is as wide as its content" css_has '--mat-sidenav-container-width:auto'
-  check "the build carries the Romanian locale" bundle_has '"ro-RO"'
+  check "the build carries the Romanian locale" bundle_has_string ro-RO
 }
 
 # ---- 9.8

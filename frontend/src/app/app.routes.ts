@@ -44,8 +44,18 @@ export const routes: Routes = [
       placeholder('projects', $localize`Proiectele mele`),
       placeholder('my-tasks', $localize`Task-urile mele`),
       placeholder('notifications', $localize`Notificări`),
-      ...withPermission(PERMISSIONS.usersManage, placeholder('users', $localize`Utilizatori`)),
-      ...withPermission(PERMISSIONS.rolesManage, placeholder('roles', $localize`Roluri`)),
+      ...withPermission(PERMISSIONS.usersManage, {
+        path: 'users',
+        title: $localize`Utilizatori · Kanabol`,
+        loadChildren: () =>
+          import('./features/users/users.routes').then((users) => users.USERS_ROUTES),
+      }),
+      ...withPermission(PERMISSIONS.rolesManage, {
+        path: 'roles',
+        title: $localize`Roluri · Kanabol`,
+        loadChildren: () =>
+          import('./features/roles/roles.routes').then((roles) => roles.ROLES_ROUTES),
+      }),
       ...withPermission(PERMISSIONS.reportsView, placeholder('reports', $localize`Rapoarte`)),
       { path: '**', title: $localize`Pagina nu există · Kanabol`, component: NotFoundPage },
     ],

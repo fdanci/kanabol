@@ -96,4 +96,18 @@ describe('Confirmation', () => {
     expect(await verb.hasClass('kb-default')).toBe(true);
     expect(await verb.getAttribute('cdkfocusinitial')).toBe('');
   });
+
+  it('asks the same thing before any unsaved change is thrown away', async () => {
+    const confirmation = TestBed.inject(Confirmation);
+    const ask = vi.spyOn(confirmation, 'ask').mockResolvedValue(true);
+
+    expect(await confirmation.discardChanges()).toBe(true);
+    expect(ask).toHaveBeenCalledWith({
+      title: 'Renunți la modificări?',
+      message: 'Ce ai schimbat nu a fost salvat și se pierde.',
+      confirmLabel: 'Renunță',
+      icon: 'undo',
+      destructive: true,
+    });
+  });
 });

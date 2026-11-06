@@ -11,7 +11,10 @@ export type ChipKind =
   | 'archived'
   | 'deadline-ok'
   | 'deadline-soon'
-  | 'deadline-overdue';
+  | 'deadline-overdue'
+  | 'inactive'
+  | 'locked'
+  | 'password-change';
 
 /** Priority and deadline carry an icon, so color isn't their only sign (docs/UI_UX_SPEC.md §9). */
 const ICONS: Partial<Record<ChipKind, string>> = {
@@ -22,6 +25,8 @@ const ICONS: Partial<Record<ChipKind, string>> = {
   'deadline-ok': 'event',
   'deadline-soon': 'schedule',
   'deadline-overdue': 'event_busy',
+  locked: 'lock_clock',
+  'password-change': 'key',
 };
 
 /** A state label: 22px, pill, no border (docs/UI_UX_SPEC.md §6.0.11, §6.5). The text comes from inside. */
@@ -58,17 +63,22 @@ const ICONS: Partial<Record<ChipKind, string>> = {
       font-size: 14px;
     }
 
-    :host(.low) {
+    /* A deactivated account: text-600, which passes AA on the neutral background in both themes,
+       where archived-400 has about 2:1. */
+    :host(.low),
+    :host(.inactive) {
       --_fg: var(--kb-text-600);
     }
 
-    :host(.medium) {
+    :host(.medium),
+    :host(.password-change) {
       --_bg: var(--kb-tint-100);
       --_fg: var(--kb-accent-600);
     }
 
     :host(.high),
-    :host(.deadline-soon) {
+    :host(.deadline-soon),
+    :host(.locked) {
       --_bg: var(--kb-warning-bg);
       --_fg: var(--kb-warning-600);
     }
