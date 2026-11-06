@@ -502,8 +502,143 @@ task_3() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 12.4: changing a task, assigning it, archiving and restoring it, and the project's list.
+
+creates_the_edit_project() {
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Editare","key":"EDT"}')" || return 1
+  edt_id=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$edt_id/members" "{\"userId\":\"$dan_id\",\"role\":\"Member\"}")" || return 1
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$edt_id")" '{"title":"Login SSO","priority":"Medium"}')" || return 1
+  edt_task=$(body_field id)
+  [ -n "$edt_task" ]
+}
+
+each_change_is_saved_and_written_down() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/title" '{"title":"Login cu SSO"}')" || return 1
+  in_file '"title":"Login cu SSO"' "$scratch/body" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/description" '{"description":"Cu **Azure AD**"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/priority" '{"priority":"Critical"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/due-date" '{"dueDate":"2027-01-10T09:00:00+02:00"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
+  in_file "\"assignee\":{\"userId\":\"$dan_id\",\"displayName\":\"Dan Ionescu\"}" "$scratch/body" || return 1
+  is "Title|Login SSO|Login cu SSO
+Description||Cu **Azure AD**
+Priority|Medium|Critical
+DueDate||2027-01-10T07:00:00.0000000+00:00
+AssigneeId||$dan_id" "$(in_db "SELECT field, coalesce(old_value, ''), coalesce(new_value, '') FROM task_history_entries WHERE task_id = '$edt_task' ORDER BY changed_at, CASE field WHEN 'Title' THEN 1 WHEN 'Description' THEN 2 WHEN 'Priority' THEN 3 WHEN 'DueDate' THEN 4 ELSE 5 END")" || return 1
+  is "$admin_id" "$(in_db "SELECT DISTINCT changed_by_id FROM task_history_entries WHERE task_id = '$edt_task'")"
+}
+
+the_same_value_writes_nothing() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/priority" '{"priority":"Critical"}')" || return 1
+  is 5 "$(in_db "SELECT count(*) FROM task_history_entries WHERE task_id = '$edt_task'")"
+}
+
+only_a_member_is_assigned() {
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"out@example.com\",\"displayName\":\"Din afara\",\"roleId\":\"$plain_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
+  outsider=$(body_field id)
+  code_is 400 Validation "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignee" "{\"assigneeId\":\"$outsider\"}")" || return 1
+  in_file '"assigneeId":' "$scratch/body" || return 1
+  is "$dan_id" "$(in_db "SELECT assignee_id FROM task_items WHERE id = '$edt_task'")"
+}
+
+a_member_without_permissions_changes_it() {
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$edt_task/priority" '{"priority":"Low"}')" || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$edt_task/assignee" '{"assigneeId":null}')" || return 1
+  in_file '"assignee":null' "$scratch/body"
+}
+
+an_outsider_neither_reads_nor_changes_it() {
+  status_is 200 "$(login out@example.com "$initial_password")" || return 1
+  forced=$(body_field accessToken)
+  status_is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$dan_password\"}")" || return 1
+  out_token=$(body_field accessToken)
+  code_is 403 Project.MemberRequired "$(as "$out_token" GET "/api/tasks/$edt_task")" || return 1
+  code_is 403 Project.MemberRequired "$(as "$out_token" PUT "/api/tasks/$edt_task/title" '{"title":"Al meu"}')" || return 1
+  code_is 403 Project.MemberRequired "$(as "$out_token" GET "$(tasks_of "$edt_id")")"
+}
+
+delete_archives_and_keeps_the_row() {
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$edt_id")" '{"title":"De arhivat","priority":"Low"}')" || return 1
+  gone=$(body_field id)
+  status_is 204 "$(as "$dan_token" DELETE "/api/tasks/$gone")" || return 1
+  is "1|$dan_id|1" "$(in_db "SELECT count(*) FILTER (WHERE archived_at IS NOT NULL), max(archived_by_id::text), (SELECT count(*) FROM task_history_entries WHERE task_id = '$gone' AND field = 'ArchivedAt') FROM task_items WHERE id = '$gone'")" || return 1
+  code_is 404 Task.NotFound "$(as "$dan_token" GET "/api/tasks/$gone")"
+}
+
+the_list_leaves_archived_ones_out() {
+  status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")")" || return 1
+  is 1 "$(number_field totalCount)" || return 1
+  in_file '"key":"EDT-1"' "$scratch/body"
+}
+
+archived_ones_need_tasks_archive() {
+  code_is 403 Auth.PermissionRequired "$(as "$dan_token" GET "$(tasks_of "$edt_id")?includeArchived=true")" || return 1
+  code_is 403 Auth.PermissionRequired "$(as "$dan_token" POST "/api/tasks/$gone/restore")" || return 1
+  status_is 200 "$(as "$admin_token" GET "$(tasks_of "$edt_id")?includeArchived=true")" || return 1
+  is 2 "$(number_field totalCount)"
+}
+
+tasks_archive_restores_it() {
+  status_is 200 "$(as "$admin_token" POST "/api/tasks/$gone/restore")" || return 1
+  in_file '"archivedAt":null' "$scratch/body" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/tasks/$gone")"
+}
+
+the_list_filters_and_sorts() {
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$edt_id")" "{\"title\":\"Raport 100% gata\",\"priority\":\"High\",\"assigneeId\":\"$dan_id\",\"dueDate\":\"2020-01-01T00:00:00Z\"}")" || return 1
+  status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?assigneeId=$dan_id")" || return 1
+  is EDT-3 "$(keys_listed)" || return 1
+  status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?priority=High&priority=Low&sort=key:asc")" || return 1
+  is 'EDT-1 EDT-2 EDT-3' "$(keys_listed)" || return 1
+  status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?overdue=true")" || return 1
+  is EDT-3 "$(keys_listed)" || return 1
+  status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?search=100%25")" || return 1
+  is EDT-3 "$(keys_listed)" || return 1
+  status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?sort=title:asc&pageSize=2")" || return 1
+  is 'EDT-2 EDT-1' "$(keys_listed)" || return 1
+  code_is 400 Validation "$(as "$dan_token" GET "$(tasks_of "$edt_id")?sort=color:asc")"
+}
+
+keys_listed() { # The task keys in the last answer, in order, on one line
+  grep -o '"key":"[A-Z]*-[0-9]*"' "$scratch/body" | sed 's/"key":"\([A-Z]*-[0-9]*\)"/\1/' | paste -sd' ' -
+}
+
+number_field() { # number_field <name>: the value of a number field in the last answer
+  sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p" "$scratch/body" | head -n 1
+}
+
+admin_id_is_known() {
+  admin_id=$(in_db "SELECT id FROM users WHERE email = '$admin_email'")
+  [ -n "$admin_id" ]
+}
+
+task_4() {
+  echo "12.4 Changing, assigning, archiving and listing tasks"
+  check "Docker is running" docker_is_running
+  check "the handlers' tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskChangeCommandHandlerTests|FullyQualifiedName~GetProjectTasksQueryHandlerTests' 62
+  check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~TaskChangesEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 18
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "a user without permissions signs in" dan_is_ready
+  check "the admin's id is known" admin_id_is_known
+  check "a project with a member and a task is created" creates_the_edit_project
+  check "title, description, priority, deadline and assignee change, each with its history" each_change_is_saved_and_written_down
+  check "the same value again writes no history" the_same_value_writes_nothing
+  check "only a member of the project is assigned" only_a_member_is_assigned
+  check "a member without permissions changes and unassigns it" a_member_without_permissions_changes_it
+  check "someone outside the project neither reads nor changes it" an_outsider_neither_reads_nor_changes_it
+  check "DELETE archives it, keeping the row and writing it down" delete_archives_and_keeps_the_row
+  check "the list leaves the archived task out" the_list_leaves_archived_ones_out
+  check "archived tasks and their restore need tasks.archive" archived_ones_need_tasks_archive
+  check "tasks.archive restores it" tasks_archive_restores_it
+  check "the list filters by assignee, priority, deadline and title, and sorts" the_list_filters_and_sorts
+  check "the archive is logged" log_has_entry "Task {TaskId} archived" "\"TaskId\":\"$gone\""
+  check "and the restore" log_has_entry "Task {TaskId} restored" "\"TaskId\":\"$gone\""
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2 3
+  set -- 2 3 4
 fi
 
 for task in "$@"; do
