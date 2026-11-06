@@ -455,8 +455,9 @@ viewer_needs_a_real_membership() {
 # own number, and none of them sees a 409 (SPEC sections 5.1 and 5.3). A creation only loses a round when
 # another one is saved first, so of four at once none loses more than three times, which the three retries
 # cover. Ten at once can leave one with a 409 (Tasks.md, group 12, in Blocked).
-four_at_once_get_four_numbers() {
-  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"In paralel","key":"PAR"}')" || return 1
+four_at_once_get_four_numbers() { # four_at_once_get_four_numbers [project key]: PAR unless given
+  key=${1:-PAR}
+  status_is 201 "$(as "$admin_token" POST /api/projects "{\"name\":\"In paralel $key\",\"key\":\"$key\"}")" || return 1
   par_id=$(body_field id)
   url="$API_URL$(tasks_of "$par_id")"
   curl -sS --max-time 60 -Z --parallel-immediate --parallel-max 4 \
@@ -471,7 +472,7 @@ four_at_once_get_four_numbers() {
     grep -o '"code":"[^"]*"' "$scratch/parallel" | sort | uniq -c
     return 1
   }
-  is 4 "$(grep -o '"key":"PAR-[0-9]*"' "$scratch/parallel" | sort -u | wc -l | tr -d ' ')" || return 1
+  is 4 "$(grep -o "\"key\":\"$key-[0-9]*\"" "$scratch/parallel" | sort -u | wc -l | tr -d ' ')" || return 1
   is '4|4|1|4|5' "$(in_db "SELECT count(*), count(DISTINCT t.number), min(t.number), max(t.number), max(p.next_task_number) FROM task_items t JOIN projects p ON p.id = t.project_id WHERE t.project_id = '$par_id'")"
 }
 
@@ -648,8 +649,13 @@ creates_the_notified_project() {
   [ -n "$not_task" ]
 }
 
+# Only those about the tasks of NOT: a full run of this script has notified Dan before, in 12.4.
+not_notifications() { # not_notifications [user id]: the condition, for everyone or for one user
+  printf "task_id IN (SELECT id FROM task_items WHERE project_id = '%s')%s" "$not_id" "${1:+ AND user_id = '$1'}"
+}
+
 notifications_of() { # notifications_of <user id>: type, task and message of each, oldest first
-  in_db "SELECT type, task_id, message, read_at IS NULL FROM notifications WHERE user_id = '$1' ORDER BY created_at, id"
+  in_db "SELECT type, task_id, message, read_at IS NULL FROM notifications WHERE $(not_notifications "$1") ORDER BY created_at, id"
 }
 
 assigning_someone_notifies_them() {
@@ -660,19 +666,19 @@ assigning_someone_notifies_them() {
 assigning_yourself_notifies_nobody() {
   status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$admin_id\"}")" || return 1
   is '' "$(notifications_of "$admin_id")" || return 1
-  is 1 "$(in_db "SELECT count(*) FROM notifications")"
+  is 1 "$(in_db "SELECT count(*) FROM notifications WHERE $(not_notifications)")"
 }
 
 creating_one_for_someone_notifies_them() {
   status_is 201 "$(as "$admin_token" POST "$(tasks_of "$not_id")" "{\"title\":\"Raport\",\"priority\":\"High\",\"assigneeId\":\"$dan_id\"}")" || return 1
   second=$(body_field id)
-  is 2 "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$dan_id' AND type = 'TaskAssigned'")" || return 1
-  is "$second" "$(in_db "SELECT task_id FROM notifications WHERE user_id = '$dan_id' ORDER BY created_at DESC, id DESC LIMIT 1")"
+  is 2 "$(in_db "SELECT count(*) FROM notifications WHERE $(not_notifications "$dan_id") AND type = 'TaskAssigned'")" || return 1
+  is "$second" "$(in_db "SELECT task_id FROM notifications WHERE $(not_notifications "$dan_id") ORDER BY created_at DESC, id DESC LIMIT 1")"
 }
 
 dan_taking_it_himself_notifies_nobody() {
   status_is 200 "$(as "$dan_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
-  is 2 "$(in_db "SELECT count(*) FROM notifications")"
+  is 2 "$(in_db "SELECT count(*) FROM notifications WHERE $(not_notifications)")"
 }
 
 admin_name_is_known() {
@@ -876,7 +882,7 @@ task_9() {
   check "archived tasks don't show by default" archived_ones_are_hidden_by_default
   check "two creations at once get different numbers and no 409" two_creations_at_once_get_two_numbers
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
-  check "and on it, four creations at once get four numbers and no 409" four_at_once_get_four_numbers
+  check "and on it, four creations at once get four numbers and no 409" four_at_once_get_four_numbers PAQ
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
