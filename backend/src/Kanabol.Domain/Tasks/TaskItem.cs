@@ -1,9 +1,19 @@
+using System.Globalization;
 using Kanabol.Domain.Common;
+using Kanabol.Domain.Projects;
+using Kanabol.Domain.Tasks.Events;
 
 namespace Kanabol.Domain.Tasks;
 
+/// <summary>
+/// A task of a project. Every change goes through a method that writes its own history entry and
+/// raises a domain event (SPEC section 5.1), so the history never depends on the handler. A change
+/// to the value the task already has writes nothing.
+/// </summary>
 public sealed class TaskItem : AuditableEntity, IArchivable
 {
+    public const int MaxTitleLength = 300;
+
     private readonly List<Comment> _comments = [];
     private readonly List<Attachment> _attachments = [];
     private readonly List<TaskHistoryEntry> _history = [];
@@ -20,8 +30,8 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     {
         ProjectId = projectId;
         ColumnId = columnId;
-        Title = title;
-        Description = description;
+        Title = NormalizeTitle(title);
+        Description = NormalizeDescription(description);
         Priority = priority;
         Position = position;
         AssigneeId = assigneeId;
@@ -38,6 +48,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public string Title { get; private set; } = null!;
 
+    /// <summary>Basic markdown, as written. The client renders it through a sanitizer (SPEC section 16).</summary>
     public string? Description { get; private set; }
 
     public TaskPriority Priority { get; private set; }
@@ -48,6 +59,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public int Position { get; private set; }
 
+    /// <summary>When the task last entered a done column, and null while it's outside one.</summary>
     public DateTimeOffset? CompletedAt { get; private set; }
 
     public DateTimeOffset? ArchivedAt { get; private set; }
@@ -59,4 +71,143 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     public IReadOnlyCollection<Attachment> Attachments => _attachments;
 
     public IReadOnlyCollection<TaskHistoryEntry> History => _history;
+
+    public void Rename(string title, Guid changedById, DateTimeOffset now)
+    {
+        var normalized = NormalizeTitle(title);
+        if (normalized == Title)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.Title, Title, normalized, changedById, now);
+        Title = normalized;
+        Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.Title, changedById));
+    }
+
+    public void ChangeDescription(string? description, Guid changedById, DateTimeOffset now)
+    {
+        var normalized = NormalizeDescription(description);
+        if (normalized == Description)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.Description, Description, normalized, changedById, now);
+        Description = normalized;
+        Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.Description, changedById));
+    }
+
+    /// <summary>Null leaves the task to nobody. Whether the assignee is a member is the handler's to check first.</summary>
+    public void Assign(Guid? assigneeId, Guid changedById, DateTimeOffset now)
+    {
+        if (assigneeId == AssigneeId)
+        {
+            return;
+        }
+
+        var previous = AssigneeId;
+        Record(TaskHistoryFields.AssigneeId, previous?.ToString(), assigneeId?.ToString(), changedById, now);
+        AssigneeId = assigneeId;
+        Raise(new TaskAssignedEvent(Id, ProjectId, assigneeId, previous, changedById));
+    }
+
+    public void SetPriority(TaskPriority priority, Guid changedById, DateTimeOffset now)
+    {
+        if (priority == Priority)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.Priority, Priority.ToString(), priority.ToString(), changedById, now);
+        Priority = priority;
+        Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.Priority, changedById));
+    }
+
+    /// <summary>The same moment in another offset is the same deadline: DateTimeOffset compares instants. Stored in UTC.</summary>
+    public void SetDueDate(DateTimeOffset? dueDate, Guid changedById, DateTimeOffset now)
+    {
+        if (dueDate == DueDate)
+        {
+            return;
+        }
+
+        var utc = dueDate?.ToUniversalTime();
+        Record(TaskHistoryFields.DueDate, Format(DueDate), Format(utc), changedById, now);
+        DueDate = utc;
+        Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.DueDate, changedById));
+    }
+
+    /// <summary>
+    /// To a column of the same project, at a place in it. Entering a done column completes the task,
+    /// leaving it clears that. Only a change of column goes in the history: a reorder in the same
+    /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1).
+    /// </summary>
+    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now)
+    {
+        if (column.ProjectId != ProjectId)
+        {
+            throw new ArgumentException("A task moves only between the columns of its own project.", nameof(column));
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(position);
+
+        if (column.Id == ColumnId && position == Position)
+        {
+            return;
+        }
+
+        var from = ColumnId;
+        if (column.Id != from)
+        {
+            Record(TaskHistoryFields.ColumnId, from.ToString(), column.Id.ToString(), changedById, now);
+            ColumnId = column.Id;
+        }
+
+        Position = position;
+        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
+        Raise(new TaskMovedEvent(Id, ProjectId, from, column.Id, position, changedById));
+    }
+
+    /// <summary>Archiving twice keeps the first time, and who did it.</summary>
+    public void Archive(Guid archivedById, DateTimeOffset now)
+    {
+        if (ArchivedAt is not null)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.ArchivedAt, null, Format(now), archivedById, now);
+        ArchivedAt = now;
+        ArchivedById = archivedById;
+        Raise(new TaskArchivedEvent(Id, ProjectId, archivedById));
+    }
+
+    public void Restore(Guid restoredById, DateTimeOffset now)
+    {
+        if (ArchivedAt is null)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.ArchivedAt, Format(ArchivedAt), null, restoredById, now);
+        ArchivedAt = null;
+        ArchivedById = null;
+        Raise(new TaskRestoredEvent(Id, ProjectId, restoredById));
+    }
+
+    private static string NormalizeTitle(string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        return title.Trim();
+    }
+
+    // Leading spaces mean something in markdown, such as a code block, so only the blank end goes.
+    private static string? NormalizeDescription(string? description) =>
+        string.IsNullOrWhiteSpace(description) ? null : description.TrimEnd();
+
+    private static string? Format(DateTimeOffset? moment) => moment?.ToString("O", CultureInfo.InvariantCulture);
+
+    private void Record(string field, string? oldValue, string? newValue, Guid changedById, DateTimeOffset now) =>
+        _history.Add(new TaskHistoryEntry(Id, field, oldValue, newValue, changedById, now));
 }
