@@ -230,6 +230,25 @@ task_4() {
   check "the build carries the Romanian locale" bundle_has '"ro-RO"'
 }
 
+# ---- 9.8
+
+pages_load_lazily() {
+  in_file "import('./features/auth/login-page')" "$web/src/app/app.routes.ts" &&
+    in_file "import('./features/auth/change-password-page')" "$web/src/app/app.routes.ts"
+}
+
+task_8() {
+  echo "9.8 The login page and the forced password change"
+  for file in login-page.ts login-page.html change-password-page.ts change-password-page.html auth-card.scss; do
+    check "features/auth/$file is tracked" tracked "$app/features/auth/$file"
+  done
+  check "their specs pass" specs_pass src/app/features/auth/auth-pages.spec.ts 13
+  check "the guards' specs pass, the login page only for those signed out" specs_pass src/app/core/auth/guards.spec.ts 9
+  check "both pages load when first needed" pages_load_lazily
+  check "a refused login says only that the email or password is wrong" messages_have 'Email sau parolă incorecte.'
+  check "the password rules are listed" messages_have 'Diferită de parola curentă'
+}
+
 # ---- 9.7 (done second: every text in a template needs it)
 
 extracted() {
@@ -262,7 +281,7 @@ task_7() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3 9 5 6 4
+  set -- 1 7 2 3 9 5 6 4 8
 fi
 
 for task in "$@"; do

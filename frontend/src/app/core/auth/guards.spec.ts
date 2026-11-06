@@ -7,7 +7,7 @@ import {
   provideRouter,
 } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
-import { authGuard } from './auth-guard';
+import { authGuard, guestGuard } from './auth-guard';
 import { AuthStore } from './auth-store';
 import { permissionGuard } from './permission-guard';
 
@@ -71,6 +71,18 @@ describe('guards', () => {
       auth.signedIn = true;
 
       expect(urlOf(run(authGuard, '/change-password'))).toBe('/');
+    });
+  });
+
+  describe('guestGuard', () => {
+    it('opens the login page to someone signed out', () => {
+      expect(run(guestGuard, '/login')).toBe(true);
+    });
+
+    it('sends someone signed in to the start instead', () => {
+      auth.signedIn = true;
+
+      expect(urlOf(run(guestGuard, '/login'))).toBe('/');
     });
   });
 

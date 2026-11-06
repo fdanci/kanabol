@@ -1,5 +1,5 @@
 import { Route, Routes } from '@angular/router';
-import { authGuard } from './core/auth/auth-guard';
+import { authGuard, guestGuard } from './core/auth/auth-guard';
 import { permissionGuard } from './core/auth/permission-guard';
 import { PERMISSIONS, Permission } from './core/auth/permissions';
 import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './core/layout/pages';
@@ -23,6 +23,19 @@ function withPermission(permission: Permission, route: Route): Route[] {
 
 export const routes: Routes = [
   {
+    path: 'login',
+    title: $localize`Intră în cont · Kanabol`,
+    canActivate: [guestGuard],
+    loadComponent: () => import('./features/auth/login-page').then((page) => page.LoginPage),
+  },
+  {
+    path: 'change-password',
+    title: $localize`Schimbă parola · Kanabol`,
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/auth/change-password-page').then((page) => page.ChangePasswordPage),
+  },
+  {
     path: '',
     component: Shell,
     canActivate: [authGuard],
@@ -34,8 +47,7 @@ export const routes: Routes = [
       ...withPermission(PERMISSIONS.usersManage, placeholder('users', $localize`Utilizatori`)),
       ...withPermission(PERMISSIONS.rolesManage, placeholder('roles', $localize`Roluri`)),
       ...withPermission(PERMISSIONS.reportsView, placeholder('reports', $localize`Rapoarte`)),
+      { path: '**', title: $localize`Pagina nu există · Kanabol`, component: NotFoundPage },
     ],
   },
-  // Outside the shell, so an address nobody knows can't send a signed-out user round in circles.
-  { path: '**', title: $localize`Pagina nu există · Kanabol`, component: NotFoundPage },
 ];

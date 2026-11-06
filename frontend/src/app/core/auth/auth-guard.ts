@@ -21,3 +21,7 @@ export const authGuard: CanActivateFn = (_route, state) => {
   }
   return true;
 };
+
+/** The login page is for someone signed out: anyone else goes to the start. */
+export const guestGuard: CanActivateFn = () =>
+  !inject(AuthStore).isSignedIn() || inject(Router).createUrlTree(['/']);

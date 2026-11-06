@@ -1,0 +1,59 @@
+<main class="card">
+  <kb-lockup class="brand" />
+  <h1 class="kb-title" i18n>Intră în cont</h1>
+
+  <form [formGroup]="form" (ngSubmit)="signIn()" novalidate>
+    @if (error(); as message) {
+      <p class="error" role="alert">{{ message }}</p>
+    }
+
+    <label class="field">
+      <span i18n>Email</span>
+      <input
+        class="kb-field"
+        type="email"
+        formControlName="email"
+        autocomplete="username"
+        [attr.aria-invalid]="submitted() && form.controls.email.invalid"
+        aria-describedby="email-error"
+      />
+    </label>
+    @if (submitted() && form.controls.email.invalid) {
+      <p id="email-error" class="kb-field-error" i18n>Scrie adresa de email.</p>
+    }
+
+    <label class="field">
+      <span i18n>Parolă</span>
+      <span class="with-button">
+        <input
+          class="kb-field"
+          [type]="passwordShown() ? 'text' : 'password'"
+          formControlName="password"
+          autocomplete="current-password"
+          [attr.aria-invalid]="submitted() && form.controls.password.invalid"
+          aria-describedby="password-error"
+        />
+        <button
+          matButton
+          type="button"
+          class="show kb-sm"
+          [attr.aria-pressed]="passwordShown()"
+          (click)="passwordShown.set(!passwordShown())"
+        >
+          @if (passwordShown()) {
+            <ng-container i18n>ascunde</ng-container>
+          } @else {
+            <ng-container i18n>arată</ng-container>
+          }
+        </button>
+      </span>
+    </label>
+    @if (submitted() && form.controls.password.invalid) {
+      <p id="password-error" class="kb-field-error" i18n>Scrie parola.</p>
+    }
+
+    <button matButton="filled" class="kb-default submit" type="submit" [disabled]="busy()" i18n>
+      Intră în cont
+    </button>
+  </form>
+</main>
