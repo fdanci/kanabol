@@ -301,6 +301,36 @@ task_1() {
 
 # ---- 10.2
 
+# The chip of a deactivated account is text on the neutral chip background, color-mix(navy 6%,
+# surface-0) (UI spec 6.5). Its text has to pass AA at 12px in both themes, computed from the tokens.
+inactive_chip_reads() {
+  node -e "
+    const fs = require('fs');
+    const chip = fs.readFileSync('$app/shared/ui/chip.ts', 'utf8');
+    const rule = chip.match(/((?::host\\([a-z-]+\\),?\\s*)*:host\\(\\.inactive\\)[^{]*)\\{([^}]*)\\}/);
+    const text = rule && (rule[0].match(/--_fg:\\s*var\\(--kb-([a-z0-9-]+)\\)/) || [])[1];
+    if (!text) { console.log('no text color for .inactive in chip.ts'); process.exit(1); }
+    const source = fs.readFileSync('$web/src/styles/_tokens.scss', 'utf8');
+    const split = source.indexOf('@mixin dark');
+    const tokens = (part) => Object.fromEntries([...part.matchAll(/--kb-([a-z0-9-]+)\\s*:\\s*(#[0-9a-fA-F]{6})\\s*;/g)].map((m) => [m[1], m[2]]));
+    const light = tokens(source.slice(0, split));
+    const dark = { ...light, ...tokens(source.slice(split)) };
+    const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const mix = (a, b, share) => channels(a).map((c, i) => c * share + channels(b)[i] * (1 - share));
+    const luminance = (rgb) => {
+      const [r, g, b] = rgb.map((c) => c / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    let bad = 0;
+    for (const [mode, t] of [['light', light], ['dark', dark]]) {
+      const [high, low] = [luminance(channels(t[text])), luminance(mix(t['navy-900'], t['surface-0'], 0.06))].sort((x, y) => y - x);
+      const ratio = (high + 0.05) / (low + 0.05);
+      if (ratio < 4.5) { console.log(mode + ': ' + text + ' on the neutral chip is ' + ratio.toFixed(2) + ':1'); bad++; }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
 task_2() {
   echo "10.2 Users"
   for file in models.ts users-api.ts users-store.ts user-fields.ts user-sheet.ts user-sheet.html role-sheet.ts     password-sheet.ts sheet.scss users-page.ts users-page.html users.routes.ts; do
@@ -320,6 +350,7 @@ task_2() {
   check "the paginator is a 36px bar" css_has '--mat-paginator-container-size:36px'
   check "a destructive menu item is red" css_has '--mat-menu-item-label-text-color:var(--kb-danger-600)'
   check "the states of an account are named" messages_have 'Parolă de schimbat'
+  check "a deactivated account's chip passes AA, in both themes" inactive_chip_reads
   check "a deactivation says what follows from it" messages_have 'Rămâne în istoric și îl poți activa oricând.'
 }
 

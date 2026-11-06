@@ -63,7 +63,10 @@ const ICONS: Partial<Record<ChipKind, string>> = {
       font-size: 14px;
     }
 
-    :host(.low) {
+    /* A deactivated account: text-600, which passes AA on the neutral background in both themes,
+       where archived-400 has about 2:1. */
+    :host(.low),
+    :host(.inactive) {
       --_fg: var(--kb-text-600);
     }
 
@@ -96,8 +99,7 @@ const ICONS: Partial<Record<ChipKind, string>> = {
       --_fg: var(--kb-navy-900);
     }
 
-    :host(.archived),
-    :host(.inactive) {
+    :host(.archived) {
       --_fg: var(--kb-archived-400);
     }
   `,
