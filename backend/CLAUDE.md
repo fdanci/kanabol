@@ -91,6 +91,10 @@ In Docker and production, settings come from environment variables:
 - What MVC refuses before a handler runs, such as a missing field or a value of the wrong type, answers 400 with code `Validation` and the field in camelCase, like the validators. Tests stop a request at a chosen read of the clock with `ManagementHandlerTest.PausedAtClockCall`, to put another request exactly before its save.
 - Swagger, on http://localhost:5200/swagger in Development only, takes the `accessToken` from `POST /api/auth/login` in its Authorize button.
 
+## Browser logs
+
+`POST /api/client-logs` takes up to 10 warnings and errors from any signed-in browser, and writes each into the API's log at its level, with `ClientMessage`, `ClientUrl`, `RequestCorrelationId` (the request the entry is about), `ClientDetails` and `UserAgent`. The log context adds the user and the batch's own correlation id. A batch also says how many entries the browser dropped over its limit of 10 a minute, which the API logs as a warning. It answers 204, or 400 for a batch that's empty, too big, at another level or too long. It isn't open before a forced password change, nor without a session.
+
 ## Authentication
 
 - `POST /api/auth/login`, `refresh`, `logout` and `change-password`, and `GET /api/auth/me`. Access tokens go in the body and refresh tokens only in the `refresh_token` cookie, which is `Secure`, so tests have to call over `https://localhost` and browsers accept it on `http://localhost`.
