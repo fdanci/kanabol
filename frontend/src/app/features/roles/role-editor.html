@@ -1,0 +1,94 @@
+<form (submit)="submit($event)" novalidate>
+  <header class="head">
+    <h2 class="kb-title">
+      @if (role(); as existing) {
+        {{ existing.name }}
+      } @else {
+        <ng-container i18n>Rol nou</ng-container>
+      }
+    </h2>
+    @if (locked()) {
+      <span class="system kb-caption">
+        <span class="material-symbols-outlined" aria-hidden="true">lock</span>
+        <ng-container i18n>Rol de sistem, nu se poate modifica</ng-container>
+      </span>
+    }
+  </header>
+
+  <div class="kb-form-group">
+    <div class="kb-form-row">
+      <label class="kb-form-label kb-required" for="role-name" i18n>Nume</label>
+      <div>
+        <input
+          #nameInput
+          id="role-name"
+          class="kb-field"
+          autocomplete="off"
+          [attr.maxlength]="nameMax"
+          [value]="name()"
+          [disabled]="locked()"
+          [attr.aria-invalid]="error() !== null"
+          [attr.aria-describedby]="error() !== null ? 'role-name-error' : null"
+          (input)="name.set(nameInput.value)"
+        />
+        @if (error(); as message) {
+          <p id="role-name-error" class="kb-field-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+  </div>
+
+  @for (group of groups(); track group.title) {
+    <fieldset class="area">
+      <legend class="kb-form-group-title">{{ group.title }}</legend>
+      <div class="kb-form-group">
+        @for (permission of group.permissions; track permission.name) {
+          <div
+            class="kb-form-row permission"
+            [matTooltip]="lockedReason"
+            [matTooltipDisabled]="!locked()"
+            matTooltipPosition="left"
+          >
+            <mat-checkbox
+              [checked]="ticked().has(permission.name)"
+              [disabled]="locked()"
+              (change)="toggle(permission.name, $event.checked)"
+              >{{ permission.label }}</mat-checkbox
+            >
+          </div>
+        }
+      </div>
+    </fieldset>
+  }
+
+  @if (!locked()) {
+    <div class="actions">
+      @if (role()) {
+        <button
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          [disabled]="busy()"
+          (click)="remove.emit()"
+          i18n
+        >
+          Șterge rolul
+        </button>
+      }
+      <span class="spacer"></span>
+      <button
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        [disabled]="busy()"
+        (click)="undo()"
+        i18n
+      >
+        Anulează
+      </button>
+      <button matButton="filled" class="kb-default" type="submit" [disabled]="busy()" i18n>
+        Salvează
+      </button>
+    </div>
+  }
+</form>

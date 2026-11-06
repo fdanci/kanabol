@@ -8,7 +8,7 @@ import {
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Snackbar } from '../../shared/ui/snackbar';
-import { QUIET, errorInterceptor } from './error-interceptor';
+import { QUIET, errorInterceptor, handledHere } from './error-interceptor';
 
 describe('errorInterceptor', () => {
   let client: HttpClient;
@@ -112,5 +112,48 @@ describe('errorInterceptor', () => {
     failed(500, { status: 500 }, {}, new HttpContext().set(QUIET, true));
 
     expect(snackbar.error).not.toHaveBeenCalled();
+  });
+
+  it('leaves to the caller the codes it says it handles, and shows the rest', () => {
+    const context = handledHere('User.EmailTaken');
+
+    const caught = failed(409, { status: 409, code: 'User.EmailTaken' }, {}, context);
+    expect(snackbar.error).not.toHaveBeenCalled();
+    expect(caught).toBeInstanceOf(HttpErrorResponse);
+
+    failed(409, { status: 409, code: 'User.LastAdmin', correlationId: 'id' }, {}, context);
+    expect(snackbar.error).toHaveBeenCalledWith(
+      'Este ultimul administrator activ. Dă întâi rolul Admin altcuiva.',
+      'id',
+    );
+  });
+
+  it.each([
+    [
+      'Role.PermissionsBeyondYours',
+      'Nu poți da o permisiune pe care nu o ai și nici schimba un rol care are una.',
+    ],
+    ['Role.SystemRoleIsFixed', 'Rolul de sistem nu se poate modifica sau șterge.'],
+    [
+      'Role.InUse',
+      'Rolul e dat încă unor utilizatori, inclusiv dezactivați. Mută-i întâi în alt rol.',
+    ],
+    ['User.RoleBeyondYours', 'Nu poți da un rol cu permisiuni pe care nu le ai.'],
+    [
+      'User.PermissionsBeyondYours',
+      'Nu poți schimba pe cineva care are permisiuni pe care nu le ai.',
+    ],
+    ['User.LastAdmin', 'Este ultimul administrator activ. Dă întâi rolul Admin altcuiva.'],
+    ['User.OwnPasswordReset', 'Parola ta o schimbi cu parola curentă, nu prin resetare.'],
+  ])('says what %s means', (code, message) => {
+    failed(
+      code === 'User.LastAdmin' || code.endsWith('IsFixed') || code.endsWith('InUse') ? 409 : 403,
+      {
+        code,
+        correlationId: 'id',
+      },
+    );
+
+    expect(snackbar.error).toHaveBeenCalledWith(message, 'id');
   });
 });

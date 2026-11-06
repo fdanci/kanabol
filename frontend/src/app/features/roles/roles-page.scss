@@ -1,0 +1,103 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+// The list 280px on the left, the role on the right (UI spec 7.7). One column below 960px.
+.layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--kb-space-4);
+}
+
+@media (max-width: 959px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.role-list,
+.details {
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+}
+
+.role-list {
+  padding: 6px;
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+}
+
+.details {
+  padding: 20px var(--kb-space-6);
+}
+
+.placeholder {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+// Rows like the source list (6.0.7): the selection is a filled pill, accent on tint.
+.item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--kb-space-2);
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--kb-text-700);
+  background: transparent;
+  border: 0;
+  border-radius: var(--kb-radius-sm);
+  cursor: pointer;
+  transition: background-color var(--kb-dur-fast) var(--kb-ease);
+
+  &:hover {
+    background: color-mix(in srgb, var(--kb-navy-900) 5%, var(--kb-surface-0));
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--kb-focus-ring);
+  }
+
+  &[aria-current='true'] {
+    color: var(--kb-accent-600);
+    background: var(--kb-tint-100);
+  }
+}
+
+.name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lock {
+  font-size: 16px;
+  color: var(--kb-text-600);
+}
+
+.count {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--kb-text-600);
+}

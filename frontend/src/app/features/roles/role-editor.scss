@@ -1,0 +1,53 @@
+:host {
+  display: block;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--kb-space-3);
+  margin-bottom: var(--kb-space-4);
+}
+
+h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.system {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--kb-space-1);
+  color: var(--kb-text-600);
+
+  .material-symbols-outlined {
+    font-size: 16px;
+  }
+}
+
+.area {
+  min-width: 0;
+  margin: var(--kb-space-6) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  padding: 0;
+}
+
+// A row of the group with no label column: the checkbox carries its own.
+.permission {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.actions {
+  display: flex;
+  gap: var(--kb-space-2);
+  margin-top: var(--kb-space-6);
+}
+
+.spacer {
+  flex: 1;
+}

@@ -1,0 +1,95 @@
+<kb-page-header [title]="heading" [crumbs]="crumbs">
+  <button
+    matButton="filled"
+    class="kb-default kb-regular"
+    type="button"
+    [disabled]="store.state() !== 'ready'"
+    (click)="startNew()"
+    i18n
+  >
+    Rol nou
+  </button>
+</kb-page-header>
+
+<div class="content">
+  @switch (store.state()) {
+    @case ('loading') {
+      <div class="layout" aria-busy="true">
+        <div class="role-list">
+          @for (row of [1, 2, 3]; track row) {
+            <div class="placeholder">
+              <kb-skeleton width="60%" />
+              <kb-skeleton width="40%" height="10px" />
+            </div>
+          }
+        </div>
+        <div class="details">
+          <kb-skeleton width="30%" height="20px" />
+        </div>
+      </div>
+    }
+    @case ('error') {
+      <kb-empty-state icon="error" [title]="loadFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    }
+    @default {
+      <div class="layout">
+        <nav class="role-list" i18n-aria-label aria-label="Roluri">
+          <ul>
+            @for (role of store.roles(); track role.id) {
+              <li>
+                <button
+                  type="button"
+                  class="item"
+                  [attr.aria-current]="role.id === selectedId() ? 'true' : null"
+                  (click)="select(role)"
+                >
+                  <span class="name">{{ role.name }}</span>
+                  @if (role.isSystem) {
+                    <span class="lock material-symbols-outlined" aria-hidden="true">lock</span>
+                    <span class="kb-visually-hidden" i18n>, rol de sistem</span>
+                  }
+                  <span class="count" i18n>{role.userCount, plural,
+                    =0 {niciun utilizator}
+                    =1 {1 utilizator}
+                    few {{{ role.userCount }} utilizatori}
+                    other {{{ role.userCount }} de utilizatori}
+                  }</span>
+                </button>
+              </li>
+            }
+          </ul>
+        </nav>
+
+        <section class="details">
+          @if (draft(); as current) {
+            <kb-role-editor
+              class="editor"
+              [draft]="current"
+              [available]="store.permissions()"
+              [busy]="busy()"
+              [nameError]="nameError()"
+              (save)="save($event)"
+              (remove)="remove()"
+            />
+          } @else {
+            <kb-empty-state icon="admin_panel_settings" [title]="noneSelected">
+              <p i18n>Alege un rol din listă sau creează unul nou.</p>
+            </kb-empty-state>
+          }
+        </section>
+      </div>
+    }
+  }
+</div>
