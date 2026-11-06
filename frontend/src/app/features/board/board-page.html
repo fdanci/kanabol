@@ -27,13 +27,42 @@
     </div>
   }
   @default {
-    <div class="board" cdkDropListGroup role="group" [attr.aria-label]="boardLabel">
+    <kb-task-filter-bar
+      class="filters"
+      [filters]="filters()"
+      [people]="people()"
+      (filtersChange)="filter($event)"
+    />
+
+    @if (nothingShown()) {
+      <p class="no-match">
+        <ng-container i18n>Niciun task nu se potrivește filtrelor.</ng-container>
+        <button matButton type="button" class="kb-sm" (click)="clearFilters()" i18n>
+          Șterge filtrele
+        </button>
+      </p>
+    }
+
+    <p class="keys-help" [id]="keysHelpId" i18n>
+      Space ridică task-ul, săgețile îl mută între coloane și în coloană, Space îl lasă, Esc
+      renunță.
+    </p>
+
+    <div
+      class="board"
+      cdkDropListGroup
+      role="group"
+      [attr.aria-label]="boardLabel"
+      (keydown)="keyed($event)"
+    >
       @for (column of store.columns(); track column.id) {
         <kb-board-column
           [column]="column"
-          [cards]="store.cardsIn(column.id)"
+          [cards]="cardsOf(column)"
           [canMove]="store.canMove()"
           [canCreate]="store.canCreate()"
+          [liftedId]="lifted()?.taskId ?? null"
+          [keysHelpId]="keysHelpId"
           (opened)="open($event)"
           (dropped)="dropped($event)"
           (created)="create($event)"

@@ -78,6 +78,8 @@ Run from `frontend/`:
 - The CDK gives the place among the cards a column shows; `placeAmong` turns it into the place among all its cards, which the filters may hide some of.
 - The card's look is on an inner `.card`, because the CDK moves the dragged copy with a `transform` on the host: the tilt of a picked-up card (UI spec §6.0.10) goes on the inner box, as do the placeholder's outline and the 200ms reordering.
 - Dragging and "+ Task" follow `canMove` from the API, a real member of an open project, and "+ Task" also `tasks.create`. "+ Task" opens a title field in the column; Enter creates the task at its end, with the default priority, and the field stays for the next one.
+- From the keyboard (UI spec §7.4): Space on a focused card picks it up, the arrows move it to another column, keeping its row as far as that column goes, or up and down, Space lets it go and Esc puts it back. Only letting go asks the API. `LiveAnnouncer` says each step in Romanian, every card is described by the keys' help, and the focus follows the card as it is drawn in its new column (`afterNextRender`).
+- The filters are the List view's (`kb-task-filter-bar`, `TaskFilters`) and live in the address the same way, without the archived ones. They work in the browser on the cards the board has (`cardFilter` in `board-filters.ts`); a column counts the cards it shows. A card dropped or let go among filtered cards lands just before the card it went above, or just after the last one shown, so the hidden ones keep their places.
 - A card opens its panel with `openTaskPanel`, keeping the query, and `TaskChanges` (`shared/`, so the board needn't import the tasks feature) makes the board read itself again after the panel saves.
 
 ## Access rules

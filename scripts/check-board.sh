@@ -623,8 +623,44 @@ task_3() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 13.4: moving cards from the keyboard, with what it says, and the filters in the address.
+
+the_keys_are_the_ui_spec_ones() {
+  for key in "event.key === ' '" ArrowLeft ArrowRight ArrowUp ArrowDown "event.key === 'Escape'"; do
+    in_file "$key" "$board/board-page.ts" || {
+      echo "the board doesn't answer $key"
+      return 1
+    }
+  done
+}
+
+it_says_each_step() {
+  in_file 'LiveAnnouncer' "$board/board-page.ts" && in_file 'this.announcer.announce(' "$board/board-page.ts"
+}
+
+the_filters_are_the_shared_ones() {
+  in_file 'kb-task-filter-bar' "$board/board-page.html" &&
+    in_file 'filtersFromQuery(this.query())' "$board/board-page.ts" &&
+    in_file 'filtersToQuery(' "$board/board-page.ts"
+}
+
+task_4() {
+  echo "13.4 Moving cards from the keyboard, and the filters in the address"
+  check "the filters are tracked" tracked "$board/board-filters.ts"
+  check "the board page's specs pass, the keyboard and the filters among them" specs_pass src/app/features/board/board-page.spec.ts 27
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "Space, the arrows and Esc move a card, as UI spec 7.4 has them" the_keys_are_the_ui_spec_ones
+  check "each step is said through aria-live" it_says_each_step
+  check "the filters are the List view's, read from and written to the address" the_filters_are_the_shared_ones
+  check "a picked-up card says how to move it" messages_have 'Mută-l cu săgețile, lasă-l cu Space, renunță cu Esc.'
+  check "a card let go says where it landed" messages_have 'Mutat în «'
+  check "a card put back says so" messages_have 'Mutarea a fost anulată.'
+  check "the board says when no card matches" messages_have 'Niciun task nu se potrivește filtrelor.'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do

@@ -35,3 +35,29 @@
     width: 280px;
   }
 }
+
+.filters {
+  display: block;
+  padding: 0 var(--kb-space-6) var(--kb-space-4);
+}
+
+.no-match {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  margin: 0;
+  padding: 0 var(--kb-space-6) var(--kb-space-4);
+  color: var(--kb-text-600);
+}
+
+/* For screen readers only: what the keys do on a card. */
+.keys-help {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

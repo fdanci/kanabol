@@ -25,7 +25,8 @@ export interface NewCard {
 /**
  * A column of the board (docs/UI_UX_SPEC.md §7.4): its name, a check when it's a done column, how
  * many cards it has, the cards themselves as a CDK drop list, and "+ Task" at the bottom, which
- * opens a title field in place. It says what happened; the board page decides what it means.
+ * opens a title field in place. It shows the cards the page gives it, which the filters and a card
+ * picked up from the keyboard decide. It says what happened; the board page decides what it means.
  */
 @Component({
   selector: 'kb-board-column',
@@ -63,9 +64,12 @@ export interface NewCard {
             [cdkDragDisabled]="!canMove()"
             [task]="task"
             [done]="column().isDone"
+            [class.lifted]="task.id === liftedId()"
+            [attr.data-task-id]="task.id"
             tabindex="0"
             role="button"
             [attr.aria-label]="task.key + ' ' + task.title"
+            [attr.aria-describedby]="canMove() ? keysHelpId() : null"
             (click)="opened.emit(task)"
             (keydown.enter)="opened.emit(task)"
           />
@@ -185,6 +189,10 @@ export class BoardColumn {
   readonly cards = input.required<BoardTaskDto[]>();
   readonly canMove = input(false);
   readonly canCreate = input(false);
+  /** The card picked up from the keyboard, if any. */
+  readonly liftedId = input<string | null>(null);
+  /** What says how to move a card from the keyboard, for screen readers. */
+  readonly keysHelpId = input<string | null>(null);
 
   readonly opened = output<BoardTaskDto>();
   readonly dropped = output<CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>>();

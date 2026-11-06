@@ -1,3 +1,4 @@
+import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -37,6 +38,7 @@ describe('BoardPage', () => {
   let api: Record<string, ReturnType<typeof vi.fn>>;
   const held = signal<string[]>(['tasks.create']);
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+  let announcer: { announce: ReturnType<typeof vi.fn> };
   let harness: RouterTestingHarness;
 
   beforeEach(() => {
@@ -44,11 +46,12 @@ describe('BoardPage', () => {
     held.set(['tasks.create']);
     api = {
       board: vi.fn((): Observable<BoardDto> => of(structuredClone(board))),
-      members: vi.fn(() => of([aBoardMember('me', 'Florin Danci'), aBoardMember('u2', 'Ana Pop')])),
+      members: vi.fn(() => of([aBoardMember('u1', 'Florin Danci'), aBoardMember('u2', 'Ana Pop')])),
       move: vi.fn(() => of({})),
       create: vi.fn(() => of({ id: 'id-KAN-6', key: 'KAN-6' })),
     };
     snackbar = { show: vi.fn(), error: vi.fn() };
+    announcer = { announce: vi.fn(() => Promise.resolve()) };
 
     TestBed.configureTestingModule({
       providers: [
@@ -69,9 +72,10 @@ describe('BoardPage', () => {
         { provide: BoardApi, useValue: api },
         {
           provide: AuthStore,
-          useValue: { has: (name: string) => held().includes(name), user: () => ({ id: 'me' }) },
+          useValue: { has: (name: string) => held().includes(name), user: () => ({ id: 'u1' }) },
         },
         { provide: Snackbar, useValue: snackbar },
+        { provide: LiveAnnouncer, useValue: announcer },
         { provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } },
       ],
     });
@@ -97,6 +101,12 @@ describe('BoardPage', () => {
       await new Promise((resolve) => setTimeout(resolve));
       harness.fixture.detectChanges();
     }
+  }
+
+  /** Another address in the same test: the harness is made once per test. */
+  async function go(url: string): Promise<void> {
+    await harness.navigateByUrl(url);
+    await settle();
   }
 
   function page(): HTMLElement {
@@ -213,12 +223,12 @@ describe('BoardPage', () => {
   });
 
   it('opens a card in its panel over the board, keeping the query', async () => {
-    await visit('/projects/p1/board?assignee=me');
+    await visit('/projects/p1/board?priority=Medium');
 
     card('B').click();
     await settle();
 
-    expect(url()).toBe('/projects/p1/board(panel:task/KAN-2)?assignee=me');
+    expect(url()).toBe('/projects/p1/board(panel:task/KAN-2)?priority=Medium');
   });
 
   // docs/SPEC.md §6.2: the card moves at once, and the API is asked after.
@@ -350,5 +360,207 @@ describe('BoardPage', () => {
     await settle();
 
     expect(shown()).toBe('A B C | D | E');
+  });
+
+  describe('from the keyboard', () => {
+    async function press(title: string, key: string): Promise<void> {
+      card(title).dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      );
+      await settle();
+    }
+
+    function said(): string {
+      return String(announcer.announce.mock.lastCall?.[0] ?? '');
+    }
+
+    // docs/UI_UX_SPEC.md §7.4: Space picks up, the arrows move, Space lets go, Esc gives up.
+    it('picks a card up with Space, moves it with the arrows and lets it go with Space', async () => {
+      await visit();
+
+      await press('B', ' ');
+      expect(card('B').classList).toContain('lifted');
+      expect(said()).toContain('«KAN-2»');
+      // It keeps its row in the next column, as far as that column goes.
+      await press('B', 'ArrowRight');
+      expect(shown()).toBe('A C | D B | E');
+      expect(said()).toBe('«În lucru», poziția 2 din 2');
+      await press('B', 'ArrowUp');
+      expect(shown()).toBe('A C | B D | E');
+      expect(document.activeElement).toBe(card('B'));
+      expect(api['move']).not.toHaveBeenCalled();
+
+      await press('B', ' ');
+
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0);
+      expect(shown()).toBe('A C | B D | E');
+      expect(card('B').classList).not.toContain('lifted');
+      expect(said()).toBe('Mutat în «În lucru», poziția 1 din 2');
+    });
+
+    it('moves up within the column and stops at the edges', async () => {
+      await visit();
+
+      await press('C', ' ');
+      await press('C', 'ArrowUp');
+      await press('C', 'ArrowUp');
+      await press('C', 'ArrowUp');
+      await press('C', 'ArrowLeft');
+      expect(shown()).toBe('C A B | D | E');
+      expect(said()).toBe('«De făcut», poziția 1 din 3');
+      await press('C', ' ');
+
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-3', 'c1', 0);
+    });
+
+    it('puts the card back with Esc, asking nothing', async () => {
+      await visit();
+
+      await press('A', ' ');
+      await press('A', 'ArrowRight');
+      await press('A', 'ArrowRight');
+      await press('A', 'Escape');
+
+      expect(shown()).toBe('A B C | D | E');
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(said()).toBe('Mutarea a fost anulată.');
+      expect(document.activeElement).toBe(card('A'));
+    });
+
+    it('says when the API refused a move made from the keyboard', async () => {
+      api['move'].mockReturnValue(refusedWith(409, 'Task.ChangedMeanwhile'));
+      await visit();
+
+      await press('A', ' ');
+      await press('A', 'ArrowRight');
+      await press('A', ' ');
+
+      expect(said()).toBe('Mutarea nu s-a salvat: task-ul a revenit la locul lui.');
+    });
+
+    it('picks nothing up for one who only sees the project', async () => {
+      board.canMove = false;
+      await visit();
+
+      await press('A', ' ');
+      await press('A', 'ArrowRight');
+
+      expect(card('A').classList).not.toContain('lifted');
+      expect(shown()).toBe('A B C | D | E');
+    });
+
+    it('tells a screen reader how to move a card', async () => {
+      await visit();
+
+      const help = document.getElementById(card('A').getAttribute('aria-describedby') ?? '');
+      expect(help?.textContent).toContain('Space');
+    });
+  });
+
+  // docs/UI_UX_SPEC.md §7.4: the filters above the board, in the address, as on the List view.
+  describe('the filters', () => {
+    beforeEach(() => {
+      board.tasks[0] = aCard('KAN-1', 'c1', 0, {
+        title: 'Login SSO',
+        priority: 'High',
+        assignee: { userId: 'u1', displayName: 'Florin Danci' },
+      });
+      board.tasks[3] = aCard('KAN-4', 'c2', 0, {
+        title: 'D',
+        dueDate: new Date(Date.now() - 86_400_000).toISOString(),
+        assignee: { userId: 'u2', displayName: 'Ana Pop' },
+      });
+      board.tasks[4] = aCard('KAN-5', 'c3', 0, {
+        title: 'E',
+        dueDate: new Date(Date.now() - 86_400_000).toISOString(),
+        completedAt: '2026-11-05T08:00:00Z',
+      });
+    });
+
+    it('shows only the cards that match the filters in the address', async () => {
+      await visit('/projects/p1/board?assignee=me');
+      expect(shown()).toBe('Login SSO |  | ');
+
+      await go('/projects/p1/board?assignee=u2');
+      expect(shown()).toBe(' | D | ');
+
+      await go('/projects/p1/board?priority=High,Critical');
+      expect(shown()).toBe('Login SSO |  | ');
+
+      // Late means open past the deadline, outside a done column.
+      await go('/projects/p1/board?overdue=1');
+      expect(shown()).toBe(' | D | ');
+
+      await go('/projects/p1/board?q=sso');
+      expect(shown()).toBe('Login SSO |  | ');
+    });
+
+    it('counts in a column the cards it shows', async () => {
+      await visit('/projects/p1/board?assignee=me');
+
+      expect(column('De făcut').querySelector('.count')?.textContent.trim()).toBe('1');
+    });
+
+    it('puts a filter chosen in the bar into the address', async () => {
+      await visit();
+
+      [...page().querySelectorAll<HTMLButtonElement>('kb-task-filter-bar button')]
+        .find((button) => button.textContent.trim() === 'Întârziate')!
+        .click();
+      await settle();
+
+      expect(url()).toBe('/projects/p1/board?overdue=1');
+      expect(shown()).toBe(' | D | ');
+    });
+
+    it('offers no archived tasks on the board', async () => {
+      held.set(['tasks.create', 'tasks.archive']);
+      await visit();
+
+      expect(page().querySelector('kb-task-filter-bar')?.textContent).not.toContain(
+        'Și cele arhivate',
+      );
+    });
+
+    it('says when nothing matches, and clears the filters', async () => {
+      await visit('/projects/p1/board?q=nimic');
+
+      expect(page().textContent).toContain('Niciun task nu se potrivește filtrelor.');
+      [...page().querySelectorAll<HTMLButtonElement>('.no-match button')][0].click();
+      await settle();
+
+      expect(url()).toBe('/projects/p1/board');
+      expect(shown()).toBe('Login SSO B C | D | E');
+    });
+
+    // A card dropped among filtered ones lands just before the one it was dropped above.
+    it('moves a card dropped among filtered ones to its true place in the column', async () => {
+      board.tasks[2] = aCard('KAN-3', 'c1', 2, { title: 'C', priority: 'High' });
+      board.tasks[3] = aCard('KAN-4', 'c2', 0, { title: 'D', priority: 'High' });
+      await visit('/projects/p1/board?priority=High');
+      expect(shown()).toBe('Login SSO C | D | ');
+
+      drop(task('D'), 'c2', 'c1', 0, 1);
+      await settle();
+
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-4', 'c1', 2);
+    });
+
+    it('moves from the keyboard among the cards it shows', async () => {
+      board.tasks[2] = aCard('KAN-3', 'c1', 2, { title: 'C', priority: 'High' });
+      await visit('/projects/p1/board?priority=High');
+
+      card('Login SSO').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      await settle();
+      card('Login SSO').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      );
+      await settle();
+      card('Login SSO').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      await settle();
+
+      // After C, the last one shown: B, hidden, keeps its place before it.
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c1', 2);
+    });
   });
 });

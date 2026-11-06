@@ -95,6 +95,12 @@ import { BoardTaskDto } from './models';
       visibility: hidden;
     }
 
+    /* Picked up from the keyboard: as a card in the hand (docs/UI_UX_SPEC.md §7.4). */
+    :host(.lifted) .card {
+      box-shadow: var(--kb-shadow-drag), var(--kb-focus-ring);
+      transform: rotate(1.5deg) scale(1.02);
+    }
+
     :host(.cdk-drag-animating) {
       transition: transform 200ms var(--kb-ease);
     }
