@@ -37,6 +37,19 @@ public sealed class ProjectAccess(IAppDbContext db) : IProjectAccess
             : ProjectErrors.OwnerRequired;
     }
 
+    /// <summary>
+    /// For what changes tasks: creating one asks for a real membership, so whoever manages or sees a
+    /// project through a permission adds themselves as a member first (SPEC section 4.4).
+    /// </summary>
+    public async Task<Result> EnsureRealMemberAsync(Guid projectId, Guid userId, CancellationToken ct) =>
+        await db.ProjectMembers.AnyAsync(
+            member => member.ProjectId == projectId
+                && member.UserId == userId
+                && db.Users.Any(user => user.Id == userId && user.IsActive),
+            ct)
+            ? Result.Success()
+            : ProjectErrors.MemberRequired;
+
     private Task<bool> HasAccess(Guid userId, IQueryable<ProjectMember> membership, string[] overridingPermissions, CancellationToken ct) =>
         db.Users.AnyAsync(
             user => user.Id == userId

@@ -5,6 +5,7 @@ using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common.Decorators;
 using Kanabol.Application.Features.Auth;
 using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Features.Tasks;
 using Kanabol.Application.Features.Users;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,7 @@ public static class DependencyInjection
             .AddScoped<LastAdminGuard>()
             .AddScoped<IProjectAccess, ProjectAccess>()
             .AddScoped<ProjectChanges>()
+            .AddScoped<ArchivedTasksAccess>()
             .AddHandlersFrom(typeof(DependencyInjection).Assembly);
 
     public static IServiceCollection AddHandlersFrom(this IServiceCollection services, Assembly assembly)

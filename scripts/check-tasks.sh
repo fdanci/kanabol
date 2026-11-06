@@ -339,8 +339,171 @@ the_entity_writes_its_history() {
   fi
 }
 
+# ---- 12.3: the key, a number from the project's counter, and creations that race.
+
+task_number_migration_is_tracked() {
+  tracked_glob "$migrations/*_AddTaskNumber.cs"
+}
+
+task_number_sql_is_right() {
+  ef migrations script AddProjectKey AddTaskNumber -o "$scratch/add-task-number.sql" || return 1
+  for line in \
+    'ALTER TABLE task_items ADD number integer NOT NULL DEFAULT 0;' \
+    'ALTER TABLE task_items ALTER COLUMN number DROP DEFAULT;' \
+    'CREATE UNIQUE INDEX ux_task_items_project_id_number ON task_items (project_id, number);'; do
+    in_file "$line" "$scratch/add-task-number.sql" || {
+      echo "not in the migration: $line"
+      return 1
+    }
+  done
+}
+
+# A database that had tasks before numbers existed: each project numbers its own from 1, in the order
+# they were made, archived ones too, and its counter goes on after the last.
+old_tasks_get_numbers() {
+  need_database || return 1
+  old_db="${check_db}_old"
+  sql "$admin_connection" "CREATE DATABASE $old_db" || return 1
+  ef database update AddProjectKey --connection "$(connection_to "$old_db")" >"$scratch/old-update.log" 2>&1 || {
+    tail -n 15 "$scratch/old-update.log"
+    return 1
+  }
+  old=$(connection_to "$old_db")
+  sql "$old" "INSERT INTO projects (id, name, key, next_task_number, created_at) VALUES
+    ('00000000-0000-7000-8000-000000000001', 'Vechi', 'OLD', 1, now()),
+    ('00000000-0000-7000-8000-000000000002', 'Altul', 'ALT', 1, now()),
+    ('00000000-0000-7000-8000-000000000003', 'Gol', 'GOL', 1, now())" || return 1
+  sql "$old" "INSERT INTO board_columns (id, project_id, name, position, is_done, created_at) VALUES
+    ('00000000-0000-7000-8000-0000000000c1', '00000000-0000-7000-8000-000000000001', 'De făcut', 0, false, now()),
+    ('00000000-0000-7000-8000-0000000000c2', '00000000-0000-7000-8000-000000000002', 'De făcut', 0, false, now())" || return 1
+  sql "$old" "INSERT INTO task_items (id, project_id, column_id, title, priority, position, created_at, archived_at) VALUES
+    (gen_random_uuid(), '00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-0000000000c1', 'Al doilea', 'Low', 1, now() - interval '1 day', NULL),
+    (gen_random_uuid(), '00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-0000000000c1', 'Primul', 'Low', 0, now() - interval '2 days', NULL),
+    (gen_random_uuid(), '00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-0000000000c1', 'Al treilea, arhivat', 'Low', 2, now(), now()),
+    (gen_random_uuid(), '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-0000000000c2', 'Singurul', 'Low', 0, now(), NULL)" || return 1
+  ef database update --connection "$old" >>"$scratch/old-update.log" 2>&1 || {
+    tail -n 15 "$scratch/old-update.log"
+    return 1
+  }
+  is 'OLD|Primul|1
+OLD|Al doilea|2
+OLD|Al treilea, arhivat|3
+ALT|Singurul|1' "$(sql "$old" "SELECT p.key, t.title, t.number FROM task_items t JOIN projects p ON p.id = t.project_id ORDER BY p.key DESC, t.number" | tr -d '\r')" || return 1
+  is 'ALT|2
+GOL|1
+OLD|4' "$(sql "$old" "SELECT key, next_task_number FROM projects ORDER BY key" | tr -d '\r')" || return 1
+  is '' "$(sql "$old" "SELECT column_default FROM information_schema.columns WHERE table_name = 'task_items' AND column_name = 'number'" | tr -d '\r')"
+}
+
+tasks_of() { # tasks_of <project id>
+  printf '/api/projects/%s/tasks' "$1"
+}
+
+creates_the_task_project() {
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Task-uri","key":"TSK"}')" || return 1
+  tsk_id=$(body_field id)
+  [ -n "$tsk_id" ]
+}
+
+the_first_task_is_tsk_1() {
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$tsk_id")" '{"title":"Login SSO","priority":"High","description":"Cu **Azure AD**"}')" || return 1
+  first_task=$(body_field id)
+  is "/api/tasks/$first_task" "$(location_header)" || return 1
+  in_file '"key":"TSK-1"' "$scratch/body" && in_file '"number":1' "$scratch/body" && in_file '"priority":"High"' "$scratch/body"
+}
+
+the_next_one_is_tsk_2_at_the_end() {
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$tsk_id")" '{"title":"Al doilea","priority":"Low"}')" || return 1
+  in_file '"key":"TSK-2"' "$scratch/body" && in_file '"position":1' "$scratch/body" || return 1
+  is "2" "$(in_db "SELECT next_task_number - 1 FROM projects WHERE id = '$tsk_id'")"
+}
+
+the_key_opens_it_in_any_case() {
+  status_is 200 "$(as "$admin_token" GET /api/tasks/by-key/tsk-1)" || return 1
+  in_file "\"id\":\"$first_task\"" "$scratch/body" && in_file '"title":"Login SSO"' "$scratch/body"
+}
+
+a_key_no_task_has_is_not_found() {
+  code_is 404 Task.NotFound "$(as "$admin_token" GET /api/tasks/by-key/TSK-99)" || return 1
+  code_is 404 Task.NotFound "$(as "$admin_token" GET /api/tasks/by-key/nu-e-o-cheie)"
+}
+
+creating_needs_tasks_create() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$tsk_id/members" "{\"userId\":\"$dan_id\",\"role\":\"Member\"}")" || return 1
+  code_is 403 Auth.PermissionRequired "$(as "$dan_token" POST "$(tasks_of "$tsk_id")" '{"title":"Al lui Dan","priority":"Low"}')" || return 1
+  status_is 200 "$(as "$dan_token" GET /api/tasks/by-key/TSK-1)"
+}
+
+# projects.view_all sees the project, but adds tasks only once it's a member (SPEC section 4.4).
+viewer_needs_a_real_membership() {
+  status_is 201 "$(as "$admin_token" POST /api/roles '{"name":"Vede tot si creeaza","permissions":["projects.view_all","tasks.create"]}')" || return 1
+  role=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"vio@example.com\",\"displayName\":\"Vio Pop\",\"roleId\":\"$role\",\"initialPassword\":\"$initial_password\"}")" || return 1
+  vio_id=$(body_field id)
+  status_is 200 "$(login vio@example.com "$initial_password")" || return 1
+  forced=$(body_field accessToken)
+  status_is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$dan_password\"}")" || return 1
+  vio_token=$(body_field accessToken)
+  status_is 200 "$(as "$vio_token" GET "/api/projects/$tsk_id")" || return 1
+  code_is 403 Project.MemberRequired "$(as "$vio_token" POST "$(tasks_of "$tsk_id")" '{"title":"Al lui Vio","priority":"Low"}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$tsk_id/members" "{\"userId\":\"$vio_id\",\"role\":\"Member\"}")" || return 1
+  status_is 201 "$(as "$vio_token" POST "$(tasks_of "$tsk_id")" '{"title":"Al lui Vio","priority":"Low"}')" || return 1
+  in_file '"key":"TSK-3"' "$scratch/body"
+}
+
+# Creations sent at the same moment, by one curl that doesn't wait for one before the next: each gets its
+# own number, and none of them sees a 409 (SPEC sections 5.1 and 5.3). A creation only loses a round when
+# another one is saved first, so of four at once none loses more than three times, which the three retries
+# cover. Ten at once can leave one with a 409 (Tasks.md, group 12, in Blocked).
+four_at_once_get_four_numbers() {
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"In paralel","key":"PAR"}')" || return 1
+  par_id=$(body_field id)
+  url="$API_URL$(tasks_of "$par_id")"
+  curl -sS --max-time 60 -Z --parallel-immediate --parallel-max 4 \
+    -H "Authorization: Bearer $admin_token" -H 'Content-Type: application/json' \
+    -d '{"title":"In paralel","priority":"Low"}' -w '\nSTATUS %{http_code}\n' \
+    "$url" "$url" "$url" "$url" >"$scratch/parallel" 2>&1 || {
+    tail -n 5 "$scratch/parallel"
+    return 1
+  }
+  is 4 "$(grep -c '^STATUS 201$' "$scratch/parallel")" || {
+    grep '^STATUS' "$scratch/parallel" | sort | uniq -c
+    grep -o '"code":"[^"]*"' "$scratch/parallel" | sort | uniq -c
+    return 1
+  }
+  is 4 "$(grep -o '"key":"PAR-[0-9]*"' "$scratch/parallel" | sort -u | wc -l | tr -d ' ')" || return 1
+  is '4|4|1|4|5' "$(in_db "SELECT count(*), count(DISTINCT t.number), min(t.number), max(t.number), max(p.next_task_number) FROM task_items t JOIN projects p ON p.id = t.project_id WHERE t.project_id = '$par_id'")"
+}
+
+task_3() {
+  echo "12.3 The task key, from the project's counter, and creations that race"
+  check "Docker is running" docker_is_running
+  check "the controller is tracked" tracked "$api_dir/Controllers/TasksController.cs"
+  check "the migration is tracked" task_number_migration_is_tracked
+  check "the solution builds without warnings" solution_builds
+  check "the formatting is clean" formatting_is_clean
+  check "the key's and the creation's domain tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~TaskKeyTests|FullyQualifiedName~TaskCreationTests' 30
+  check "the handlers' tests pass, two creations at once among them" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~CreateTaskCommandHandlerTests|FullyQualifiedName~TaskQueryHandlerTests' 43
+  check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~Kanabol.Api.Tests.Tasks|FullyQualifiedName~EndpointPermissionsTests' 18
+  check "the model has no changes without a migration" ef migrations has-pending-model-changes
+  check "the migration adds the number, without a default, and ux_task_items_project_id_number" task_number_sql_is_right
+  check "tasks made before it get numbers, and projects a counter after them" old_tasks_get_numbers
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "a user without permissions signs in" dan_is_ready
+  check "a project for the tasks is created" creates_the_task_project
+  check "its first task is TSK-1, with its Location" the_first_task_is_tsk_1
+  check "the next one is TSK-2, at the end of its column" the_next_one_is_tsk_2_at_the_end
+  check "GET /api/tasks/by-key opens it, in any case" the_key_opens_it_in_any_case
+  check "a key no task has is not found" a_key_no_task_has_is_not_found
+  check "a member without tasks.create can't create one, but reads them" creating_needs_tasks_create
+  check "projects.view_all with tasks.create creates one only once a member" viewer_needs_a_real_membership
+  check "four creations at the same moment get four numbers, and no 409" four_at_once_get_four_numbers
+  check "the creation is logged, with the key" log_has_entry "Task {TaskId} created as {TaskKey} in project {ProjectId}" '"TaskKey":"TSK-1"'
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 2
+  set -- 2 3
 fi
 
 for task in "$@"; do

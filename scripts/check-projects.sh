@@ -535,11 +535,11 @@ archived_ones_only_when_asked() {
 tasks_are_counted() {
   todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND position = 0")
   done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND is_done")
-  in_db "INSERT INTO task_items (id, project_id, column_id, title, priority, position, due_date, created_at) VALUES
-    (gen_random_uuid(), '$LST_id', '$todo', 'Deschis', 'Medium', 0, NULL, now()),
-    (gen_random_uuid(), '$LST_id', '$todo', 'Intarziat', 'High', 1, now() - interval '1 day', now()),
-    (gen_random_uuid(), '$LST_id', '$done_column', 'Gata la timp', 'Low', 0, now() - interval '1 day', now()),
-    (gen_random_uuid(), '$LST_id', '$todo', 'Arhivat', 'Low', 2, now() - interval '1 day', now())" >/dev/null || return 1
+  in_db "INSERT INTO task_items (id, project_id, number, column_id, title, priority, position, due_date, created_at) VALUES
+    (gen_random_uuid(), '$LST_id', 1, '$todo', 'Deschis', 'Medium', 0, NULL, now()),
+    (gen_random_uuid(), '$LST_id', 2, '$todo', 'Intarziat', 'High', 1, now() - interval '1 day', now()),
+    (gen_random_uuid(), '$LST_id', 3, '$done_column', 'Gata la timp', 'Low', 0, now() - interval '1 day', now()),
+    (gen_random_uuid(), '$LST_id', 4, '$todo', 'Arhivat', 'Low', 2, now() - interval '1 day', now())" >/dev/null || return 1
   in_db "UPDATE task_items SET archived_at = now() WHERE title = 'Arhivat'" >/dev/null || return 1
   status_is 200 "$(as "$dan_token" GET /api/projects)" || return 1
   is 2 "$(number_field openTaskCount)" || return 1

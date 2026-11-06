@@ -500,6 +500,10 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("due_date");
 
+                    b.Property<int>("Number")
+                        .HasColumnType("integer")
+                        .HasColumnName("number");
+
                     b.Property<int>("Position")
                         .HasColumnType("integer")
                         .HasColumnName("position");
@@ -547,6 +551,10 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProjectId", "ColumnId")
                         .HasDatabaseName("ix_task_items_project_id_column_id");
+
+                    b.HasIndex("ProjectId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ux_task_items_project_id_number");
 
                     b.ToTable("task_items", (string)null);
                 });

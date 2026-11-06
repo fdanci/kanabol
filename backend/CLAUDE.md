@@ -18,6 +18,7 @@ Run from `backend/`:
 - Run the permission checks, from the repo root: `scripts/check-permissions.sh [task-number...]`, under the same conditions.
 - Run the user and role checks, from the repo root: `scripts/check-users.sh [task-number...]`, under the same conditions.
 - Run the project checks, from the repo root: `scripts/check-projects.sh [task-number...]`, under the same conditions.
+- Run the task checks, from the repo root: `scripts/check-tasks.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -110,6 +111,20 @@ In Docker and production, settings come from environment variables:
 - A project always keeps an active owner: removing or demoting an owner when no other active owner stays answers 409 `Project.LastOwner`, also for `projects.manage`. Deactivating a user isn't refused for their projects, so the handlers read which members are active and give those ids to `Project.RemoveMember` and `ChangeMemberRole`. A project left with only deactivated owners waits for `projects.manage` to make a new owner, after which the old ones can go. A change to the members also saves the project, so its `xmin` is checked: two owners taking each other away at once get one 409 `Project.ChangedMeanwhile` (`AuditingInterceptor`).
 - The list holds the caller's projects, or every one with `projects.view_all` or `projects.manage`, read from the database as `IProjectAccess` does, and nothing for a deactivated user. Archived projects come only with `includeArchived=true`. Open tasks are outside a done column, overdue ones open past their deadline, and neither counts archived tasks.
 - Roles go over the wire as text, `"Owner"` or `"Member"`.
+
+## Tasks
+
+| Endpoint                                             | Does                                                                                                         | Needs                                   |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `POST /api/projects/{id}/tasks`                      | A task with `title`, `description`, `priority`, and optionally `columnId`, `assigneeId` and `dueDate`        | `tasks.create` and a real membership    |
+| `GET /api/tasks/{id}`, `GET /api/tasks/by-key/{key}` | The task, by id or by its key in any case (`kan-12`), with `canChange`; archived ones with `includeArchived` | member, `projects.view_all` or `manage` |
+
+- A task's key is `{Project.Key}-{Number}`. `TaskItem.Create` takes the number from `Project.NextTaskNumber`, and the project is saved with the task, so its `xmin` guards the counter, with `ux_task_items_project_id_number` behind it. Numbers aren't reused, archived tasks keep theirs.
+- `CreateTask` retries up to 3 times when the project changed meanwhile: another creation, or a change to the members. A creation only loses a round when another one is saved first, so up to 4 creations at once in a project never see a 409; a fifth can get 409 `Project.ChangedMeanwhile`.
+- A real membership is a row in `project_members` with an active account (`IProjectAccess.EnsureRealMemberAsync`): `projects.view_all` and `projects.manage` see a project's tasks, but add one only once they're members (SPEC section 4.4).
+- Archived tasks come only with `includeArchived=true`, which answers 403 `Auth.PermissionRequired` without `tasks.archive`. Queries that join projects archived or not use `db.Tasks(includeArchived)`: `IgnoreQueryFilters` anywhere in a query turns the task filter off too.
+- Only an active member of the project can be assigned (400 on `assigneeId`), and a column has to be on the project's board (400 on `columnId`). A task without a column starts in the first one, and goes at the end of its column.
+- Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
 
 ## Browser logs
 

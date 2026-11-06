@@ -14,28 +14,21 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 {
     public const int MaxTitleLength = 300;
 
+    /// <summary>Markdown for a task, not a document: about ten pages of text.</summary>
+    public const int MaxDescriptionLength = 20_000;
+
     private readonly List<Comment> _comments = [];
     private readonly List<Attachment> _attachments = [];
     private readonly List<TaskHistoryEntry> _history = [];
 
-    public TaskItem(
-        Guid projectId,
-        Guid columnId,
-        string title,
-        string? description,
-        TaskPriority priority,
-        int position,
-        Guid? assigneeId = null,
-        DateTimeOffset? dueDate = null)
+    private TaskItem(Project project, BoardColumn column, string title, string? description, TaskPriority priority, int position)
     {
-        ProjectId = projectId;
-        ColumnId = columnId;
+        ProjectId = project.Id;
+        ColumnId = column.Id;
         Title = NormalizeTitle(title);
         Description = NormalizeDescription(description);
         Priority = priority;
         Position = position;
-        AssigneeId = assigneeId;
-        DueDate = dueDate;
     }
 
     private TaskItem()
@@ -43,6 +36,9 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     }
 
     public Guid ProjectId { get; private set; }
+
+    /// <summary>Unique in the project, from its counter, and kept after archiving: KAN-123 is TaskKey.Format("KAN", 123).</summary>
+    public int Number { get; private set; }
 
     public Guid ColumnId { get; private set; }
 
@@ -71,6 +67,51 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     public IReadOnlyCollection<Attachment> Attachments => _attachments;
 
     public IReadOnlyCollection<TaskHistoryEntry> History => _history;
+
+    /// <summary>
+    /// A new task in an open project, with the project's next number. One created straight into a done
+    /// column is completed at once, and one created for someone is assigned to them, which they hear of
+    /// like any assignment (SPEC section 4.3).
+    /// </summary>
+    public static TaskItem Create(
+        Project project,
+        BoardColumn column,
+        string title,
+        string? description,
+        TaskPriority priority,
+        int position,
+        Guid? assigneeId,
+        DateTimeOffset? dueDate,
+        Guid createdById,
+        DateTimeOffset now)
+    {
+        if (project.ArchivedAt is not null)
+        {
+            throw new InvalidOperationException("An archived project takes no new tasks.");
+        }
+
+        if (column.ProjectId != project.Id)
+        {
+            throw new ArgumentException("A task starts in a column of its own project.", nameof(column));
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(position);
+
+        var task = new TaskItem(project, column, title, description, priority, position)
+        {
+            DueDate = dueDate?.ToUniversalTime(),
+            AssigneeId = assigneeId,
+            CompletedAt = column.IsDone ? now : null,
+        };
+        task.Number = project.TakeTaskNumber();
+        task.Raise(new TaskCreatedEvent(task.Id, project.Id, task.Number, createdById));
+        if (assigneeId is not null)
+        {
+            task.Raise(new TaskAssignedEvent(task.Id, project.Id, assigneeId, null, createdById));
+        }
+
+        return task;
+    }
 
     public void Rename(string title, Guid changedById, DateTimeOffset now)
     {

@@ -81,6 +81,12 @@ public sealed class Project : AuditableEntity, IArchivable
         Description = NormalizeDescription(description);
     }
 
+    /// <summary>
+    /// Only through TaskItem.Create. The project is saved with the task, so its version guards the
+    /// counter: two tasks created at the same moment can't take the same number (SPEC section 5.3).
+    /// </summary>
+    internal int TakeTaskNumber() => NextTaskNumber++;
+
     public BoardColumn AddColumn(string name, int position, bool isDone)
     {
         var column = new BoardColumn(Id, name, position, isDone);

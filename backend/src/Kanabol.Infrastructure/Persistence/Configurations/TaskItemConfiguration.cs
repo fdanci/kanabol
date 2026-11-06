@@ -10,12 +10,15 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
 {
     public void Configure(EntityTypeBuilder<TaskItem> builder)
     {
-        builder.Property(task => task.Title).HasMaxLength(300);
+        builder.Property(task => task.Title).HasMaxLength(TaskItem.MaxTitleLength);
         builder.Property(task => task.Description).HasColumnType("text");
         builder.Property(task => task.Priority).HasConversion<string>();
         builder.Property<uint>("Version").IsRowVersion();
         builder.HasQueryFilter(task => task.ArchivedAt == null);
         builder.HasIndex(task => new { task.ProjectId, task.ColumnId });
+
+        // Archived tasks keep their number, so the index covers them too: a key always means one task.
+        builder.HasIndex(task => new { task.ProjectId, task.Number }).IsUnique().HasDatabaseName("ux_task_items_project_id_number");
         builder.HasOne<Project>().WithMany().HasForeignKey(task => task.ProjectId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<BoardColumn>().WithMany().HasForeignKey(task => task.ColumnId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany().HasForeignKey(task => task.AssigneeId).OnDelete(DeleteBehavior.Restrict);
