@@ -57,6 +57,18 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
             .Should().BeEquivalentTo([("CreateTask", Permissions.TasksCreate), ("RestoreTask", Permissions.TasksArchive)]);
     }
 
+    // The columns check the role on the project in the handler, an owner to change them (UI spec section 7.4).
+    [Fact]
+    public void BoardColumns_NeedNoPermissionOnTheEndpoint()
+    {
+        var found = RealActions
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "BoardColumns")
+            .ToList();
+
+        found.Should().HaveCount(6);
+        found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
+    }
+
     [Fact]
     public void HasPermission_InTheApiThatShips_NamesOnlyPermissionsThatExist() =>
         RealActions

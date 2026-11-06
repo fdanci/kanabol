@@ -26,6 +26,9 @@ public static class ProjectRuleExtensions
     public static IRuleBuilderOptions<T, ProjectRole> IsAProjectRole<T>(this IRuleBuilderInitial<T, ProjectRole> rule) =>
         rule.IsInEnum();
 
+    public static IRuleBuilderOptions<T, string> IsAColumnName<T>(this IRuleBuilderInitial<T, string> rule) =>
+        rule.NotEmpty().MaximumLength(BoardColumn.MaxNameLength).HasNoHiddenCharacters();
+
     private static bool IsHiddenOutsideLayout(char character) =>
         character is not ('\n' or '\r' or '\t') && TextRuleExtensions.IsHidden(character);
 }

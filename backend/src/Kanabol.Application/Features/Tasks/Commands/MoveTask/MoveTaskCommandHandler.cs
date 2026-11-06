@@ -54,8 +54,16 @@ public sealed class MoveTaskCommandHandler(
 
         task.MoveTo(column, place, currentUser.Id, clock.UtcNow);
 
-        var saved = await changes.Save(ct);
-        return saved.IsFailure ? saved.Error : await changes.Read(task.Id, ct);
+        try
+        {
+            var saved = await changes.Save(ct);
+            return saved.IsFailure ? saved.Error : await changes.Read(task.Id, ct);
+        }
+        catch (DbUpdateException exception) when (exception.IsForeignKeyViolation())
+        {
+            // The column was deleted after it was read: only an empty one can be, so it was this one.
+            return TaskErrors.ColumnNotInProject;
+        }
     }
 
     private static void PlaceInOrder(IEnumerable<TaskItem> tasks, TaskItem except)

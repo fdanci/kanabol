@@ -24,7 +24,9 @@ public sealed class CreateTaskCommandHandler(
 {
     public async Task<Result<TaskItemDto>> Handle(CreateTaskCommand command, CancellationToken ct)
     {
-        var project = await db.Projects.IgnoreQueryFilters().FirstOrDefaultAsync(found => found.Id == command.ProjectId, ct);
+        // Not tracked: the counter moves in the database, which leaves a tracked copy with an old version
+        // for whatever else the same scope saves.
+        var project = await db.Projects.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(found => found.Id == command.ProjectId, ct);
         if (project is null)
         {
             return ProjectErrors.NotFound;
@@ -56,28 +58,37 @@ public sealed class CreateTaskCommandHandler(
         }
 
         var now = clock.UtcNow;
+        TaskItem? created;
+        try
+        {
+            // The end of the column is read once the number is taken: the creations before this one in the
+            // project are committed by then, so two of them never end up in the same place.
+            created = await taskNumbers.SaveNewTaskAsync(
+                project.Id,
+                async number =>
+                {
+                    var last = await db.TaskItems.Where(task => task.ColumnId == column.Id).MaxAsync(task => (int?)task.Position, ct);
+                    return TaskItem.Create(
+                        project,
+                        column,
+                        number,
+                        command.Title,
+                        command.Description,
+                        command.Priority,
+                        (last ?? -1) + 1,
+                        command.AssigneeId,
+                        command.DueDate,
+                        currentUser.Id,
+                        now);
+                },
+                ct);
+        }
+        catch (DbUpdateException exception) when (exception.IsForeignKeyViolation())
+        {
+            // The column was deleted after it was read, and the number with it, since nothing committed.
+            return TaskErrors.ColumnNotInProject;
+        }
 
-        // The end of the column is read once the number is taken: the creations before this one in the
-        // project are committed by then, so two of them never end up in the same place.
-        var created = await taskNumbers.SaveNewTaskAsync(
-            project.Id,
-            async number =>
-            {
-                var last = await db.TaskItems.Where(task => task.ColumnId == column.Id).MaxAsync(task => (int?)task.Position, ct);
-                return TaskItem.Create(
-                    project,
-                    column,
-                    number,
-                    command.Title,
-                    command.Description,
-                    command.Priority,
-                    (last ?? -1) + 1,
-                    command.AssigneeId,
-                    command.DueDate,
-                    currentUser.Id,
-                    now);
-            },
-            ct);
         if (created is null)
         {
             // Archived after it was read above: the counter only moves in an open project.

@@ -112,6 +112,20 @@ In Docker and production, settings come from environment variables:
 - The list holds the caller's projects, or every one with `projects.view_all` or `projects.manage`, read from the database as `IProjectAccess` does, and nothing for a deactivated user. Archived projects come only with `includeArchived=true`. Open tasks are outside a done column, overdue ones open past their deadline, and neither counts archived tasks.
 - Roles go over the wire as text, `"Owner"` or `"Member"`.
 
+## Board columns
+
+| Endpoint                                                                 | Does                                                                                                                               | Needs                                   |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `GET /api/projects/{id}/board-columns`, `GET …/board-columns/{columnId}` | The columns, from the left                                                                                                         | member, `projects.view_all` or `manage` |
+| `POST /api/projects/{id}/board-columns`                                  | A column with `name` and `isDone`, at the right end                                                                                | owner or `projects.manage`              |
+| `PUT /api/projects/{id}/board-columns/{columnId}`                        | Another `name` and `isDone`. Turning a column done completes its open tasks now, and turning it back opens them                    | owner or `projects.manage`              |
+| `PATCH /api/projects/{id}/board-columns/{columnId}/position`             | Moves it to `position`, from 0, past the end meaning last, and answers every column in order                                       | owner or `projects.manage`              |
+| `DELETE /api/projects/{id}/board-columns/{columnId}`                     | Deletes an empty column. One that holds a task, archived ones too, answers 409 `Column.NotEmpty`, the last one `Column.LastColumn` | owner or `projects.manage`              |
+
+- The columns belong to the `Project` aggregate (`AddColumn`, `RenameColumn`, `MarkColumnDone`, `MoveColumn`, `RemoveColumn`), so their places stay 0, 1, 2... A change to them also saves the project (`AuditingInterceptor`), whose `xmin` makes the second of two changes at once a 409 `Project.ChangedMeanwhile`.
+- A task moved or created into a column that was deleted meanwhile answers 400 on `columnId`, and a delete that comes after a task moved in answers `Column.NotEmpty`: the foreign key from `task_items.column_id` decides.
+- Names are 1 to 100 characters, without hidden ones. An archived project answers 409 `Project.Archived`.
+
 ## Tasks
 
 | Endpoint                                                                               | Does                                                                                                                                                                                                                                              | Needs                                   |

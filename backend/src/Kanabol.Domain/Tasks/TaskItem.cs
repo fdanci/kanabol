@@ -216,6 +216,20 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// Another place in the same column, to keep the column's order without gaps around a move. It isn't
     /// a change of this task, so it writes no history and raises nothing: the moved task's event says it all.
     /// </summary>
+    /// <summary>
+    /// Its column became a done column, or stopped being one: the task is completed now, or open again,
+    /// as if it had just entered that column (SPEC section 5.1). Its place and its history stay.
+    /// </summary>
+    public void FollowColumn(BoardColumn column, DateTimeOffset now)
+    {
+        if (column.Id != ColumnId)
+        {
+            throw new ArgumentException("A task follows only the column it's in.", nameof(column));
+        }
+
+        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
+    }
+
     public void ShiftTo(int position)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);
