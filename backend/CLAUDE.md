@@ -94,19 +94,21 @@ In Docker and production, settings come from environment variables:
 
 ## Projects
 
-| Endpoint                                                                    | Does                                                                                               | Needs                                   |
-| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `POST /api/projects`                                                        | A project with `name`, `key` and `description`. Its creator is its owner, with the default columns | `projects.create`                       |
-| `GET /api/projects/{id}`                                                    | The project, archived or not, with `myRole`, `canManage` and its columns                           | member, `projects.view_all` or `manage` |
-| `PUT /api/projects/{id}`                                                    | Another name and description. The key never changes                                                | owner or `projects.manage`              |
-| `DELETE /api/projects/{id}`, `POST /api/projects/{id}/restore`              | Archives the project, or brings it back. Nothing deletes a project                                 | owner or `projects.manage`              |
-| `GET /api/projects/{id}/members`, `GET /api/projects/{id}/members/{userId}` | The members, owners first, deactivated ones too                                                    | member, `projects.view_all` or `manage` |
-| `POST /api/projects/{id}/members`, `PUT` and `DELETE …/members/{userId}`    | Adds an active user as `Owner` or `Member`, changes the role, removes them                         | owner or `projects.manage`              |
-| `GET /api/projects/{id}/member-candidates?search=`                          | Up to 20 active users who aren't in the project, by name                                           | owner or `projects.manage`              |
+| Endpoint                                                                    | Does                                                                                                                                                       | Needs                                   |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `GET /api/projects?page=1&pageSize=50&includeArchived=false`                | A `Page` of the projects the caller can open, by name, each with its owners, up to 4 members, the member count, open and overdue tasks and its last change | signed in                               |
+| `POST /api/projects`                                                        | A project with `name`, `key` and `description`. Its creator is its owner, with the default columns                                                         | `projects.create`                       |
+| `GET /api/projects/{id}`                                                    | The project, archived or not, with `myRole`, `canManage` and its columns                                                                                   | member, `projects.view_all` or `manage` |
+| `PUT /api/projects/{id}`                                                    | Another name and description. The key never changes                                                                                                        | owner or `projects.manage`              |
+| `DELETE /api/projects/{id}`, `POST /api/projects/{id}/restore`              | Archives the project, or brings it back. Nothing deletes a project                                                                                         | owner or `projects.manage`              |
+| `GET /api/projects/{id}/members`, `GET /api/projects/{id}/members/{userId}` | The members, owners first, deactivated ones too                                                                                                            | member, `projects.view_all` or `manage` |
+| `POST /api/projects/{id}/members`, `PUT` and `DELETE …/members/{userId}`    | Adds an active user as `Owner` or `Member`, changes the role, removes them                                                                                 | owner or `projects.manage`              |
+| `GET /api/projects/{id}/member-candidates?search=`                          | Up to 20 active users who aren't in the project, by name                                                                                                   | owner or `projects.manage`              |
 
 - A key is 2 to 5 letters from A to Z, stored in capitals and unique among archived projects too (`ux_projects_key`), since task keys like `KAN-123` stay valid. `next_task_number` starts at 1.
 - An archived project still opens, but only restoring changes it: anything else answers 409 `Project.Archived`.
 - A project always keeps an owner: removing or demoting the last one answers 409 `Project.LastOwner`, also for `projects.manage`. A change to the members also saves the project, so its `xmin` is checked: two owners taking each other away at once get one 409 `Project.ChangedMeanwhile` (`AuditingInterceptor`).
+- The list holds the caller's projects, or every one with `projects.view_all` or `projects.manage`, read from the database as `IProjectAccess` does, and nothing for a deactivated user. Archived projects come only with `includeArchived=true`. Open tasks are outside a done column, overdue ones open past their deadline, and neither counts archived tasks.
 - Roles go over the wire as text, `"Owner"` or `"Member"`.
 
 ## Browser logs

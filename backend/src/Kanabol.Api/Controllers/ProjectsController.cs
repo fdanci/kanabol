@@ -14,6 +14,7 @@ using Kanabol.Application.Features.Projects.Queries.GetProjectById;
 using Kanabol.Application.Features.Projects.Queries.GetProjectMember;
 using Kanabol.Application.Features.Projects.Queries.GetProjectMemberCandidates;
 using Kanabol.Application.Features.Projects.Queries.GetProjectMembers;
+using Kanabol.Application.Features.Projects.Queries.GetProjects;
 using Kanabol.Domain.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,6 +29,15 @@ namespace Kanabol.Api.Controllers;
 [Route("api/projects")]
 public sealed class ProjectsController : ControllerBase
 {
+    [HttpGet]
+    public async Task<IActionResult> GetProjects(
+        [FromServices] IQueryHandler<GetProjectsQuery, Page<ProjectSummaryDto>> handler,
+        CancellationToken ct,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = Paging.DefaultPageSize,
+        [FromQuery] bool includeArchived = false) =>
+        (await handler.Handle(new GetProjectsQuery(page, pageSize, includeArchived), ct)).ToActionResult();
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetProject(
         Guid id,

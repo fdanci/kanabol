@@ -479,8 +479,97 @@ task_1() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 11.2
+
+number_field() { # number_field <name>: the value of a number field in the last answer
+  sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p" "$scratch/body" | head -n 1
+}
+
+keys_listed() { # The project keys in the last answer, in order, on one line
+  grep -o '"key":"[A-Z]*"' "$scratch/body" | sed 's/"key":"\([A-Z]*\)"/\1/' | paste -sd' ' -
+}
+
+creates_list_projects() {
+  for key in LST ALT ARH; do
+    status_is 201 "$(as "$admin_token" POST /api/projects "{\"name\":\"Lista $key\",\"key\":\"$key\"}")" || return 1
+    eval "${key}_id=\$(body_field id)"
+  done
+  [ -n "$LST_id" ] && [ -n "$ARH_id" ]
+}
+
+someone_in_no_project_sees_none() {
+  status_is 200 "$(as "$dan_token" GET /api/projects)" || return 1
+  is 0 "$(number_field totalCount)"
+}
+
+a_member_sees_only_theirs() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$LST_id/members" "{\"userId\":\"$dan_id\",\"role\":\"Member\"}")" || return 1
+  status_is 200 "$(as "$dan_token" GET '/api/projects?page=1&pageSize=25')" || return 1
+  is 1 "$(number_field totalCount)" || return 1
+  is 25 "$(number_field pageSize)" || return 1
+  is LST "$(keys_listed)" || return 1
+  in_file '"myRole":"Member"' "$scratch/body"
+}
+
+view_all_sees_every_open_one() {
+  open=$(in_db "SELECT count(*) FROM projects WHERE archived_at IS NULL")
+  status_is 200 "$(as "$admin_token" GET /api/projects)" || return 1
+  is "$open" "$(number_field totalCount)" || return 1
+  is 50 "$(number_field pageSize)"
+}
+
+pages_go_by_name() {
+  expected=$(in_db "SELECT key FROM projects WHERE archived_at IS NULL ORDER BY upper(name), key OFFSET 1 LIMIT 1")
+  status_is 200 "$(as "$admin_token" GET '/api/projects?page=2&pageSize=1')" || return 1
+  is "$expected" "$(keys_listed)"
+}
+
+archived_ones_only_when_asked() {
+  status_is 204 "$(as "$admin_token" DELETE "/api/projects/$ARH_id")" || return 1
+  status_is 200 "$(as "$admin_token" GET '/api/projects?pageSize=100')" || return 1
+  case " $(keys_listed) " in *" ARH "*) echo "ARH is listed although archived"; return 1 ;; esac
+  status_is 200 "$(as "$admin_token" GET '/api/projects?pageSize=100&includeArchived=true')" || return 1
+  case " $(keys_listed) " in *" ARH "*) ;; *) echo "ARH isn't listed with includeArchived"; return 1 ;; esac
+}
+
+tasks_are_counted() {
+  todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND position = 0")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND is_done")
+  in_db "INSERT INTO task_items (id, project_id, column_id, title, priority, position, due_date, created_at) VALUES
+    (gen_random_uuid(), '$LST_id', '$todo', 'Deschis', 'Medium', 0, NULL, now()),
+    (gen_random_uuid(), '$LST_id', '$todo', 'Intarziat', 'High', 1, now() - interval '1 day', now()),
+    (gen_random_uuid(), '$LST_id', '$done_column', 'Gata la timp', 'Low', 0, now() - interval '1 day', now()),
+    (gen_random_uuid(), '$LST_id', '$todo', 'Arhivat', 'Low', 2, now() - interval '1 day', now())" >/dev/null || return 1
+  in_db "UPDATE task_items SET archived_at = now() WHERE title = 'Arhivat'" >/dev/null || return 1
+  status_is 200 "$(as "$dan_token" GET /api/projects)" || return 1
+  is 2 "$(number_field openTaskCount)" || return 1
+  is 1 "$(number_field overdueTaskCount)"
+}
+
+a_page_over_100_is_refused() {
+  code_is 400 Validation "$(as "$admin_token" GET '/api/projects?pageSize=101')"
+}
+
+task_2() {
+  echo "11.2 The list of projects"
+  check "Docker is running" docker_is_running
+  check "the query's tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetProjectsQueryHandlerTests' 15
+  check "the endpoint's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ProjectListEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 11
+  check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
+  check "a user without permissions signs in" dan_is_ready
+  check "three projects are created for the list" creates_list_projects
+  check "someone in no project sees none" someone_in_no_project_sees_none
+  check "a member sees only theirs, as a Page" a_member_sees_only_theirs
+  check "projects.view_all sees every open one, 50 to a page" view_all_sees_every_open_one
+  check "pages go by name" pages_go_by_name
+  check "archived ones are listed only when asked for" archived_ones_only_when_asked
+  check "open and overdue tasks are counted, done and archived ones aren't" tasks_are_counted
+  check "a page of more than 100 is refused" a_page_over_100_is_refused
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 
 for task in "$@"; do

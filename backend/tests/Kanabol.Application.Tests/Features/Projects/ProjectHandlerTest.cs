@@ -8,7 +8,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kanabol.Application.Tests.Features.Projects;
 
-/// <summary>For the handlers of projects and their members, on a database with every permission, as after the seed.</summary>
+/// <summary>
+/// For the handlers of projects and their members, on a database with every permission, as after the seed.
+/// The data is set up through a plain context, without the audit stamps, so a project made here was created Now.
+/// </summary>
 public abstract class ProjectHandlerTest(PostgresFixture postgres) : ManagementHandlerTest(postgres)
 {
     protected Task<Result<TResult>> Handle<TCommand, TResult>(TCommand command)
@@ -22,6 +25,7 @@ public abstract class ProjectHandlerTest(PostgresFixture postgres) : ManagementH
     protected async Task<Project> CreateProject(Func<ProjectBuilder, ProjectBuilder>? configure = null)
     {
         var project = (configure ?? (builder => builder))(new ProjectBuilder()).Build();
+        project.CreatedAt = Now;
 
         await using var db = Postgres.CreateContext();
         db.Projects.Add(project);
