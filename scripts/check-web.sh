@@ -1,5 +1,6 @@
 #!/bin/sh
-# Acceptance checks for the frontend skeleton and authentication (group 9 in the project's Tasks.md).
+# Acceptance checks for the frontend skeleton and authentication (groups 9 and 9a in the project's
+# Tasks.md).
 # The specs hold the rules, so these checks run them, and add what they can't see: the configuration,
 # the production build and what it ships.
 #
@@ -288,8 +289,101 @@ task_7() {
   check "and writes Romanian as the source language" messages_have 'source-language="ro"'
 }
 
+# ---- 9a.1
+
+# The whole tokens file against UI spec 2.4, light and dark, compared value by value.
+tokens_are_the_specs() {
+  node -e "
+    const fs = require('fs');
+    const spec = fs.readFileSync('docs/UI_UX_SPEC.md', 'utf8').replace(/\r/g, '');
+    const start = spec.indexOf('\`src/styles/_tokens.scss\`:');
+    const open = spec.indexOf('\`\`\`scss', start);
+    const fromSpec = spec.slice(open + 7, spec.indexOf('\`\`\`', open + 7));
+    const fromFile = fs.readFileSync('$web/src/styles/_tokens.scss', 'utf8').replace(/\r/g, '');
+    const normalize = (value) => value.replace(/\s+/g, '').replace(/([(,:])\./g, '\$10.').replace(/(\.\d*?[1-9])0+(?!\d)/g, '\$1').toLowerCase();
+    const tokens = (part) => Object.fromEntries([...part.matchAll(/(--kb-[a-z0-9-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], normalize(m[2])]));
+    const parts = (source) => [source.slice(0, source.indexOf('@mixin dark')), source.slice(source.indexOf('@mixin dark'))].map(tokens);
+    const [specLight, specDark] = parts(fromSpec);
+    const [fileLight, fileDark] = parts(fromFile);
+    let bad = 0;
+    for (const [name, a, b] of [['light', specLight, fileLight], ['dark', specDark, fileDark]]) {
+      if (Object.keys(a).length < 10) { console.log('too few tokens read from the spec: ' + name); bad++; }
+      for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+        if (a[key] !== b[key]) { console.log(name + ' ' + key + ': spec ' + a[key] + ', file ' + b[key]); bad++; }
+      }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+# The three tokens of UI spec v1.6, with the spec's values (2.3, 2.4) written here. In dark, null
+# means the token isn't redefined there: it keeps its light value.
+new_tokens_have_the_specs_values() {
+  node -e "
+    const source = require('fs').readFileSync('$web/src/styles/_tokens.scss', 'utf8');
+    const split = source.indexOf('@mixin dark');
+    const value = (part, name) => (part.match(new RegExp('--kb-' + name + ':\\\\s*([^;]+);')) || [])[1] ?? null;
+    let bad = 0;
+    for (const [name, light, dark] of [['on-ink-accent', '#91c4fb', null], ['logo-bar', '#052063', '#ffffff'], ['logo-disc', '#91c4fb', null]]) {
+      const inLight = value(source.slice(0, split), name);
+      const inDark = value(source.slice(split), name);
+      if (inLight !== light) { console.log('light ' + name + ': ' + inLight + ', expected ' + light); bad++; }
+      if (inDark !== dark) { console.log('dark ' + name + ': ' + inDark + ', expected ' + (dark ?? 'the light value')); bad++; }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+# The snackbar's action on ink, AA for normal text in both themes. The snackbar is ink at 92%, so
+# it's also measured over the lightest surface showing through it.
+on_ink_accent_reads_on_ink() {
+  node -e "
+    const source = require('fs').readFileSync('$web/src/styles/_tokens.scss', 'utf8');
+    const split = source.indexOf('@mixin dark');
+    const tokens = (part) => Object.fromEntries([...part.matchAll(/--kb-([a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)].map((m) => [m[1], m[2]]));
+    const light = tokens(source.slice(0, split));
+    const dark = { ...light, ...tokens(source.slice(split)) };
+    const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const luminance = (hex) => {
+      const [r, g, b] = channels(hex).map((c) => c / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => {
+      const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (high + 0.05) / (low + 0.05);
+    };
+    const mix = (a, b, share) => '#' + channels(a).map((c, i) => Math.round(c * share + channels(b)[i] * (1 - share)).toString(16).padStart(2, '0')).join('');
+    let bad = 0;
+    for (const [mode, t] of [['light', light], ['dark', dark]]) {
+      if (!t['on-ink-accent'] || !t['ink']) { console.log(mode + ': a token is missing'); bad++; continue; }
+      for (const [name, background] of [['ink', t['ink']], ['ink at 92% over ' + mode + ' surface-0', mix(t['ink'], t['surface-0'], 0.92)]]) {
+        const value = ratio(t['on-ink-accent'], background);
+        if (value < 4.5) { console.log(mode + ' on-ink-accent on ' + name + ': ' + value.toFixed(2)); bad++; }
+      }
+    }
+    process.exit(bad ? 1 : 0);
+  "
+}
+
+lockup_takes_the_logo_tokens() {
+  lockup=$app/shared/ui/lockup.ts
+  in_file 'fill: var(--kb-logo-bar)' "$lockup" && in_file 'fill: var(--kb-logo-disc)' "$lockup" &&
+    lacks 'var(--kb-sky-300)' "$lockup" && lacks 'var(--kb-navy-900)' "$lockup"
+}
+
+task_9a() {
+  echo "9a.1 The tokens of UI spec v1.6"
+  check "_tokens.scss is UI spec 2.4's, in light and dark" tokens_are_the_specs
+  check "on-ink-accent, logo-bar and logo-disc have the spec's values" new_tokens_have_the_specs_values
+  check "the snackbar's action passes AA on ink, in both themes" on_ink_accent_reads_on_ink
+  check "the snackbar's action is on-ink-accent" css_has '--mat-snack-bar-button-color:var(--kb-on-ink-accent)'
+  check "the lockup takes the mark's colors, not the theme's" lockup_takes_the_logo_tokens
+  check "the build ships the lockup's bar in logo-bar" bundle_has 'kb-logo-bar)'
+  check "and its discs in logo-disc" bundle_has 'kb-logo-disc)'
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 7 2 3 9 5 6 4 8 10
+  set -- 1 7 2 3 9 5 6 4 8 10 9a
 fi
 
 for task in "$@"; do

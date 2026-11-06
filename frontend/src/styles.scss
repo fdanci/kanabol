@@ -200,7 +200,8 @@ html {
       label-text-color: var(--kb-text-700),
     )
   );
-  // On ink at 92% with the glass, like the tooltip, and the action in sky-300 (6.2).
+  // On ink at 92% with the glass, like the tooltip. The action is on-ink-accent, which stays the
+  // same in dark, where sky-300 would only have 3:1 on ink (6.2).
   @include mat.snack-bar-overrides(
     (
       container-color: color-mix(in srgb, var(--kb-ink) 92%, transparent),
@@ -208,7 +209,7 @@ html {
       supporting-text-color: #ffffff,
       supporting-text-size: 13px,
       supporting-text-line-height: 20px,
-      button-color: var(--kb-sky-300),
+      button-color: var(--kb-on-ink-accent),
     )
   );
   // On ink, not navy-900, which turns light in dark (6.0.6).
