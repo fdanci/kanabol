@@ -697,8 +697,31 @@ task_5() {
   check "a column holding archived tasks says why it stays" messages_have 'Coloana mai are task-uri, poate și arhivate.'
 }
 
+# ---- 13.6: the specs of BoardStore, moving and putting back.
+
+store_specs_name_the_rollback() {
+  for name in 'puts a refused card back where it was, as it was' 'puts back only the refused card when another moved meanwhile' \
+    'moves it at once, before the API answers'; do
+    in_file "$name" "$board/board-store.spec.ts" || {
+      echo "no spec '$name' in board-store.spec.ts"
+      return 1
+    }
+  done
+}
+
+task_6() {
+  echo "13.6 The specs of BoardStore: moving, and putting back when refused"
+  check "the store's specs are tracked" tracked "$board/board-store.spec.ts"
+  check "the moves' specs are tracked" tracked "$board/board-moves.spec.ts"
+  check "the store's specs name the move and the rollbacks" store_specs_name_the_rollback
+  check "the store's specs pass" specs_pass src/app/features/board/board-store.spec.ts 19
+  check "the moves' specs pass" specs_pass src/app/features/board/board-moves.spec.ts 11
+  check "every spec of the board passes" specs_pass "src/app/features/board/*.spec.ts" 66
+  check "the lint is clean" frontend_lint_is_clean
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do

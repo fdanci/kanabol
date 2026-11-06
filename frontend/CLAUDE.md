@@ -73,6 +73,7 @@ Run from `frontend/`:
 
 ## Board
 
+- `board-store.spec.ts` holds the store's moves and rollbacks against a fake API whose answers the specs hold and let go, and `board-moves.spec.ts` the pure `moveCard` and `placeAmong`; `board-page.spec.ts` drives the page, drops included, through the column's `dropped` output, with the fixtures in `board-testing.ts`.
 - `BoardPage` (`features/board`) reads `GET /api/projects/{id}/board`: the columns and every open task, without pages, since the board shows them all. `BoardStore` holds it as a `resource()` of the project's id, with the members as another, and keeps the old board while it reads it again, so the cards don't blink.
 - Cards move with CDK drag and drop: `cdkDropListGroup` on the board, a `cdkDropList` per column (`BoardColumn`), `cdkDrag` on each `TaskCard`. A drop moves the card at once (`moveCard` in `board-moves.ts`, which numbers the columns 0, 1, 2... as the API does), then sends `PATCH /api/tasks/{id}/position`; when the API refuses, the card goes back to its place and the board is read again. `errorInterceptor` has shown why by then.
 - The CDK gives the place among the cards a column shows; `placeAmong` turns it into the place among all its cards, which the filters may hide some of.
