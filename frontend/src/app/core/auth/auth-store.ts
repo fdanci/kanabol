@@ -10,15 +10,34 @@ export const REFRESH_LOCK = 'kb.auth.refresh';
 /** Less than this left, and a token for the hub is refreshed first. */
 const FRESH_FOR_SECONDS = 30;
 
-/** How long the token has, from its exp claim; 0 when it can't be read. Reading it checks nothing. */
-function secondsLeftOf(token: string): number {
+interface TokenClaims {
+  sub?: unknown;
+  iat?: unknown;
+  exp?: unknown;
+}
+
+/** What the token says, read without checking anything: the API checks it. Null when it can't be read. */
+function claimsOf(token: string): TokenClaims | null {
   try {
     const payload = (token.split('.')[1] ?? '').replace(/-/g, '+').replace(/_/g, '/');
-    const { exp } = JSON.parse(atob(payload)) as { exp?: unknown };
-    return typeof exp === 'number' ? exp - Date.now() / 1000 : 0;
+    return JSON.parse(atob(payload)) as TokenClaims;
   } catch {
+    return null;
+  }
+}
+
+/**
+ * How long the token has: its lifetime, exp less iat, less the time since it came, since this computer's
+ * clock may be minutes off the API's; from exp alone when it has no iat; 0 when it can't be read.
+ */
+function secondsLeftOf(token: string, receivedAt: number): number {
+  const { iat, exp } = claimsOf(token) ?? {};
+  if (typeof exp !== 'number') {
     return 0;
   }
+  return typeof iat === 'number'
+    ? exp - iat - (Date.now() - receivedAt) / 1000
+    : exp - Date.now() / 1000;
 }
 
 /**
@@ -31,6 +50,8 @@ export class AuthStore {
   private readonly token = signal<string | null>(null);
   private readonly current = signal<CurrentUserDto | null>(null);
   private refreshing: Promise<string | null> | null = null;
+  /** When the token came, by this computer's clock. */
+  private receivedAt = 0;
 
   readonly accessToken = this.token.asReadonly();
   readonly user = this.current.asReadonly();
@@ -45,13 +66,13 @@ export class AuthStore {
   /** Throws the HttpErrorResponse of a refused login, for the form to explain. */
   async login(email: string, password: string): Promise<void> {
     const session = await firstValueFrom(this.api.login(email, password));
-    this.token.set(session.accessToken);
+    this.take(session.accessToken);
     await this.loadUser();
   }
 
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
     const session = await firstValueFrom(this.api.changePassword(currentPassword, newPassword));
-    this.token.set(session.accessToken);
+    this.take(session.accessToken);
     await this.loadUser();
   }
 
@@ -99,7 +120,9 @@ export class AuthStore {
     if (held === null) {
       return Promise.resolve(null);
     }
-    return secondsLeftOf(held) > FRESH_FOR_SECONDS ? Promise.resolve(held) : this.refresh();
+    return secondsLeftOf(held, this.receivedAt) > FRESH_FOR_SECONDS
+      ? Promise.resolve(held)
+      : this.refresh();
   }
 
   /** For a request refused with the token it carried: a newer one, if this tab has one already. */
@@ -116,7 +139,15 @@ export class AuthStore {
   private async refreshNow(): Promise<string | null> {
     try {
       const session = await firstValueFrom(this.api.refresh());
-      this.token.set(session.accessToken);
+      // The cookie is the browser's, shared by every tab: after someone else signed in elsewhere, it
+      // answers for them. This tab ends its session rather than act as them under the wrong name.
+      const signedIn = this.current();
+      const subject = claimsOf(session.accessToken)?.sub;
+      if (signedIn !== null && typeof subject === 'string' && subject !== signedIn.id) {
+        this.clear();
+        return null;
+      }
+      this.take(session.accessToken);
       return session.accessToken;
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 401) {
@@ -125,6 +156,11 @@ export class AuthStore {
       }
       throw error;
     }
+  }
+
+  private take(token: string): void {
+    this.token.set(token);
+    this.receivedAt = Date.now();
   }
 
   private inTurn<T>(work: () => Promise<T>): Promise<T> {

@@ -880,7 +880,10 @@ realtime_specs_name_the_rules() {
       'sends none without a connection' &&
     spec_names "$realtime_web/hub-log.spec.ts" 'hides the token in an address' &&
     spec_names "$app/core/auth/auth-store.spec.ts" \
-      'is a refreshed one when the token is about to expire'
+      'is a refreshed one when the token is about to expire' \
+      'counts the token from when it came, whatever the clock of this computer says' \
+      'ends the session of this tab' \
+      'keeps the session when it answers for the same user'
 }
 
 board_specs_name_the_rules() {
@@ -947,7 +950,7 @@ task_3() {
   check "the specs name the connection's rules" realtime_specs_name_the_rules
   check "the specs name the board's" board_specs_name_the_rules
   check "the connection's specs pass" specs_pass 'src/app/core/realtime/*.spec.ts' 18
-  check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 24
+  check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 27
   check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 85
   check "the project page shows the board with a fake connection" specs_pass src/app/features/projects/project-page.spec.ts 10
   check "the lint is clean" frontend_lint_is_clean
