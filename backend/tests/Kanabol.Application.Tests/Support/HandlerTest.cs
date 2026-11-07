@@ -42,9 +42,7 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
                 ["Jwt:Issuer"] = "kanabol-tests",
                 ["Jwt:Audience"] = "kanabol-tests",
                 ["Storage:Root"] = StorageRoot,
-                ["Storage:AllowedExtensions:0"] = "pdf",
-                ["Storage:AllowedExtensions:1"] = ".PNG",
-                ["Storage:AllowedExtensions:2"] = "txt",
+                ["Storage:AllowedExtensions"] = "pdf, .PNG,txt",
             })
             .Build();
 

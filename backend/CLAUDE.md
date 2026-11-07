@@ -57,16 +57,16 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 
 In Docker and production, settings come from environment variables:
 
-| Variable                               | Value                                                                                       |
-| -------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                     |
-| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                            |
-| `Jwt__Secret`                          | The key that signs JWTs                                                                     |
-| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                  |
-| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                      |
-| `Storage__AllowedExtensions__0`, `__1` | The extensions a file may have, instead of the default list in `appsettings.json`, by index |
-| `Database__MigrateOnStartup`           | `true` by default                                                                           |
-| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                 |
+| Variable                               | Value                                                                                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                                                               |
+| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                                                                      |
+| `Jwt__Secret`                          | The key that signs JWTs                                                                                                               |
+| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                                                            |
+| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                                                                |
+| `Storage__AllowedExtensions`           | The extensions a file may have, one value separated by commas, `pdf,png`, which replaces the whole default list in `appsettings.json` |
+| `Database__MigrateOnStartup`           | `true` by default                                                                                                                     |
+| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                           |
 
 ## Access rules
 
@@ -179,7 +179,7 @@ In Docker and production, settings come from environment variables:
 | `GET /api/attachments/{id}`        | The file, always as a download (`Content-Disposition: attachment`, `nosniff`), under the name it came with          | member, `projects.view_all` or `manage`                                 |
 | `DELETE /api/attachments/{id}`     | Deletes the row, then the file on disk                                                                              | whoever uploaded it, still a real member, or `tasks.archive`; open task |
 
-- A file goes up to 25 MB, 25 × 1,048,576 bytes, with an extension of `Storage:AllowedExtensions` (`pdf`, `png`, `jpg`, `jpeg`, `gif`, `txt`, `md`, `csv`, `xlsx`, `docx`, `zip` in `appsettings.json`), the last one after a dot, in any case. Anything else answers 400 on `file`: a bigger file, another extension, a name empty, over 255 characters or with a hidden character, no file, two files or another field. The request may be 1 MB bigger than the file; above that MVC doesn't read the form (`DisableFormValueModelBinding`) and the action answers the same 400. nginx stops a request over 30 MB with 413.
+- A file goes up to 25 MB, 25 × 1,048,576 bytes, with an extension of `Storage:AllowedExtensions`, the last one after a dot, in any case. That setting is one value separated by commas, `pdf,png,jpg,jpeg,gif,txt,md,csv,xlsx,docx,zip` in `appsettings.json`, so `Storage__AllowedExtensions=pdf,png` replaces the whole list; the API refuses to start without an extension, or with a list by index (`Storage__AllowedExtensions__0`), which binding to one value would drop without a word. Anything else answers 400 on `file`: a bigger file, another extension, a name empty, over 255 characters or with a hidden character, no file, two files or another field. The request may be 1 MB bigger than the file; above that MVC doesn't read the form (`DisableFormValueModelBinding`) and the action answers the same 400. nginx stops a request over 30 MB with 413.
 - The name keeps only what comes after the last `/` or `\`, and never reaches the disk: `LocalFileStorage` keeps the file as `{yyyy}/{MM}/{guid}{ext}` under `Storage:Root`, the extension in lower case, and refuses a key leading outside the root. The content type comes from the extension. A relative root is taken from the folder the API runs in.
 - The file goes to disk first, then its row; a save that fails deletes the file again. Deleting goes the other way, and a file the disk keeps after its row went is a warning in the log. The task lists its files in its DTO, from the first, with `canDelete`.
 - An archived task answers 409 `Task.Archived` to an upload and a delete, and its files are there only for `tasks.archive`, as its comments: anyone else gets 404 `Attachment.NotFound`. Someone else's file answers 403 `Attachment.NotYours`.

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Infrastructure.Configuration;
 using Kanabol.Infrastructure.Persistence;
@@ -31,6 +32,14 @@ public sealed class ApiFactoryTests(ApiFixture api) : ApiTest(api)
         var database = Api.Factory.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value;
 
         database.ConnectionString.Should().Be(Api.Postgres.ConnectionString);
+    }
+
+    /// <summary>SPEC section 10: the default list, one value with commas in appsettings.json.</summary>
+    [Fact]
+    public void Storage_ByDefault_AllowsTheExtensionsOfTheSpec()
+    {
+        Api.Factory.Services.GetRequiredService<IAttachmentRules>().AllowedExtensions
+            .Should().Equal("pdf", "png", "jpg", "jpeg", "gif", "txt", "md", "csv", "xlsx", "docx", "zip");
     }
 
     [Fact]

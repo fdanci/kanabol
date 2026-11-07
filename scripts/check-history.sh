@@ -13,6 +13,9 @@
 #      packages that scripts/setup.sh installs.
 #   3  the panel's priority select, with the priority's chip in its trigger: specs, lint, formatting, the
 #      production build. Only the packages.
+#   4  Storage:AllowedExtensions as one value with commas: the tests, then the real API in Production on
+#      the default list, on compose's Storage__AllowedExtensions=pdf,png, which replaces the whole list,
+#      and refusing to start on a list by index. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -690,8 +693,145 @@ task_3() {
   check "frontend/CLAUDE.md says how it works" in_file 'the priority select shows its `kb-chip`' frontend/CLAUDE.md
 }
 
+# ---- 16.4: Storage:AllowedExtensions, one value with commas.
+
+upload() { # upload <token> <task id> <name it goes as>: a small PDF under that name; prints the status
+  [ -f "$scratch/brief.pdf" ] || printf '%%PDF-1.7 un brief de proba\n' >"$scratch/brief.pdf"
+  send POST "/api/tasks/$2/attachments" -H "Authorization: Bearer $1" \
+    -F "file=@$(native "$scratch/brief.pdf");filename=$3"
+}
+
+refused_on_file() { # refused_on_file <status>: a 400 whose only error is on file
+  status_is 400 "$1" || return 1
+  is file "$(json "Object.keys(b.errors).join()")"
+}
+
+storage_options_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~StorageOptionsTests|FullyQualifiedName~LocalFileStorageTests' 15
+}
+
+the_default_list_is_read_from_appsettings() {
+  named_tests_pass Kanabol.Api.Tests ApiFactoryTests.Storage_ByDefault_AllowsTheExtensionsOfTheSpec
+}
+
+# docs/SPEC.md §10: the default, one value with commas, written out here so a change to it shows.
+appsettings_holds_one_value_with_commas() {
+  is 'string:pdf,png,jpg,jpeg,gif,txt,md,csv,xlsx,docx,zip' "$(node -e "
+    const settings = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+    console.log(typeof settings.Storage.AllowedExtensions + ':' + settings.Storage.AllowedExtensions);" \
+    "$(native backend/src/Kanabol.Api/appsettings.json)")"
+}
+
+# docs/SPEC.md §13.3 writes the comment compose holds, word for word.
+compose_says_how_to_override_the_whole_list() {
+  comment='# The allowed extensions have a default in appsettings.json; override the whole list here as Storage__AllowedExtensions=pdf,png (one value, commas; group 16)'
+  in_file "$comment" docs/SPEC.md && in_file "$comment" compose.yaml
+}
+
+# The value compose's comment gives, as the environment variable it names.
+compose_override() {
+  sed -n 's/.*override the whole list here as \(Storage__AllowedExtensions=[^ ]*\) .*/\1/p' compose.yaml | head -n 1
+}
+
+# The API on the default list: png goes in, exe doesn't.
+the_default_list_holds_on_the_real_api() {
+  a_new_task 'Fisiere' || return 1
+  status_is 201 "$(upload "$dan_token" "$new_task" poza.png)" || return 1
+  refused_on_file "$(upload "$dan_token" "$new_task" unealta.exe)"
+}
+
+# The API with compose's override, Storage__AllowedExtensions=pdf,png: pdf and png go in, txt and zip,
+# which the default list has, don't.
+compose_override_replaces_the_whole_list() {
+  a_new_task 'Fisiere cu lista din compose' || return 1
+  override=$(compose_override)
+  is 'Storage__AllowedExtensions=pdf,png' "$override" || return 1
+  start_api Production "$override" || return 1
+  status_is 201 "$(upload "$dan_token" "$new_task" brief.pdf)" || return 1
+  status_is 201 "$(upload "$dan_token" "$new_task" poza.png)" || return 1
+  refused_on_file "$(upload "$dan_token" "$new_task" note.txt)" || return 1
+  refused_on_file "$(upload "$dan_token" "$new_task" arhiva.zip)" || return 1
+  is 'pdf, png' "$(json "b.errors.file[0].replace(/.*These can: /, '').replace(/\.$/, '')")"
+}
+
+# Another override, as one value: exe goes in, and nothing of the default list stays.
+another_list_replaces_it_too() {
+  a_new_task 'Fisiere cu alta lista' || return 1
+  start_api Production 'Storage__AllowedExtensions=exe, .TXT' || return 1
+  status_is 201 "$(upload "$dan_token" "$new_task" unealta.exe)" || return 1
+  status_is 201 "$(upload "$dan_token" "$new_task" note.txt)" || return 1
+  refused_on_file "$(upload "$dan_token" "$new_task" brief.pdf)" || return 1
+  start_api Production
+}
+
+# A list by index, as before group 16, would be dropped without a word: the API stops at once, and says why.
+a_list_by_index_refuses_to_start() {
+  stop_api
+  need_database || return 1
+  dotnet build "$api_dir/Kanabol.Api.csproj" --nologo -v q || return 1
+  log="$scratch/by-index.log"
+  (
+    cd "$api_dir" || exit 1
+    exec env ASPNETCORE_ENVIRONMENT=Production \
+      ConnectionStrings__Default="$(connection_to "$check_db")" \
+      Jwt__Secret=only-for-these-checks-and-long-enough-to-pass \
+      Storage__Root="$scratch/attachments" \
+      Admin__InitialPassword=$admin_password \
+      Serilog__WriteTo__1__Args__serverUrl=http://127.0.0.1:9 \
+      Storage__AllowedExtensions__0=exe \
+      dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls "$API_URL"
+  ) >"$log" 2>&1 &
+  pid=$!
+  waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    waited=$((waited + 1))
+    if [ "$waited" -gt 120 ]; then
+      kill "$pid"
+      echo "the API was still running after 60 seconds"
+      return 1
+    fi
+    sleep 0.5
+  done
+  wait "$pid" && {
+    echo "the API stopped without an error"
+    return 1
+  }
+  grep -q 'Storage__AllowedExtensions=pdf,png, not a list by index' "$log" || {
+    tail -n 20 "$log"
+    return 1
+  }
+  if curl -s -o /dev/null "$API_URL/health"; then
+    echo "something answers on $API_URL"
+    return 1
+  fi
+}
+
+check_comments_follows_the_new_form() {
+  lacks 'Storage__AllowedExtensions__' scripts/check-comments.sh &&
+    in_file 'start_api Production Storage__AllowedExtensions=exe,txt' scripts/check-comments.sh &&
+    in_file 'console.log(settings.Storage.AllowedExtensions);' scripts/check-comments.sh
+}
+
+task_4() {
+  echo "16.4 Storage:AllowedExtensions is one value with commas, and an override replaces the whole list"
+  check "Docker is running" docker_is_running
+  check "the solution builds without warnings" solution_builds
+  check "the formatting is clean" formatting_is_clean
+  check "the tests of the options pass: one value, the whole list replaced, none or by index refused" storage_options_tests_pass
+  check "the API reads the default list from appsettings.json" the_default_list_is_read_from_appsettings
+  check "appsettings.json holds the spec's list as one value with commas" appsettings_holds_one_value_with_commas
+  check "compose says how to override the whole list, as docs/SPEC.md §13.3 writes it" compose_says_how_to_override_the_whole_list
+  check "the real API on the default list takes png and refuses exe" the_default_list_holds_on_the_real_api
+  check "compose's Storage__AllowedExtensions=pdf,png replaces the whole list" compose_override_replaces_the_whole_list
+  check "another value replaces it too, with or without the dot, in any case" another_list_replaces_it_too
+  check "a list by index stops the API at its start, saying why" a_list_by_index_refuses_to_start
+  check "the API starts again on the default list" api_is_up
+  check "check-comments.sh 2 overrides the list in the new form" check_comments_follows_the_new_form
+  check "backend/CLAUDE.md says how the list is set" in_file '| `Storage__AllowedExtensions` ' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 for task in "$@"; do
   "task_$task"
