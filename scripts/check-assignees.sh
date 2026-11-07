@@ -967,13 +967,14 @@ the_other_checks_follow() {
   lacks '/assignee"|\\"assigneeId\\":\\"|"assigneeId":null|assignee_id FROM task_items|"assignee":' scripts/check-tasks.sh scripts/check-board.sh &&
     lacks 'fk_task_items_users_assignee_id|AssigneeId' scripts/check-backend.sh &&
     in_file 'Has("CREATE TABLE task_assignees (");' scripts/check-backend.sh &&
+    in_file '"roles", "task_assignees", "task_history_entries"' scripts/check-backend.sh &&
     in_file 'PUT "/api/tasks/$edt_task/assignees"' scripts/check-tasks.sh
 }
 
-check_backend_8_passes() {
+check_backend_8_and_9_pass() {
   stop_api
-  sh scripts/check-backend.sh 8 >"$scratch/check-backend-8.log" 2>&1 || {
-    grep -E 'FAIL|failed' -A 6 "$scratch/check-backend-8.log" | head -n 30
+  sh scripts/check-backend.sh 8 9 >"$scratch/check-backend-8-9.log" 2>&1 || {
+    grep -E 'FAIL|failed' -A 6 "$scratch/check-backend-8-9.log" | head -n 30
     return 1
   }
 }
@@ -986,7 +987,7 @@ task_6() {
   check "two members in the DTO, one history entry, a notification only for the new one, the 400s and the filter pass" group_tests_pass
   check "the migration keeps the old assignee, and goes back, on a database of its own" migration_tests_pass
   check "check-tasks.sh and check-board.sh use the new API, check-backend.sh the new schema" the_other_checks_follow
-  check "check-backend.sh 8 passes: the schema and the entities on a real PostgreSQL" check_backend_8_passes
+  check "check-backend.sh 8 and 9 pass: the schema, the entities and the migrated tables on a real PostgreSQL" check_backend_8_and_9_pass
 }
 
 if [ "$#" -eq 0 ]; then

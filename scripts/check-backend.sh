@@ -1175,7 +1175,7 @@ await database.Run(async db =>
     await db.Database.MigrateAsync();
 
     var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1").ToListAsync();
-    string[] expected = ["__EFMigrationsHistory", "attachments", "board_columns", "comments", "notifications", "permissions", "project_members", "projects", "refresh_tokens", "role_permissions", "roles", "task_history_entries", "task_items", "users"];
+    string[] expected = ["__EFMigrationsHistory", "attachments", "board_columns", "comments", "notifications", "permissions", "project_members", "projects", "refresh_tokens", "role_permissions", "roles", "task_assignees", "task_history_entries", "task_items", "users"];
     Check.That(tables.SequenceEqual(expected), $"the tables are the expected ones: {string.Join(", ", tables)}");
 
     var booleans = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT column_name AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'boolean' ORDER BY 1").ToListAsync();
