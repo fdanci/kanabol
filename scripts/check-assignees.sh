@@ -946,8 +946,51 @@ task_5() {
   check "frontend/CLAUDE.md says how the panel saves them" the_panel_is_written_down
 }
 
+# ---- 13b.6: the group's tests, and the other checks on the new API and schema.
+
+group_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    TaskAssigneesEndpointTests.PutAssignees_AddingASecondMember_GivesBothOneHistoryEntryAndNotifiesOnlyTheNewOne \
+    TaskAssigneesEndpointTests.PutAssignees_ToANonMemberADeactivatedMemberOrAnIdTwice_Returns400OnAssigneeIdsAndChangesNothing \
+    TaskAssigneesEndpointTests.GetList_ByEitherOfTwoAssignees_FindsTheirTask \
+    TaskAssigneesEndpointTests.GetBoardAndGetTask_OfATaskWithTwoAssignees_ListThemBoth
+}
+
+migration_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    AddTaskAssigneesMigrationTests.Migrate_FromOneAssigneePerTask_KeepsEachAssigneeAndTurnsTheHistoryIntoAssignees \
+    AddTaskAssigneesMigrationTests.Migrate_BackFromSeveralAssignees_KeepsTheFirstOneAssignedOfEachTask
+}
+
+# check-tasks.sh and check-board.sh call the new API, and check-backend.sh probes the new schema.
+the_other_checks_follow() {
+  lacks '/assignee"|\\"assigneeId\\":\\"|"assigneeId":null|assignee_id FROM task_items|"assignee":' scripts/check-tasks.sh scripts/check-board.sh &&
+    lacks 'fk_task_items_users_assignee_id|AssigneeId' scripts/check-backend.sh &&
+    in_file 'Has("CREATE TABLE task_assignees (");' scripts/check-backend.sh &&
+    in_file 'PUT "/api/tasks/$edt_task/assignees"' scripts/check-tasks.sh
+}
+
+check_backend_8_passes() {
+  stop_api
+  sh scripts/check-backend.sh 8 >"$scratch/check-backend-8.log" 2>&1 || {
+    grep -E 'FAIL|failed' -A 6 "$scratch/check-backend-8.log" | head -n 30
+    return 1
+  }
+}
+
+task_6() {
+  echo "13b.6 The group's tests, and check-tasks, check-board and check-backend on the new API and schema"
+  check "Docker is running" docker_is_running
+  check "the endpoint's tests of the group are tracked" tracked backend/tests/Kanabol.Api.Tests/Tasks/TaskAssigneesEndpointTests.cs
+  check "the migration's tests are tracked" tracked backend/tests/Kanabol.Application.Tests/Database/AddTaskAssigneesMigrationTests.cs
+  check "two members in the DTO, one history entry, a notification only for the new one, the 400s and the filter pass" group_tests_pass
+  check "the migration keeps the old assignee, and goes back, on a database of its own" migration_tests_pass
+  check "check-tasks.sh and check-board.sh use the new API, check-backend.sh the new schema" the_other_checks_follow
+  check "check-backend.sh 8 passes: the schema and the entities on a real PostgreSQL" check_backend_8_passes
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5
+  set -- 1 2 3 4 5 6
 fi
 
 for task in "$@"; do
