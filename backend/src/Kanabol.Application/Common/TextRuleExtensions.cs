@@ -14,4 +14,8 @@ public static class TextRuleExtensions
 
     public static bool IsHidden(char character) =>
         char.GetUnicodeCategory(character) is UnicodeCategory.Control or UnicodeCategory.Format;
+
+    /// <summary>For markdown, which needs its lines and tabs: the other hidden characters, NUL above all.</summary>
+    public static bool IsHiddenOutsideLayout(char character) =>
+        character is not ('\n' or '\r' or '\t') && IsHidden(character);
 }

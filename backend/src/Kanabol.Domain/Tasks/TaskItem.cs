@@ -248,6 +248,23 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Position = position;
     }
 
+    /// <summary>
+    /// A comment on an open task, which tells whoever follows the task (SPEC section 4.3). It isn't a change
+    /// of the task: no history, and the task itself isn't saved again.
+    /// </summary>
+    public Comment AddComment(Guid authorId, string body)
+    {
+        if (ArchivedAt is not null)
+        {
+            throw new InvalidOperationException("An archived task takes no comments.");
+        }
+
+        var comment = new Comment(Id, authorId, body);
+        _comments.Add(comment);
+        Raise(new CommentAddedEvent(comment.Id, Id, ProjectId, authorId));
+        return comment;
+    }
+
     /// <summary>Archiving twice keeps the first time, and who did it.</summary>
     public void Archive(Guid archivedById, DateTimeOffset now)
     {

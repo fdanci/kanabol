@@ -20,6 +20,7 @@ Run from `backend/`:
 - Run the project checks, from the repo root: `scripts/check-projects.sh [task-number...]`, under the same conditions.
 - Run the task checks, from the repo root: `scripts/check-tasks.sh [task-number...]`, under the same conditions, those of the board: `scripts/check-board.sh [task-number...]`, and those of several assignees: `scripts/check-assignees.sh [task-number...]`.
 - Run the real-time checks, from the repo root: `scripts/check-realtime.sh [task-number...]`, under the same conditions. They reach the hub over a real WebSocket, with a small SignalR client in Node.
+- Run the checks of comments and attachments, from the repo root: `scripts/check-comments.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -155,6 +156,18 @@ In Docker and production, settings come from environment variables:
 - Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
 - `TaskAssignedEvent` carries the ids added and removed, and gives each assignee newly added a `TaskAssigned` notification, the same message for each, saved at once: not those already on the task, nor whoever made the change, also when a task is created for people (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, which SignalR sends to its user, and its message is English, cut at 500 characters.
 
+## Comments
+
+| Endpoint                                           | Does                                                                      | Needs                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `GET /api/tasks/{id}/comments`                     | Every comment of the task, from the oldest, without pages, with `canEdit` | member, `projects.view_all` or `manage`                      |
+| `POST /api/tasks/{id}/comments`                    | A comment with `body`, answered with where it is, `/api/comments/{id}`    | a real membership, an open project and an open task          |
+| `GET /api/comments/{id}`, `PUT /api/comments/{id}` | One comment, and another `body` for it                                    | reading as for the list; changing, its author, as for adding |
+
+- A body is basic markdown, like a description, of 1 to 5,000 characters, lines and tabs kept, other hidden characters refused (400 on `body`), its blank end trimmed. Nothing deletes a comment in v1: `DELETE` answers 405.
+- Someone else's comment answers 403 `Comment.NotYours`, even for the project's owner; a missing one 404 `Comment.NotFound`. An archived task answers 409 `Task.Archived` to a new comment or an edit, and its comments are there only for `tasks.archive`, from the token, as the task is: anyone else gets 404 `Task.NotFound` (`TaskVisibility`).
+- A comment comes through `TaskItem.AddComment`, which raises `CommentAddedEvent`. It isn't a change of the task: no history, no `updated_at`. `CommentAddedEventHandler` gives the task's assignees and its creator a `CommentAdded` notification, each once, not the author, "Ana commented on KAN-1: Login SSO", all in one save, and only to those who can still open the task: active members of the project. An edit notifies nobody.
+
 ## Real time
 
 | Hub           | Does                                                                                                                                                     | Needs                                         |
@@ -174,9 +187,10 @@ In Docker and production, settings come from environment variables:
 | `TaskCreated`, `TaskArchived`, `TaskRestored` | their task events                                                                   | `taskId`, `projectId`, `byUserId`, `originConnectionId`                           | `project:{id}` |
 | `TaskMoved`                                   | `TaskMovedEvent`, the moved task only                                               | the same, and `columnId` and `position`, where it went                            | `project:{id}` |
 | `TaskUpdated`                                 | `TaskUpdatedEvent`, and `TaskAssignedEvent` with `Assignees`, a creation's included | the same, and `field`: `Title`, `Description`, `Priority`, `DueDate`, `Assignees` | `project:{id}` |
+| `CommentAdded`                                | `CommentAddedEvent`                                                                 | the same, and `commentId`                                                         | `project:{id}` |
 | `NotificationCreated`                         | `NotificationCreatedEvent`                                                          | `notificationId`                                                                  | `user:{id}`    |
 
-- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. `CommentAdded` comes with group 15. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
+- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
 - Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. Handler tests read what was sent from the `BoardNotifier` substitute, and set the connection through `RequestContext`.
 
 ## Browser logs

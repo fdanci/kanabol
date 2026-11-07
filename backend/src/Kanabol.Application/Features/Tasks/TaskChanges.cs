@@ -55,6 +55,27 @@ public sealed class TaskChanges(IAppDbContext db, IProjectAccess projectAccess, 
     }
 
     /// <summary>
+    /// The task to comment on or attach a file to: as LoadOpen, but an archived task, which the caller could
+    /// see, answers 409 Task.Archived rather than 404 (SPEC section 4.4).
+    /// </summary>
+    public async Task<Result<TaskItem>> LoadToAddTo(Guid taskId, CancellationToken ct)
+    {
+        var task = await db.TaskItems.IgnoreQueryFilters().FirstOrDefaultAsync(found => found.Id == taskId, ct);
+        if (task is null)
+        {
+            return TaskErrors.NotFound;
+        }
+
+        var allowed = await Allowed(task, projectAccess.EnsureRealMemberAsync, ct);
+        if (allowed.IsFailure)
+        {
+            return allowed.Error;
+        }
+
+        return task.ArchivedAt is null ? task : TaskErrors.Archived;
+    }
+
+    /// <summary>
     /// A task archived or not, for whoever can see its project, in an open project: restoring needs
     /// tasks.archive on the endpoint, so an admin can restore without joining the project.
     /// </summary>
