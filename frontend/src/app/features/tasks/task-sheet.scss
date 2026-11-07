@@ -37,6 +37,22 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: var(--kb-space-2);
+  min-width: 0;
+}
+
+// The select of the assignees grows a row for the names that don't fit, as one name keeps it 28px.
+.kb-select.assignees {
+  height: auto;
+  min-height: 28px;
+  padding-block: 1px;
+}
+
+.people {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--kb-space-1) var(--kb-space-3);
+  min-width: 0;
 }
 
 .actions {

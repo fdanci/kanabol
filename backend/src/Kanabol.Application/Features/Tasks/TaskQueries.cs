@@ -34,8 +34,16 @@ public static class TaskQueries
                     task.Description,
                     task.Priority,
                     task.DueDate,
-                    task.AssigneeId,
-                    AssigneeName = db.Users.Where(user => user.Id == task.AssigneeId).Select(user => user.DisplayName).FirstOrDefault(),
+                    // PostgreSQL runs ToUpper as upper(), which takes no culture to give: the names in any case.
+#pragma warning disable CA1304, CA1311
+                    Assignees = (
+                            from assignee in db.TaskAssignees
+                            join user in db.Users on assignee.UserId equals user.Id
+                            where assignee.TaskId == task.Id
+                            orderby user.DisplayName.ToUpper(), user.Id
+                            select new TaskPersonDto(user.Id, user.DisplayName))
+                        .ToList(),
+#pragma warning restore CA1304, CA1311
                     task.ColumnId,
                     ColumnName = column.Name,
                     task.Position,
@@ -63,7 +71,7 @@ public static class TaskQueries
                 row.Description,
                 row.Priority,
                 row.DueDate,
-                row.AssigneeId is { } assigneeId ? new TaskPersonDto(assigneeId, row.AssigneeName ?? "") : null,
+                row.Assignees,
                 row.ColumnId,
                 row.ColumnName,
                 row.Position,
@@ -75,9 +83,20 @@ public static class TaskQueries
                 row.IsRealMember && row.ProjectArchivedAt is null && row.ArchivedAt is null);
     }
 
-    /// <summary>Only active members can be given a task (Tasks.md group 12).</summary>
-    public static Task<bool> IsActiveMemberOf(this IAppDbContext db, Guid projectId, Guid userId, CancellationToken ct) =>
-        db.ProjectMembers.AnyAsync(
-            member => member.ProjectId == projectId && member.UserId == userId && db.Users.Any(user => user.Id == userId && user.IsActive),
+    /// <summary>Only active members can be given a task (SPEC section 4.4). The ids come each once, which the validators hold.</summary>
+    public static async Task<bool> AreAllActiveMembersOf(this IAppDbContext db, Guid projectId, IReadOnlyCollection<Guid> userIds, CancellationToken ct)
+    {
+        if (userIds.Count == 0)
+        {
+            return true;
+        }
+
+        List<Guid> ids = [.. userIds];
+        var found = await db.ProjectMembers.CountAsync(
+            member => member.ProjectId == projectId
+                && ids.Contains(member.UserId)
+                && db.Users.Any(user => user.Id == member.UserId && user.IsActive),
             ct);
+        return found == ids.Count;
+    }
 }

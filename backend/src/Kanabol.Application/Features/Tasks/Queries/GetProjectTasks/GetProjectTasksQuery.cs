@@ -5,8 +5,8 @@ using Kanabol.Domain.Tasks;
 namespace Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
 
 /// <summary>
-/// The board's filters (UI spec section 7.4), which all have to hold: one assignee, any of the
-/// priorities given, only the overdue ones, and a part of the title in any case.
+/// The board's filters (UI spec section 7.4), which all have to hold: one person among the assignees,
+/// any of the priorities given, only the overdue ones, and a part of the title in any case.
 /// </summary>
 public sealed record GetProjectTasksQuery(Guid ProjectId) : IQuery<Page<TaskSummaryDto>>
 {

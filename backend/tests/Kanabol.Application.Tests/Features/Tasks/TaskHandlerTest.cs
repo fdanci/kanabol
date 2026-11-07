@@ -21,22 +21,33 @@ public abstract class TaskHandlerTest(PostgresFixture postgres) : ProjectHandler
         Project project,
         string title = "Login SSO",
         Guid? columnId = null,
-        Guid? assigneeId = null,
+        IReadOnlyList<Guid>? assigneeIds = null,
         TaskPriority priority = TaskPriority.Medium,
         string? description = null,
         DateTimeOffset? dueDate = null) =>
-        new(project.Id, title, description, priority, columnId, assigneeId, dueDate);
+        new(project.Id, title, description, priority, columnId, assigneeIds ?? [], dueDate);
 
     protected Task<Common.Result<TaskItemDto>> Create(CreateTaskCommand command) =>
         Handle<CreateTaskCommand, TaskItemDto>(command);
 
     /// <summary>A task made by the handler, as the user given, who has to be a member of the project.</summary>
-    protected async Task<TaskItemDto> CreateTaskAs(User user, Project project, string title = "Login SSO", Guid? assigneeId = null)
+    protected async Task<TaskItemDto> CreateTaskAs(User user, Project project, string title = "Login SSO", IReadOnlyList<Guid>? assigneeIds = null)
     {
         SignIn(user);
-        var result = await Create(NewTask(project, title, assigneeId: assigneeId));
+        var result = await Create(NewTask(project, title, assigneeIds: assigneeIds));
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.ToString() : "");
         return result.Value;
+    }
+
+    /// <summary>The builder names everyone Ana Pop: the order of the assignees needs names of their own.</summary>
+    protected async Task<User> CreateUserNamed(string displayName, string email)
+    {
+        var user = await CreateUser(email);
+        await using var db = Postgres.CreateContext();
+        var stored = await db.Users.SingleAsync(found => found.Id == user.Id);
+        stored.UpdateProfile(stored.Email, displayName);
+        await db.SaveChangesAsync();
+        return stored;
     }
 
     protected async Task<TaskItem?> Stored(Guid taskId)

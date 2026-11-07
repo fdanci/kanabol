@@ -3,7 +3,7 @@ using Kanabol.Domain.Tasks;
 
 namespace Kanabol.Application.Features.Tasks.Queries.GetBoard;
 
-/// <summary>A card on the board (UI spec section 7.4), with the counts its icons show.</summary>
+/// <summary>A card on the board (UI spec section 7.4), with its assignees by name and the counts its icons show.</summary>
 public sealed record BoardTaskDto(
     Guid Id,
     string Key,
@@ -13,7 +13,7 @@ public sealed record BoardTaskDto(
     int Position,
     [property: JsonConverter(typeof(JsonStringEnumConverter<TaskPriority>))] TaskPriority Priority,
     DateTimeOffset? DueDate,
-    TaskPersonDto? Assignee,
+    IReadOnlyList<TaskPersonDto> Assignees,
     DateTimeOffset? CompletedAt,
     int CommentCount,
     int AttachmentCount);

@@ -200,12 +200,17 @@ describe('BoardPage', () => {
     expect(column('De făcut').querySelector('.done')).toBeNull();
   });
 
-  it('shows on a card its key, priority, title, deadline and assignee, or an empty avatar', async () => {
+  it('shows on a card its key, priority, title, deadline and assignees, or an empty avatar', async () => {
     board.tasks[0] = aCard('KAN-1', 'c1', 0, {
       title: 'A',
       priority: 'High',
       dueDate: new Date(Date.now() - 86_400_000).toISOString(),
-      assignee: { userId: 'u2', displayName: 'Ana Pop' },
+      assignees: [
+        { userId: 'u2', displayName: 'Ana Pop' },
+        { userId: 'u3', displayName: 'Dan Ionescu' },
+        { userId: 'u4', displayName: 'Eva Ene' },
+        { userId: 'u5', displayName: 'Ioana Radu' },
+      ],
       commentCount: 2,
     });
 
@@ -217,9 +222,14 @@ describe('BoardPage', () => {
     expect(first.querySelector('kb-deadline-chip kb-chip')?.classList).toContain(
       'deadline-overdue',
     );
-    expect(first.querySelector('kb-avatar')?.getAttribute('aria-label')).toBe('Ana Pop');
+    // docs/UI_UX_SPEC.md §7.4: at most three avatars and +N, every name in the aria-label.
+    const stack = first.querySelector('kb-avatar-stack');
+    expect(stack?.getAttribute('aria-label')).toBe('Ana Pop, Dan Ionescu, Eva Ene, Ioana Radu');
+    expect(stack?.querySelectorAll('kb-avatar').length).toBe(3);
+    expect(stack?.querySelector('.more')?.textContent.trim()).toBe('+1');
     expect(first.querySelector('.count')?.textContent).toContain('2');
     expect(card('B').querySelector('.unassigned')?.getAttribute('aria-label')).toBe('Neasignat');
+    expect(card('B').querySelector('kb-avatar-stack')).toBeNull();
     expect(card('B').querySelector('.count')).toBeNull();
   });
 
@@ -478,12 +488,12 @@ describe('BoardPage', () => {
       board.tasks[0] = aCard('KAN-1', 'c1', 0, {
         title: 'Login SSO',
         priority: 'High',
-        assignee: { userId: 'u1', displayName: 'Florin Danci' },
+        assignees: [{ userId: 'u1', displayName: 'Florin Danci' }],
       });
       board.tasks[3] = aCard('KAN-4', 'c2', 0, {
         title: 'D',
         dueDate: new Date(Date.now() - 86_400_000).toISOString(),
-        assignee: { userId: 'u2', displayName: 'Ana Pop' },
+        assignees: [{ userId: 'u2', displayName: 'Ana Pop' }],
       });
       board.tasks[4] = aCard('KAN-5', 'c3', 0, {
         title: 'E',
@@ -508,6 +518,23 @@ describe('BoardPage', () => {
 
       await go('/projects/p1/board?q=sso');
       expect(shown()).toBe('Login SSO |  | ');
+    });
+
+    // docs/SPEC.md §4.4: a task passes when it has them among its assignees.
+    it('finds a card for each of those it is assigned to', async () => {
+      board.tasks[1] = aCard('KAN-2', 'c1', 1, {
+        title: 'B',
+        assignees: [
+          { userId: 'u2', displayName: 'Ana Pop' },
+          { userId: 'u1', displayName: 'Florin Danci' },
+        ],
+      });
+
+      await visit('/projects/p1/board?assignee=me');
+      expect(shown()).toBe('Login SSO B |  | ');
+
+      await go('/projects/p1/board?assignee=u2');
+      expect(shown()).toBe('B | D | ');
     });
 
     it('counts in a column the cards it shows', async () => {

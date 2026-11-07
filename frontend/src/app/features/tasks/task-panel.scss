@@ -191,6 +191,22 @@ dd {
   min-width: 0;
 }
 
+// The select of the assignees grows a row for the names that don't fit, as one name keeps it 28px.
+.assignees .kb-select {
+  height: auto;
+  min-height: 28px;
+  padding-block: 1px;
+}
+
+// Everyone a task is assigned to, each with their name (UI spec 7.5).
+.people {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--kb-space-1) var(--kb-space-3);
+  min-width: 0;
+}
+
 .menu {
   display: flex;
   justify-content: flex-end;

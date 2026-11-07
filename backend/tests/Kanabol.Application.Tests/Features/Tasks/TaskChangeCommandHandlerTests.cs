@@ -28,8 +28,8 @@ public sealed class TaskChangeCommandHandlerTests(PostgresFixture postgres) : Ta
     private Task<Result<TaskItemDto>> Describe(Guid taskId, string? description) =>
         Handle<ChangeTaskDescriptionCommand, TaskItemDto>(new ChangeTaskDescriptionCommand(taskId, description));
 
-    private Task<Result<TaskItemDto>> Assign(Guid taskId, Guid? assigneeId) =>
-        Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(taskId, assigneeId));
+    private Task<Result<TaskItemDto>> Assign(Guid taskId, params Guid[] assigneeIds) =>
+        Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(taskId, assigneeIds));
 
     private Task<Result<TaskItemDto>> Prioritize(Guid taskId, TaskPriority priority) =>
         Handle<SetTaskPriorityCommand, TaskItemDto>(new SetTaskPriorityCommand(taskId, priority));
@@ -117,39 +117,85 @@ public sealed class TaskChangeCommandHandlerTests(PostgresFixture postgres) : Ta
     [Fact]
     public async Task Assign_ToAnActiveMember_AssignsThemAndWritesTheHistory()
     {
-        var (owner, _, _, task) = await ATaskWithAMember();
+        var (owner, member, _, task) = await ATaskWithAMember();
 
-        (await Assign(task.Id, owner.Id)).Value.Assignee.Should().Be(new TaskPersonDto(owner.Id, owner.DisplayName));
-        (await Assign(task.Id, null)).Value.Assignee.Should().BeNull();
+        (await Assign(task.Id, owner.Id)).IsSuccess.Should().BeTrue();
+        (await Stored(task.Id))!.Assignees.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { UserId = owner.Id, AssignedById = (Guid?)member.Id, AssignedAt = Now });
+        (await Assign(task.Id)).IsSuccess.Should().BeTrue();
 
-        (await Stored(task.Id))!.History.Select(entry => (entry.Field, entry.OldValue, entry.NewValue)).Should().Equal(
-            ("AssigneeId", null, owner.Id.ToString()),
-            ("AssigneeId", owner.Id.ToString(), null));
+        var stored = await Stored(task.Id);
+        stored!.Assignees.Should().BeEmpty();
+        stored.History.Select(entry => (entry.Field, entry.OldValue, entry.NewValue)).Should().BeEquivalentTo([
+            ("Assignees", "", owner.Id.ToString()),
+            ("Assignees", owner.Id.ToString(), ""),
+        ]);
     }
 
-    // Tasks.md group 12: assigning to someone outside the project is an error.
+    // SPEC section 4.4: any number of active members, the whole list at once, in one history entry.
     [Fact]
-    public async Task Assign_ToSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIdAndChangesNothing()
+    public async Task Assign_ToTwoActiveMembers_AssignsBothInOneHistoryEntry()
     {
-        var (_, _, _, task) = await ATaskWithAMember();
+        var (owner, member, _, task) = await ATaskWithAMember();
+
+        var result = await Assign(task.Id, member.Id, owner.Id);
+
+        result.Value.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([owner.Id, member.Id]);
+        var stored = await Stored(task.Id);
+        stored!.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([owner.Id, member.Id]);
+        var sorted = string.Join(',', new[] { owner.Id, member.Id }.Select(id => id.ToString()).Order(StringComparer.Ordinal));
+        stored.History.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Field = "Assignees", OldValue = "", NewValue = sorted });
+    }
+
+    // Tasks.md group 12: assigning to someone outside the project is an error, even next to a member.
+    [Fact]
+    public async Task Assign_ToSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIdsAndChangesNothing()
+    {
+        var (owner, _, _, task) = await ATaskWithAMember();
         var outsider = await CreateUser("eva@example.com");
 
-        var result = await Assign(task.Id, outsider.Id);
+        var result = await Assign(task.Id, owner.Id, outsider.Id);
 
         result.Error.Should().Be(TaskErrors.AssigneeNotAMember);
-        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("AssigneeId");
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("AssigneeIds");
         var stored = await Stored(task.Id);
-        stored!.AssigneeId.Should().BeNull();
+        stored!.Assignees.Should().BeEmpty();
         stored.History.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Assign_ToADeactivatedMember_ReturnsAValidationErrorOnAssigneeId()
+    public async Task Assign_ToADeactivatedMember_ReturnsAValidationErrorOnAssigneeIds()
     {
         var (owner, _, _, task) = await ATaskWithAMember();
         await Deactivate(owner);
 
         (await Assign(task.Id, owner.Id)).Error.Should().Be(TaskErrors.AssigneeNotAMember);
+    }
+
+    [Fact]
+    public async Task Assign_TheSamePersonTwice_ReturnsAValidationErrorOnAssigneeIds()
+    {
+        var (owner, _, _, task) = await ATaskWithAMember();
+
+        var result = await Assign(task.Id, owner.Id, owner.Id);
+
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("AssigneeIds");
+        (await Stored(task.Id))!.Assignees.Should().BeEmpty();
+    }
+
+    // SPEC section 4.4: a deactivated assignee stays on the task until someone takes them off.
+    [Fact]
+    public async Task Assign_KeepingAnAssigneeDeactivatedSince_KeepsThemAndAddsTheOthers()
+    {
+        var (owner, member, _, task) = await ATaskWithAMember();
+        (await Assign(task.Id, owner.Id)).IsSuccess.Should().BeTrue();
+        await Deactivate(owner);
+
+        (await Assign(task.Id, owner.Id, member.Id)).IsSuccess.Should().BeTrue();
+
+        (await Stored(task.Id))!.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([owner.Id, member.Id]);
+        (await Assign(task.Id, member.Id)).IsSuccess.Should().BeTrue();
+        (await Stored(task.Id))!.Assignees.Select(assignee => assignee.UserId).Should().Equal(member.Id);
     }
 
     [Fact]
@@ -159,7 +205,7 @@ public sealed class TaskChangeCommandHandlerTests(PostgresFixture postgres) : Ta
 
         (await Rename(task.Id, "Login SSO")).IsSuccess.Should().BeTrue();
         (await Prioritize(task.Id, TaskPriority.Medium)).IsSuccess.Should().BeTrue();
-        (await Assign(task.Id, null)).IsSuccess.Should().BeTrue();
+        (await Assign(task.Id)).IsSuccess.Should().BeTrue();
         (await Schedule(task.Id, null)).IsSuccess.Should().BeTrue();
         (await Describe(task.Id, "   ")).IsSuccess.Should().BeTrue();
 
@@ -280,6 +326,38 @@ public sealed class TaskChangeCommandHandlerTests(PostgresFixture postgres) : Ta
         stored!.Title.Should().Be("Login SSO");
         stored.Priority.Should().Be(TaskPriority.High);
         stored.History.Should().ContainSingle(entry => entry.Field == "Priority");
+    }
+
+    // A change of assignees changes no column of task_items, so the task is saved too, with its xmin.
+    [Fact]
+    public async Task Assign_OfOneTaskAtOnce_GivesTheSecondChangedMeanwhileAndKeepsTheFirst()
+    {
+        var (owner, member, _, task) = await ATaskWithAMember();
+
+        var result = await PausedAtClockCall(
+            1,
+            () => HandleInOwnScope<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(task.Id, [owner.Id]), member),
+            async () => (await HandleInOwnScope<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(task.Id, [member.Id]), member)).IsSuccess.Should().BeTrue());
+
+        result.Error.Should().Be(TaskErrors.ChangedMeanwhile);
+        var stored = await Stored(task.Id);
+        stored!.Assignees.Select(assignee => assignee.UserId).Should().Equal(member.Id);
+        stored.History.Should().ContainSingle(entry => entry.Field == "Assignees");
+    }
+
+    // Both add the same person: the second would insert the same task_assignees row.
+    [Fact]
+    public async Task Assign_OfTheSamePersonByTwoAtOnce_GivesTheSecondChangedMeanwhile()
+    {
+        var (owner, member, _, task) = await ATaskWithAMember();
+
+        var result = await PausedAtClockCall(
+            1,
+            () => HandleInOwnScope<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(task.Id, [owner.Id]), member),
+            async () => (await HandleInOwnScope<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(task.Id, [owner.Id]), owner)).IsSuccess.Should().BeTrue());
+
+        result.Error.Should().Be(TaskErrors.ChangedMeanwhile);
+        (await Stored(task.Id))!.Assignees.Should().ContainSingle().Which.AssignedById.Should().Be(owner.Id);
     }
 
     [Fact]

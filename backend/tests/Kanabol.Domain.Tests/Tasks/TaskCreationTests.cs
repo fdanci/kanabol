@@ -19,8 +19,8 @@ public sealed class TaskCreationTests
 
     private BoardColumn Todo => _project.Columns.Single(column => column.Position == 0);
 
-    private TaskItem Create(BoardColumn? column = null, Guid? assigneeId = null, int number = 1) =>
-        TaskItem.Create(_project, column ?? Todo, number, "  Login SSO ", "Cu **Azure AD**", TaskPriority.High, 2, assigneeId, _now.AddDays(3), _creator, _now);
+    private TaskItem Create(BoardColumn? column = null, Guid[]? assigneeIds = null, int number = 1) =>
+        TaskItem.Create(_project, column ?? Todo, number, "  Login SSO ", "Cu **Azure AD**", TaskPriority.High, 2, assigneeIds ?? [], _now.AddDays(3), _creator, _now);
 
     [Fact]
     public void Create_Always_KeepsTheNumberItIsGivenAndLeavesTheCounterToTheDatabase()
@@ -55,11 +55,11 @@ public sealed class TaskCreationTests
             Description = "Cu **Azure AD**",
             Priority = TaskPriority.High,
             Position = 2,
-            AssigneeId = (Guid?)null,
             DueDate = _now.AddDays(3),
             CompletedAt = (DateTimeOffset?)null,
             ArchivedAt = (DateTimeOffset?)null,
         });
+        task.Assignees.Should().BeEmpty();
         task.History.Should().BeEmpty();
     }
 
@@ -71,16 +71,30 @@ public sealed class TaskCreationTests
         task.DomainEvents.Should().ContainSingle().Which.Should().Be(new TaskCreatedEvent(task.Id, _project.Id, 4, _creator));
     }
 
-    // The new assignee hears of it as with any assignment, unless they made it themselves (SPEC section 4.3).
+    // The new assignees hear of it as with any assignment, unless they made it themselves (SPEC section 4.3).
     [Fact]
-    public void Create_WithAnAssignee_RaisesTaskAssignedToo()
+    public void Create_WithAssignees_AssignsThemAllAndRaisesTaskAssignedWithThemAll()
     {
-        var task = Create(assigneeId: _assignee);
+        var other = Guid.CreateVersion7();
 
-        task.AssigneeId.Should().Be(_assignee);
-        task.DomainEvents.Should().Equal(
-            new TaskCreatedEvent(task.Id, _project.Id, 1, _creator),
-            new TaskAssignedEvent(task.Id, _project.Id, _assignee, null, _creator));
+        var task = Create(assigneeIds: [_assignee, other]);
+
+        task.Assignees.Should().BeEquivalentTo([
+            new { TaskId = task.Id, UserId = _assignee, AssignedAt = _now, AssignedById = (Guid?)_creator },
+            new { TaskId = task.Id, UserId = other, AssignedAt = _now, AssignedById = (Guid?)_creator },
+        ]);
+        task.History.Should().BeEmpty();
+        task.DomainEvents.Should().HaveCount(2);
+        task.DomainEvents.First().Should().Be(new TaskCreatedEvent(task.Id, _project.Id, 1, _creator));
+        task.DomainEvents.Last().Should().BeEquivalentTo(new TaskAssignedEvent(task.Id, _project.Id, [_assignee, other], [], _creator));
+    }
+
+    [Fact]
+    public void Create_WithTheSamePersonTwice_Throws()
+    {
+        var create = () => Create(assigneeIds: [_assignee, _assignee]);
+
+        create.Should().Throw<ArgumentException>();
     }
 
     [Fact]
@@ -114,7 +128,7 @@ public sealed class TaskCreationTests
     [Fact]
     public void Create_WithABlankTitle_Throws()
     {
-        var create = () => TaskItem.Create(_project, Todo, 1, " ", null, TaskPriority.Low, 0, null, null, _creator, _now);
+        var create = () => TaskItem.Create(_project, Todo, 1, " ", null, TaskPriority.Low, 0, [], null, _creator, _now);
 
         create.Should().Throw<ArgumentException>();
     }

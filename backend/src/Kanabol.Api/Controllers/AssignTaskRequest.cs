@@ -1,4 +1,4 @@
 namespace Kanabol.Api.Controllers;
 
-/// <summary>Null leaves the task to nobody.</summary>
-public sealed record AssignTaskRequest(Guid? AssigneeId);
+/// <summary>The whole list of assignees, which takes the place of the one before: an empty one leaves the task to nobody.</summary>
+public sealed record AssignTaskRequest(IReadOnlyList<Guid> AssigneeIds);

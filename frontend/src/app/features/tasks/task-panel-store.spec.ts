@@ -29,7 +29,9 @@ describe('TaskPanelStore', () => {
       ),
       rename: vi.fn((_id: string, title: string) => of(aTask({ title }))),
       describe: vi.fn((_id: string, description: string | null) => of(aTask({ description }))),
-      assign: vi.fn(() => of(aTask({ assignee: { userId: 'u2', displayName: 'Ana Pop' } }))),
+      assign: vi.fn((_id: string, assigneeIds: string[]) =>
+        of(aTask({ assignees: assigneeIds.map((userId) => ({ userId, displayName: userId })) })),
+      ),
       archive: vi.fn(() => of(undefined)),
       restore: vi.fn(() => of(aTask())),
     };
@@ -62,7 +64,14 @@ describe('TaskPanelStore', () => {
 
   it('keeps a deactivated assignee among the choices, so the panel still shows who has it', async () => {
     api['byKey'].mockReturnValueOnce(
-      of(aTask({ assignee: { userId: 'u3', displayName: 'Bob Ionescu' } })),
+      of(
+        aTask({
+          assignees: [
+            { userId: 'u2', displayName: 'Ana Pop' },
+            { userId: 'u3', displayName: 'Bob Ionescu' },
+          ],
+        }),
+      ),
     );
 
     await store.load('KAN-1');
@@ -157,13 +166,24 @@ describe('TaskPanelStore', () => {
     api['assign'].mockReturnValueOnce(refused(409, 'Task.ChangedMeanwhile'));
     api['byKey'].mockReturnValueOnce(of(aTask({ title: 'Schimbat de altcineva' })));
 
-    const outcome = await store.assign('u2');
+    const outcome = await store.assign(['u2']);
     await Promise.resolve();
     await Promise.resolve();
 
     expect(outcome).toEqual({ saved: false, refusedField: null });
     expect(api['byKey']).toHaveBeenCalledTimes(2);
     expect(store.task()?.title).toBe('Schimbat de altcineva');
+  });
+
+  // docs/SPEC.md §4.4: the whole list goes, and replaces the one before.
+  it('sends the whole list of assignees and keeps what the API saved', async () => {
+    await store.load('KAN-1');
+
+    const outcome = await store.assign(['u2', 'me']);
+
+    expect(outcome).toEqual({ saved: true });
+    expect(api['assign']).toHaveBeenCalledWith('t1', ['u2', 'me']);
+    expect(store.task()?.assignees.map((person) => person.userId)).toEqual(['u2', 'me']);
   });
 
   it('archives the task and counts the change', async () => {

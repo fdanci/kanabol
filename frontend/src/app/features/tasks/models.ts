@@ -8,7 +8,10 @@ export interface TaskPersonDto {
   displayName: string;
 }
 
-/** A task as its panel shows it. canChange: a real member of an open project, the task not archived. */
+/**
+ * A task as its panel shows it, its assignees by name. canChange: a real member of an open project,
+ * the task not archived.
+ */
 export interface TaskItemDto {
   id: string;
   projectId: string;
@@ -19,7 +22,7 @@ export interface TaskItemDto {
   description: string | null;
   priority: TaskPriority;
   dueDate: string | null;
-  assignee: TaskPersonDto | null;
+  assignees: TaskPersonDto[];
   columnId: string;
   columnName: string;
   position: number;
@@ -31,7 +34,7 @@ export interface TaskItemDto {
   canChange: boolean;
 }
 
-/** A row of the project's List view. updatedAt is the last change, or the creation. */
+/** A row of the project's List view. Assignees come by name; updatedAt is the last change, or the creation. */
 export interface TaskSummaryDto {
   id: string;
   key: string;
@@ -42,7 +45,7 @@ export interface TaskSummaryDto {
   columnIsDone: boolean;
   priority: TaskPriority;
   dueDate: string | null;
-  assignee: TaskPersonDto | null;
+  assignees: TaskPersonDto[];
   completedAt: string | null;
   archivedAt: string | null;
   updatedAt: string;
@@ -79,6 +82,6 @@ export interface NewTask {
   description: string | null;
   priority: TaskPriority;
   columnId?: string | null;
-  assigneeId?: string | null;
+  assigneeIds?: string[];
   dueDate?: string | null;
 }

@@ -10,8 +10,9 @@ using Microsoft.EntityFrameworkCore;
 namespace Kanabol.Application.Tests.Features.Notifications;
 
 /// <summary>
-/// SPEC section 4.3: TaskAssignedEvent gives the new assignee a TaskAssigned notification, unless they
-/// assigned it to themselves. It comes from the domain event, so creating a task for someone counts too.
+/// SPEC section 4.3: TaskAssignedEvent gives each assignee newly added a TaskAssigned notification, not
+/// those already on the task, nor whoever made the change. It comes from the domain event, so creating a
+/// task for people counts too.
 /// </summary>
 public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : TaskHandlerTest(postgres)
 {
@@ -35,8 +36,18 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
         return (owner, member, project);
     }
 
-    private Task<Common.Result<TaskItemDto>> Assign(Guid taskId, Guid? assigneeId) =>
-        Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(taskId, assigneeId));
+    private async Task<(User Owner, User Dan, User Eva, User Ioana, Project Project)> ATeam()
+    {
+        var owner = await CreateUser();
+        var dan = await CreateUser("dan@example.com");
+        var eva = await CreateUser("eva@example.com");
+        var ioana = await CreateUser("ioana@example.com");
+        var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(owner).WithMember(dan).WithMember(eva).WithMember(ioana));
+        return (owner, dan, eva, ioana, project);
+    }
+
+    private Task<Common.Result<TaskItemDto>> Assign(Guid taskId, params Guid[] assigneeIds) =>
+        Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(taskId, assigneeIds));
 
     [Fact]
     public async Task Assign_ToSomeoneElse_NotifiesTheNewAssignee()
@@ -73,7 +84,7 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     {
         var (owner, member, project) = await AProject();
 
-        var task = await CreateTaskAs(owner, project, "Login SSO", assigneeId: member.Id);
+        var task = await CreateTaskAs(owner, project, "Login SSO", assigneeIds: [member.Id]);
 
         (await NotificationsOf(member)).Should().ContainSingle(notification => notification.TaskId == task.Id && notification.Type == NotificationType.TaskAssigned);
     }
@@ -83,7 +94,7 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     {
         var (owner, _, project) = await AProject();
 
-        await CreateTaskAs(owner, project, assigneeId: owner.Id);
+        await CreateTaskAs(owner, project, assigneeIds: [owner.Id]);
 
         (await AllNotifications()).Should().Be(0);
     }
@@ -92,7 +103,7 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     public async Task Reassign_FromOneToAnother_NotifiesOnlyTheNewOne()
     {
         var (owner, member, project) = await AProject();
-        var task = await CreateTaskAs(owner, project, assigneeId: owner.Id);
+        var task = await CreateTaskAs(owner, project, assigneeIds: [owner.Id]);
         SignIn(member);
 
         (await Assign(task.Id, member.Id)).IsSuccess.Should().BeTrue();
@@ -106,9 +117,9 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     public async Task Unassign_NotifiesNobody()
     {
         var (owner, member, project) = await AProject();
-        var task = await CreateTaskAs(owner, project, assigneeId: member.Id);
+        var task = await CreateTaskAs(owner, project, assigneeIds: [member.Id]);
 
-        (await Assign(task.Id, null)).IsSuccess.Should().BeTrue();
+        (await Assign(task.Id)).IsSuccess.Should().BeTrue();
 
         (await NotificationsOf(member)).Should().ContainSingle();
         (await AllNotifications()).Should().Be(1);
@@ -124,6 +135,94 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
         (await Assign(task.Id, member.Id)).IsSuccess.Should().BeTrue();
 
         (await NotificationsOf(member)).Should().ContainSingle();
+    }
+
+    // Each of those added hears of it, with the same message as for one (SPEC section 4.3).
+    [Fact]
+    public async Task Assign_ToTwoOthers_NotifiesEachWithTheMessageOfOne()
+    {
+        var (owner, dan, eva, _, project) = await ATeam();
+        var task = await CreateTaskAs(owner, project, "Login SSO");
+
+        (await Assign(task.Id, dan.Id, eva.Id)).IsSuccess.Should().BeTrue();
+
+        foreach (var assignee in new[] { dan, eva })
+        {
+            (await NotificationsOf(assignee)).Should().ContainSingle().Which.Should().BeEquivalentTo(new
+            {
+                Type = NotificationType.TaskAssigned,
+                TaskId = task.Id,
+                Message = $"{owner.DisplayName} assigned you KAN-1: Login SSO",
+                ReadAt = (DateTimeOffset?)null,
+            });
+        }
+
+        (await AllNotifications()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Assign_AddingSomeoneToThoseAlreadyThere_NotifiesOnlyTheNewOne()
+    {
+        var (owner, dan, eva, ioana, project) = await ATeam();
+        var task = await CreateTaskAs(owner, project, assigneeIds: [dan.Id, eva.Id]);
+
+        (await Assign(task.Id, eva.Id, ioana.Id, dan.Id)).IsSuccess.Should().BeTrue();
+
+        (await NotificationsOf(ioana)).Should().ContainSingle();
+        (await NotificationsOf(dan)).Should().ContainSingle();
+        (await NotificationsOf(eva)).Should().ContainSingle();
+        (await AllNotifications()).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Assign_ByOneWhoAddsThemselvesWithOthers_NotifiesOnlyTheOthers()
+    {
+        var (owner, dan, eva, _, project) = await ATeam();
+        var task = await CreateTaskAs(owner, project);
+        SignIn(dan);
+
+        (await Assign(task.Id, dan.Id, eva.Id, owner.Id)).IsSuccess.Should().BeTrue();
+
+        (await NotificationsOf(dan)).Should().BeEmpty();
+        (await NotificationsOf(eva)).Should().ContainSingle().Which.Message.Should().StartWith($"{dan.DisplayName} assigned you");
+        (await NotificationsOf(owner)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Create_ForTwoOthersAndThemselves_NotifiesTheTwo()
+    {
+        var (owner, dan, eva, _, project) = await ATeam();
+
+        var task = await CreateTaskAs(owner, project, "Raport", assigneeIds: [owner.Id, dan.Id, eva.Id]);
+
+        (await NotificationsOf(owner)).Should().BeEmpty();
+        (await NotificationsOf(dan)).Should().ContainSingle(notification => notification.TaskId == task.Id);
+        (await NotificationsOf(eva)).Should().ContainSingle(notification => notification.TaskId == task.Id);
+    }
+
+    [Fact]
+    public async Task Assign_TakingSomeoneOffAndKeepingTheRest_NotifiesNobody()
+    {
+        var (owner, dan, eva, _, project) = await ATeam();
+        var task = await CreateTaskAs(owner, project, assigneeIds: [dan.Id, eva.Id]);
+
+        (await Assign(task.Id, eva.Id)).IsSuccess.Should().BeTrue();
+
+        (await AllNotifications()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Assign_ToTwo_LogsEachNotification()
+    {
+        var (owner, dan, eva, _, project) = await ATeam();
+        var task = await CreateTaskAs(owner, project);
+
+        (await Assign(task.Id, dan.Id, eva.Id)).IsSuccess.Should().BeTrue();
+
+        foreach (var assignee in new[] { dan, eva })
+        {
+            Logs.Entries.Should().ContainSingle(entry => entry.Message.StartsWith($"User {assignee.Id} notified of being assigned task {task.Id}", StringComparison.Ordinal));
+        }
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Common;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -49,6 +50,26 @@ public sealed class AuditingInterceptor(IClock clock, ICurrentUser currentUser) 
         }
     }
 
+    /// <summary>
+    /// A change of a task's assignees changes no column of task_items, yet it is a change of the task: saved
+    /// too, the task has its version checked, so of two changes at once the second gets a 409 instead of
+    /// adding its people to the first one's, and the list shows when it was last changed.
+    /// </summary>
+    private static void TouchTasksWithChangedAssignees(DbContext context)
+    {
+        var changedTaskIds = context.ChangeTracker.Entries<TaskAssignee>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(entry => entry.Entity.TaskId)
+            .ToHashSet();
+
+        var unchangedTasks = context.ChangeTracker.Entries<TaskItem>()
+            .Where(entry => entry.State == EntityState.Unchanged && changedTaskIds.Contains(entry.Entity.Id));
+        foreach (var task in unchangedTasks)
+        {
+            task.Property(entity => entity.UpdatedAt).IsModified = true;
+        }
+    }
+
     private void Stamp(DbContext? context)
     {
         if (context is null)
@@ -57,6 +78,7 @@ public sealed class AuditingInterceptor(IClock clock, ICurrentUser currentUser) 
         }
 
         TouchProjectsWithChangedParts(context);
+        TouchTasksWithChangedAssignees(context);
 
         var now = clock.UtcNow;
         Guid? userId = currentUser.IsAuthenticated ? currentUser.Id : null;

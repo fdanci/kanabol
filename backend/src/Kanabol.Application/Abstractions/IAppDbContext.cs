@@ -25,6 +25,8 @@ public interface IAppDbContext
 
     DbSet<TaskItem> TaskItems { get; }
 
+    DbSet<TaskAssignee> TaskAssignees { get; }
+
     DbSet<Comment> Comments { get; }
 
     DbSet<Attachment> Attachments { get; }

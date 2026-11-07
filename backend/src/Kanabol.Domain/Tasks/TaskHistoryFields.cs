@@ -8,7 +8,7 @@ public static class TaskHistoryFields
 {
     public const string Title = nameof(TaskItem.Title);
     public const string Description = nameof(TaskItem.Description);
-    public const string AssigneeId = nameof(TaskItem.AssigneeId);
+    public const string Assignees = nameof(TaskItem.Assignees);
     public const string Priority = nameof(TaskItem.Priority);
     public const string DueDate = nameof(TaskItem.DueDate);
     public const string ColumnId = nameof(TaskItem.ColumnId);

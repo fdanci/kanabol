@@ -6,6 +6,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
@@ -20,7 +21,7 @@ import {
 import { MAT_DIALOG_DATA, MatDialogConfig, MatDialogRef } from '@angular/material/dialog';
 import { MatIcon } from '@angular/material/icon';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
-import { MatSelect } from '@angular/material/select';
+import { MatSelect, MatSelectTrigger } from '@angular/material/select';
 import { MatTab, MatTabGroup } from '@angular/material/tabs';
 import { MatTooltip } from '@angular/material/tooltip';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
@@ -86,6 +87,7 @@ export function taskPanelConfig(data: TaskPanelData): MatDialogConfig<TaskPanelD
     MatMenuItem,
     MatMenuTrigger,
     MatSelect,
+    MatSelectTrigger,
     MatOption,
     MatDatepicker,
     MatDatepickerInput,
@@ -120,8 +122,19 @@ export class TaskPanel {
   protected readonly forbiddenTitle = $localize`Nu ai acces la acest task`;
   protected readonly loadFailed = $localize`Nu am putut încărca task-ul.`;
   protected readonly unassigned = $localize`Neasignat`;
+  /** The ticks in the assignees' list, sent only when it closes; the task's own list again after that. */
+  protected readonly chosenAssignees = linkedSignal(
+    () => this.store.task()?.assignees.map((person) => person.userId) ?? [],
+  );
+  /** Who the ticks are, by name, as the select shows them. */
+  protected readonly chosenPeople = computed(() => {
+    const known = [...this.store.assignees(), ...(this.store.task()?.assignees ?? [])];
+    return this.chosenAssignees()
+      .map((userId) => known.find((person) => person.userId === userId))
+      .filter((person) => person !== undefined)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ro-RO', { sensitivity: 'base' }));
+  });
   /** Not null: mat-select takes an option of null for no choice at all, and would show nothing. */
-  protected readonly unassignedValue = '';
 
   protected readonly editingTitle = signal(false);
   protected readonly titleDraft = signal('');
@@ -239,10 +252,24 @@ export class TaskPanel {
     this.revertIfRefused(select, this.store.task()?.columnId, await this.store.move(columnId));
   }
 
-  protected async assign(select: MatSelect, value: string): Promise<void> {
-    const before = this.store.task()?.assignee?.userId ?? this.unassignedValue;
-    const assigneeId = value === this.unassignedValue ? null : value;
-    this.revertIfRefused(select, before, await this.store.assign(assigneeId));
+  /**
+   * Saves the ticks once, when their list closes (docs/UI_UX_SPEC.md §7.5): nothing goes while it's
+   * open, nor when it closes as it was. A refusal puts the list back as the task kept it.
+   */
+  protected async assigneesOpened(open: boolean, select: MatSelect): Promise<void> {
+    if (open) {
+      return;
+    }
+    const before = this.store.task()?.assignees.map((person) => person.userId) ?? [];
+    const chosen = this.chosenAssignees();
+    if (sameIds(before, chosen)) {
+      return;
+    }
+    const outcome = await this.store.assign(chosen);
+    if (!outcome.saved) {
+      this.chosenAssignees.set(before);
+    }
+    this.revertIfRefused(select, before, outcome);
   }
 
   protected async prioritize(select: MatSelect, priority: TaskPriority): Promise<void> {
@@ -295,4 +322,9 @@ export class TaskPanel {
       this.snackbar.error(refusedFieldMessage(outcome.refusedField), null);
     }
   }
+}
+
+/** The same people, whatever the order. */
+function sameIds(before: string[], after: string[]): boolean {
+  return before.length === after.length && before.every((id) => after.includes(id));
 }

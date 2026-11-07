@@ -2,5 +2,13 @@ using Kanabol.Domain.Common;
 
 namespace Kanabol.Domain.Tasks.Events;
 
-/// <summary>The task has another assignee, or none when AssigneeId is null.</summary>
-public sealed record TaskAssignedEvent(Guid TaskId, Guid ProjectId, Guid? AssigneeId, Guid? PreviousAssigneeId, Guid AssignedById) : IDomainEvent;
+/// <summary>
+/// The task's assignees changed: AddedIds came, RemovedIds left, and whoever stayed is in neither. Only
+/// the added ones hear of it (SPEC section 4.3). A creation with assignees adds them all.
+/// </summary>
+public sealed record TaskAssignedEvent(
+    Guid TaskId,
+    Guid ProjectId,
+    IReadOnlyList<Guid> AddedIds,
+    IReadOnlyList<Guid> RemovedIds,
+    Guid AssignedById) : IDomainEvent;

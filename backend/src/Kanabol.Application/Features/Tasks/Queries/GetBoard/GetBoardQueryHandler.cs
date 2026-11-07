@@ -54,8 +54,16 @@ public sealed class GetBoardQueryHandler(
                 task.Position,
                 task.Priority,
                 task.DueDate,
-                task.AssigneeId,
-                AssigneeName = db.Users.Where(user => user.Id == task.AssigneeId).Select(user => user.DisplayName).FirstOrDefault(),
+                // PostgreSQL runs ToUpper as upper(), which takes no culture to give: the names in any case.
+#pragma warning disable CA1304, CA1311
+                Assignees = (
+                        from assignee in db.TaskAssignees
+                        join user in db.Users on assignee.UserId equals user.Id
+                        where assignee.TaskId == task.Id
+                        orderby user.DisplayName.ToUpper(), user.Id
+                        select new TaskPersonDto(user.Id, user.DisplayName))
+                    .ToList(),
+#pragma warning restore CA1304, CA1311
                 task.CompletedAt,
                 CommentCount = db.Comments.Count(comment => comment.TaskId == task.Id),
                 AttachmentCount = db.Attachments.Count(attachment => attachment.TaskId == task.Id),
@@ -78,7 +86,7 @@ public sealed class GetBoardQueryHandler(
                 row.Position,
                 row.Priority,
                 row.DueDate,
-                row.AssigneeId is { } assigneeId ? new TaskPersonDto(assigneeId, row.AssigneeName ?? "") : null,
+                row.Assignees,
                 row.CompletedAt,
                 row.CommentCount,
                 row.AttachmentCount))]);

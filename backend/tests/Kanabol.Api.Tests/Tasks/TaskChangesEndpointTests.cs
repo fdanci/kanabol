@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
 using Kanabol.Domain.Authorization;
@@ -18,6 +19,15 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
         return (member, token, project.Id, created.RootElement.GetProperty("id").GetGuid());
     }
 
+    private async Task<(User Member, User Other, string Token, Guid ProjectId, Guid TaskId)> ATaskWithAnotherMember()
+    {
+        var (member, token) = await SignedIn([Permissions.TasksCreate]);
+        var other = await CreateUser(UnusedEmail());
+        var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(member).WithMember(other));
+        using var created = await JsonFrom(await Send(HttpMethod.Post, $"/api/projects/{project.Id}/tasks", token, new { title = "Login SSO", priority = "Medium" }));
+        return (member, other, token, project.Id, created.RootElement.GetProperty("id").GetGuid());
+    }
+
     [Fact]
     public async Task PutTitle_ByAMember_Returns200WithTheTask()
     {
@@ -31,38 +41,85 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
     }
 
     [Fact]
-    public async Task PutDescriptionPriorityDueDateAndAssignee_ByAMember_Return200WithEachChange()
+    public async Task PutDescriptionPriorityDueDateAndAssignees_ByAMember_Return200WithEachChange()
     {
         var (member, token, _, taskId) = await ATask();
 
         (await Send(HttpMethod.Put, $"/api/tasks/{taskId}/description", token, new { description = "Cu **Azure AD**" })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await Send(HttpMethod.Put, $"/api/tasks/{taskId}/priority", token, new { priority = "Critical" })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await Send(HttpMethod.Put, $"/api/tasks/{taskId}/due-date", token, new { dueDate = "2026-11-20T15:00:00Z" })).StatusCode.Should().Be(HttpStatusCode.OK);
-        var response = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignee", token, new { assigneeId = member.Id });
+        var response = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignees", token, new { assigneeIds = new[] { member.Id } });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = await JsonFrom(response);
         body.RootElement.GetProperty("description").GetString().Should().Be("Cu **Azure AD**");
         body.RootElement.GetProperty("priority").GetString().Should().Be("Critical");
         body.RootElement.GetProperty("dueDate").GetDateTimeOffset().Should().Be(new DateTimeOffset(2026, 11, 20, 15, 0, 0, TimeSpan.Zero));
-        body.RootElement.GetProperty("assignee").GetProperty("userId").GetGuid().Should().Be(member.Id);
+        body.RootElement.GetProperty("assignees").EnumerateArray().Select(assignee => assignee.GetProperty("userId").GetGuid()).Should().Equal(member.Id);
+        body.RootElement.TryGetProperty("assignee", out _).Should().BeFalse();
 
         await using var db = Api.Postgres.CreateContext();
         (await db.TaskHistoryEntries.Where(entry => entry.TaskId == taskId).Select(entry => entry.Field).ToListAsync())
-            .Should().BeEquivalentTo("Description", "Priority", "DueDate", "AssigneeId");
+            .Should().BeEquivalentTo("Description", "Priority", "DueDate", "Assignees");
     }
 
     [Fact]
-    public async Task PutAssignee_ToSomeoneOutsideTheProject_Returns400OnAssigneeId()
+    public async Task PutAssignees_ToSomeoneOutsideTheProject_Returns400OnAssigneeIds()
     {
-        var (_, token, _, taskId) = await ATask();
+        var (member, token, _, taskId) = await ATask();
         var outsider = await CreateUser(UnusedEmail());
 
-        var response = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignee", token, new { assigneeId = outsider.Id });
+        var response = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignees", token, new { assigneeIds = new[] { member.Id, outsider.Id } });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         using var body = await JsonFrom(response);
-        body.RootElement.GetProperty("errors").TryGetProperty("assigneeId", out _).Should().BeTrue();
+        body.RootElement.GetProperty("errors").TryGetProperty("assigneeIds", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PutAssignees_ToTwoMembersThenNobody_Returns200WithTheWholeListEachTime()
+    {
+        var (member, other, token, _, taskId) = await ATaskWithAnotherMember();
+
+        var both = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignees", token, new { assigneeIds = new[] { member.Id, other.Id } });
+        var nobody = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignees", token, new { assigneeIds = Array.Empty<Guid>() });
+
+        both.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var body = await JsonFrom(both))
+        {
+            body.RootElement.GetProperty("assignees").GetArrayLength().Should().Be(2);
+        }
+
+        nobody.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var emptied = await JsonFrom(nobody);
+        emptied.RootElement.GetProperty("assignees").GetArrayLength().Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"assigneeIds\":null}")]
+    [InlineData("{\"assigneeIds\":[\"00000000-0000-7000-8000-000000000001\",\"00000000-0000-7000-8000-000000000001\"]}")]
+    public async Task PutAssignees_WithoutAListOrWithAnIdTwice_Returns400OnAssigneeIds(string json)
+    {
+        var (_, token, _, taskId) = await ATask();
+
+        using var request = JsonDocument.Parse(json);
+        var response = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignees", token, request.RootElement);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = await JsonFrom(response);
+        body.RootElement.GetProperty("errors").TryGetProperty("assigneeIds", out _).Should().BeTrue(body.RootElement.ToString());
+    }
+
+    // The single assignee is gone with its endpoint (SPEC section 4.4).
+    [Fact]
+    public async Task PutAssignee_TheOldEndpoint_IsGone()
+    {
+        var (member, token, _, taskId) = await ATask();
+
+        var response = await Send(HttpMethod.Put, $"/api/tasks/{taskId}/assignee", token, new { assigneeId = member.Id });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -134,9 +191,9 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
     [Fact]
     public async Task GetList_WithFiltersAndSort_ReturnsAPageOfTheMatchingTasks()
     {
-        var (member, token, projectId, _) = await ATask();
-        await Send(HttpMethod.Post, $"/api/projects/{projectId}/tasks", token, new { title = "Raport", priority = "High", assigneeId = member.Id });
-        await Send(HttpMethod.Post, $"/api/projects/{projectId}/tasks", token, new { title = "Logo", priority = "Critical", assigneeId = member.Id });
+        var (member, other, token, projectId, _) = await ATaskWithAnotherMember();
+        await Send(HttpMethod.Post, $"/api/projects/{projectId}/tasks", token, new { title = "Raport", priority = "High", assigneeIds = new[] { member.Id } });
+        await Send(HttpMethod.Post, $"/api/projects/{projectId}/tasks", token, new { title = "Logo", priority = "Critical", assigneeIds = new[] { other.Id, member.Id } });
 
         var response = await Send(HttpMethod.Get, $"/api/projects/{projectId}/tasks?assigneeId={member.Id}&priority=High&priority=Critical&sort=title:asc&pageSize=25", token);
 
@@ -145,6 +202,7 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
         body.RootElement.GetProperty("items").EnumerateArray().Select(task => task.GetProperty("key").GetString()).Should().Equal("KAN-3", "KAN-2");
         body.RootElement.GetProperty("pageSize").GetInt32().Should().Be(25);
         body.RootElement.GetProperty("items")[0].GetProperty("priority").GetString().Should().Be("Critical");
+        body.RootElement.GetProperty("items")[0].GetProperty("assignees").GetArrayLength().Should().Be(2);
     }
 
     [Theory]

@@ -40,13 +40,26 @@ export class TaskPanelStore {
     () => this.current()?.archivedAt != null && this.auth.has(PERMISSIONS.tasksArchive),
   );
 
-  /** Who can be given the task: the active members, and whoever has it now, even deactivated. */
+  /**
+   * Who can be given the task: the active members, and whoever has it now, even deactivated, who stays
+   * until someone takes them off (docs/SPEC.md §4.4).
+   */
   readonly assignees = computed(() => {
-    const assignee = this.current()?.assignee;
-    const active = this.memberList().filter((member) => member.isActive);
-    return assignee && !active.some((member) => member.userId === assignee.userId)
-      ? [...active, { userId: assignee.userId, displayName: assignee.displayName, isActive: false }]
-      : active.map((member) => ({ ...member }));
+    const active = this.memberList()
+      .filter((member) => member.isActive)
+      .map((member) => ({
+        userId: member.userId,
+        displayName: member.displayName,
+        isActive: true,
+      }));
+    const kept = (this.current()?.assignees ?? [])
+      .filter((person) => !active.some((member) => member.userId === person.userId))
+      .map((person) => ({
+        userId: person.userId,
+        displayName: person.displayName,
+        isActive: false,
+      }));
+    return [...active, ...kept];
   });
 
   /** Only the last task asked for lands, however the answers arrive. */
@@ -88,8 +101,9 @@ export class TaskPanelStore {
     );
   }
 
-  assign(assigneeId: string | null): Promise<ChangeOutcome> {
-    return this.change((id) => this.api.assign(id, assigneeId));
+  /** The whole list, which replaces the one before. */
+  assign(assigneeIds: string[]): Promise<ChangeOutcome> {
+    return this.change((id) => this.api.assign(id, assigneeIds));
   }
 
   prioritize(priority: TaskPriority): Promise<ChangeOutcome> {

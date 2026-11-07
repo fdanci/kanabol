@@ -74,7 +74,7 @@ public sealed class TestDataBuilderTests
 
         task.ProjectId.Should().Be(project.Id);
         task.ColumnId.Should().Be(project.Columns.First().Id);
-        task.AssigneeId.Should().Be(assignee.Id);
+        task.Assignees.Select(stored => stored.UserId).Should().Equal(assignee.Id);
         task.DueDate.Should().Be(dueDate);
         task.Priority.Should().Be(TaskPriority.High);
     }

@@ -87,8 +87,9 @@ export class TasksApi {
     return this.api.put<TaskItemDto>(`/tasks/${id}/description`, { description });
   }
 
-  assign(id: string, assigneeId: string | null): Observable<TaskItemDto> {
-    return this.api.put<TaskItemDto>(`/tasks/${id}/assignee`, { assigneeId });
+  /** The whole list, which replaces the one before (docs/SPEC.md §4.4): an empty one leaves it to nobody. */
+  assign(id: string, assigneeIds: string[]): Observable<TaskItemDto> {
+    return this.api.put<TaskItemDto>(`/tasks/${id}/assignees`, { assigneeIds });
   }
 
   prioritize(id: string, priority: TaskPriority): Observable<TaskItemDto> {

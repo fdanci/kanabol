@@ -5,18 +5,23 @@ using Kanabol.Domain.Tasks;
 
 namespace Kanabol.Application.Features.Tasks.Commands.AssignTask;
 
-/// <summary>Only to an active member of the task's project: anyone else is a 400 on assigneeId.</summary>
+/// <summary>
+/// Whoever comes onto the task has to be an active member of its project, or the whole change is a 400 on
+/// assigneeIds. Whoever is already on it stays even if deactivated since, until someone takes them off
+/// (SPEC section 4.4).
+/// </summary>
 public sealed class AssignTaskCommandHandler(IAppDbContext db, TaskChanges changes) : ICommandHandler<AssignTaskCommand, TaskItemDto>
 {
     public Task<Result<TaskItemDto>> Handle(AssignTaskCommand command, CancellationToken ct) =>
         changes.Apply(
             command.TaskId,
-            (task, by, now) => task.Assign(command.AssigneeId, by, now),
+            (task, by, now) => task.Assign(command.AssigneeIds, by, now),
             ct,
-            task => CanBeAssigned(task, command.AssigneeId, ct));
+            task => CanBeAssigned(task, command.AssigneeIds, ct));
 
-    private async Task<Result> CanBeAssigned(TaskItem task, Guid? assigneeId, CancellationToken ct) =>
-        assigneeId is not { } userId || userId == task.AssigneeId || await db.IsActiveMemberOf(task.ProjectId, userId, ct)
-            ? Result.Success()
-            : TaskErrors.AssigneeNotAMember;
+    private async Task<Result> CanBeAssigned(TaskItem task, IReadOnlyList<Guid> assigneeIds, CancellationToken ct)
+    {
+        Guid[] coming = [.. assigneeIds.Where(userId => task.Assignees.All(assignee => assignee.UserId != userId))];
+        return await db.AreAllActiveMembersOf(task.ProjectId, coming, ct) ? Result.Success() : TaskErrors.AssigneeNotAMember;
+    }
 }

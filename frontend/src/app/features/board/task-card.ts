@@ -1,20 +1,20 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { priorityLabel } from '../../shared/models/task-filters';
-import { Avatar } from '../../shared/ui/avatar';
+import { AvatarStack } from '../../shared/ui/avatar-stack';
 import { Chip, ChipKind } from '../../shared/ui/chip';
 import { DeadlineChip } from '../../shared/ui/deadline-chip';
 import { BoardTaskDto } from './models';
 
 /**
  * A card on the board (docs/UI_UX_SPEC.md §7.4): the key and the priority, the title on at most two
- * lines, then the deadline, the counts and who it's assigned to. The column makes it draggable and
+ * lines, then the deadline, the counts and everyone it's assigned to. The column makes it draggable and
  * opens it; the card only shows it. The look is on an inner box, because the CDK moves the dragged
  * copy with a transform on the host, and the tilt of a picked-up card needs one of its own.
  */
 @Component({
   selector: 'kb-task-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Avatar, Chip, DeadlineChip],
+  imports: [AvatarStack, Chip, DeadlineChip],
   template: `
     <div class="card">
       <div class="top">
@@ -39,8 +39,8 @@ import { BoardTaskDto } from './models';
           </span>
         }
         <span class="spacer"></span>
-        @if (task().assignee; as assignee) {
-          <kb-avatar [name]="assignee.displayName" [labelled]="true" />
+        @if (task().assignees.length > 0) {
+          <kb-avatar-stack [people]="task().assignees" />
         } @else {
           <span class="unassigned" role="img" i18n-aria-label aria-label="Neasignat"></span>
         }

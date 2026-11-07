@@ -38,7 +38,7 @@ import {
 } from '../../shared/models/task-filters';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { openTaskPanel } from '../../shared/task-panel';
-import { Avatar } from '../../shared/ui/avatar';
+import { AvatarStack } from '../../shared/ui/avatar-stack';
 import { Chip } from '../../shared/ui/chip';
 import { DeadlineChip } from '../../shared/ui/deadline-chip';
 import { EmptyState } from '../../shared/ui/empty-state';
@@ -79,7 +79,7 @@ const DEFAULT_PAGE_SIZE = 50;
     MatRow,
     MatRowDef,
     RelativeTimePipe,
-    Avatar,
+    AvatarStack,
     Chip,
     DeadlineChip,
     EmptyState,

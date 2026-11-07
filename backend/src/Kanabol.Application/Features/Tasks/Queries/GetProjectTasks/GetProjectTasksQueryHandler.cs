@@ -66,7 +66,7 @@ public sealed class GetProjectTasksQueryHandler(
 
             // Without a deadline or an assignee last, whichever the direction.
             TaskSort.DueDate => Then(rows.OrderBy(row => row.DueDate == null), row => row.DueDate, sort.Descending),
-            TaskSort.Assignee => Then(rows.OrderBy(row => row.AssigneeName == null), row => row.AssigneeName!.ToUpper(), sort.Descending),
+            TaskSort.Assignee => Then(rows.OrderBy(row => row.FirstAssigneeName == null), row => row.FirstAssigneeName, sort.Descending),
             TaskSort.Updated => First(rows, row => row.UpdatedAt, sort.Descending),
             _ => First(rows, row => row.Number, sort.Descending),
         };
@@ -87,7 +87,7 @@ public sealed class GetProjectTasksQueryHandler(
 
         if (query.AssigneeId is { } assigneeId)
         {
-            tasks = tasks.Where(task => task.AssigneeId == assigneeId);
+            tasks = tasks.Where(task => task.Assignees.Any(assignee => assignee.UserId == assigneeId));
         }
 
         if (query.Priorities.Count > 0)
@@ -130,8 +130,25 @@ public sealed class GetProjectTasksQueryHandler(
             Priority = task.Priority,
             PriorityRank = task.Priority == TaskPriority.Critical ? 3 : task.Priority == TaskPriority.High ? 2 : task.Priority == TaskPriority.Medium ? 1 : 0,
             DueDate = task.DueDate,
-            AssigneeId = task.AssigneeId,
-            AssigneeName = db.Users.Where(user => user.Id == task.AssigneeId).Select(user => user.DisplayName).FirstOrDefault(),
+            // PostgreSQL runs ToUpper as upper(), which takes no culture to give: the names in any case.
+#pragma warning disable CA1304, CA1311
+            Assignees = (
+                    from assignee in db.TaskAssignees
+                    join user in db.Users on assignee.UserId equals user.Id
+                    where assignee.TaskId == task.Id
+                    orderby user.DisplayName.ToUpper(), user.Id
+                    select new TaskPersonDto(user.Id, user.DisplayName))
+                .ToList(),
+
+            // The first name in alphabetical order, which the sort by assignee goes by.
+            FirstAssigneeName = (
+                    from assignee in db.TaskAssignees
+                    join user in db.Users on assignee.UserId equals user.Id
+                    where assignee.TaskId == task.Id
+                    select user.DisplayName.ToUpper())
+                .OrderBy(name => name)
+                .FirstOrDefault(),
+#pragma warning restore CA1304, CA1311
             CompletedAt = task.CompletedAt,
             ArchivedAt = task.ArchivedAt,
             UpdatedAt = task.UpdatedAt ?? task.CreatedAt,
@@ -159,9 +176,9 @@ public sealed class GetProjectTasksQueryHandler(
 
         public DateTimeOffset? DueDate { get; init; }
 
-        public Guid? AssigneeId { get; init; }
+        public List<TaskPersonDto> Assignees { get; init; } = [];
 
-        public string? AssigneeName { get; init; }
+        public string? FirstAssigneeName { get; init; }
 
         public DateTimeOffset? CompletedAt { get; init; }
 
@@ -179,7 +196,7 @@ public sealed class GetProjectTasksQueryHandler(
             ColumnIsDone,
             Priority,
             DueDate,
-            AssigneeId is { } assigneeId ? new TaskPersonDto(assigneeId, AssigneeName ?? "") : null,
+            Assignees,
             CompletedAt,
             ArchivedAt,
             UpdatedAt);

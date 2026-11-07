@@ -52,7 +52,7 @@ public sealed class CreateTaskCommandHandler(
             return TaskErrors.ColumnNotInProject;
         }
 
-        if (command.AssigneeId is { } assigneeId && !await db.IsActiveMemberOf(project.Id, assigneeId, ct))
+        if (!await db.AreAllActiveMembersOf(project.Id, command.AssigneeIds, ct))
         {
             return TaskErrors.AssigneeNotAMember;
         }
@@ -76,7 +76,7 @@ public sealed class CreateTaskCommandHandler(
                         command.Description,
                         command.Priority,
                         (last ?? -1) + 1,
-                        command.AssigneeId,
+                        command.AssigneeIds,
                         command.DueDate,
                         currentUser.Id,
                         now);

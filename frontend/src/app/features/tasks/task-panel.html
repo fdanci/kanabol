@@ -170,21 +170,36 @@
               </dd>
             </div>
 
-            <div class="property">
-              <dt id="kb-task-assignee" i18n>Asignat</dt>
+            <div class="property assignees">
+              <dt id="kb-task-assignee" i18n>Asignați</dt>
               <dd>
                 @if (task.canChange) {
                   <mat-select
                     #assigneeSelect
+                    multiple
                     class="kb-field kb-select"
                     panelClass="kb-menu"
                     aria-labelledby="kb-task-assignee"
-                    [value]="task.assignee?.userId ?? unassignedValue"
-                    (selectionChange)="assign(assigneeSelect, $event.value)"
+                    [placeholder]="unassigned"
+                    [value]="chosenAssignees()"
+                    (selectionChange)="chosenAssignees.set($event.value)"
+                    (openedChange)="assigneesOpened($event, assigneeSelect)"
                   >
-                    <mat-option [value]="unassignedValue">{{ unassigned }}</mat-option>
+                    <mat-select-trigger>
+                      <span class="people">
+                        @for (person of chosenPeople(); track person.userId) {
+                          <span class="person">
+                            <kb-avatar [name]="person.displayName" />
+                            <span class="kb-truncate">{{ person.displayName }}</span>
+                          </span>
+                        }
+                      </span>
+                    </mat-select-trigger>
                     @for (member of store.assignees(); track member.userId) {
-                      <mat-option [value]="member.userId" [disabled]="!member.isActive">
+                      <mat-option
+                        [value]="member.userId"
+                        [disabled]="!member.isActive && !chosenAssignees().includes(member.userId)"
+                      >
                         <span class="person">
                           <kb-avatar [name]="member.displayName" />
                           <span>{{ member.displayName }}</span>
@@ -192,10 +207,14 @@
                       </mat-option>
                     }
                   </mat-select>
-                } @else if (task.assignee; as assignee) {
-                  <span class="person">
-                    <kb-avatar [name]="assignee.displayName" />
-                    <span>{{ assignee.displayName }}</span>
+                } @else if (task.assignees.length > 0) {
+                  <span class="people">
+                    @for (person of task.assignees; track person.userId) {
+                      <span class="person">
+                        <kb-avatar [name]="person.displayName" />
+                        <span>{{ person.displayName }}</span>
+                      </span>
+                    }
                   </span>
                 } @else {
                   <span class="none">{{ unassigned }}</span>

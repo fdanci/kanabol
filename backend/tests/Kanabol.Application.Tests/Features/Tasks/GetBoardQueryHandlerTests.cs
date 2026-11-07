@@ -24,7 +24,7 @@ public sealed class GetBoardQueryHandlerTests(PostgresFixture postgres) : TaskHa
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com");
         var project = await CreateProject(builder => builder.WithKey("BRD").OwnedBy(owner).WithMember(member));
-        var first = await CreateTaskAs(owner, project, "Primul", assigneeId: member.Id);
+        var first = await CreateTaskAs(owner, project, "Primul", assigneeIds: [member.Id]);
         await CreateTaskAs(owner, project, "Al doilea");
         var archived = await CreateTaskAs(owner, project, "Arhivat");
         (await Handle<ArchiveTaskCommand, Unit>(new ArchiveTaskCommand(archived.Id))).IsSuccess.Should().BeTrue();
@@ -42,11 +42,25 @@ public sealed class GetBoardQueryHandlerTests(PostgresFixture postgres) : TaskHa
             Number = 1,
             Priority = TaskPriority.Medium,
             DueDate = (DateTimeOffset?)null,
-            Assignee = new TaskPersonDto(member.Id, member.DisplayName),
+            Assignees = new[] { new TaskPersonDto(member.Id, member.DisplayName) },
             CompletedAt = (DateTimeOffset?)null,
             CommentCount = 0,
             AttachmentCount = 0,
         });
+    }
+
+    // UI spec section 7.4: the card shows every assignee, by name.
+    [Fact]
+    public async Task Board_OfATaskWithSeveralAssignees_GivesThemAllByName()
+    {
+        var owner = await CreateUserNamed("Zoe Ene", "zoe@example.com");
+        var ana = await CreateUserNamed("Ana Pop", "ana.pop@example.com");
+        var project = await CreateProject(builder => builder.WithKey("BRD").OwnedBy(owner).WithMember(ana));
+        await CreateTaskAs(owner, project, assigneeIds: [owner.Id, ana.Id]);
+
+        var card = (await Board(project.Id)).Value.Tasks.Single();
+
+        card.Assignees.Should().Equal(new TaskPersonDto(ana.Id, "Ana Pop"), new TaskPersonDto(owner.Id, "Zoe Ene"));
     }
 
     // The list comes in pages of at most 100; the board has no pages.

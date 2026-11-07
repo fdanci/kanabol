@@ -16,7 +16,7 @@ export interface BoardColumnDto {
   isDone: boolean;
 }
 
-/** A card: what docs/UI_UX_SPEC.md §7.4 puts on it, and its place. */
+/** A card: what docs/UI_UX_SPEC.md §7.4 puts on it, and its place. Assignees come by name, none for nobody. */
 export interface BoardTaskDto {
   id: string;
   key: string;
@@ -27,7 +27,7 @@ export interface BoardTaskDto {
   position: number;
   priority: TaskPriority;
   dueDate: string | null;
-  assignee: BoardPersonDto | null;
+  assignees: BoardPersonDto[];
   completedAt: string | null;
   commentCount: number;
   attachmentCount: number;

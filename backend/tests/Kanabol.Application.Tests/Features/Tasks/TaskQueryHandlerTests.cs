@@ -139,16 +139,17 @@ public sealed class TaskQueryHandlerTests(PostgresFixture postgres) : TaskHandle
     }
 
     [Fact]
-    public async Task ById_OfATask_ReturnsItWithItsAssigneeAndColumn()
+    public async Task ById_OfATask_ReturnsItWithItsAssigneesByNameAndColumn()
     {
-        var owner = await CreateUser();
-        var member = await CreateUser("dan@example.com");
+        var owner = await CreateUserNamed("Zoe Ene", "zoe@example.com");
+        var member = await CreateUserNamed("Dan Ionescu", "dan@example.com");
         var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(owner).WithMember(member));
-        var task = await CreateTaskAs(owner, project, assigneeId: member.Id);
+        var task = await CreateTaskAs(owner, project, assigneeIds: [owner.Id, member.Id]);
 
         var result = await ById(task.Id);
 
-        result.Value.Should().BeEquivalentTo(new { Key = "KAN-1", Assignee = new TaskPersonDto(member.Id, member.DisplayName), ColumnName = "De făcut" });
+        result.Value.Should().BeEquivalentTo(new { Key = "KAN-1", ColumnName = "De făcut" });
+        result.Value.Assignees.Should().Equal(new TaskPersonDto(member.Id, "Dan Ionescu"), new TaskPersonDto(owner.Id, "Zoe Ene"));
     }
 
     [Fact]

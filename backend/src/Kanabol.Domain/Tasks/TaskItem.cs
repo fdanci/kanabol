@@ -20,6 +20,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     private readonly List<Comment> _comments = [];
     private readonly List<Attachment> _attachments = [];
     private readonly List<TaskHistoryEntry> _history = [];
+    private readonly List<TaskAssignee> _assignees = [];
 
     private TaskItem(Project project, BoardColumn column, string title, string? description, TaskPriority priority, int position)
     {
@@ -51,8 +52,6 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public DateTimeOffset? DueDate { get; private set; }
 
-    public Guid? AssigneeId { get; private set; }
-
     public int Position { get; private set; }
 
     /// <summary>When the task last entered a done column, and null while it's outside one.</summary>
@@ -68,10 +67,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public IReadOnlyCollection<TaskHistoryEntry> History => _history;
 
+    /// <summary>Any number of the project's members, each once (SPEC section 5.1).</summary>
+    public IReadOnlyCollection<TaskAssignee> Assignees => _assignees;
+
     /// <summary>
     /// A new task in an open project, with the number the database took from the project's counter
     /// (ITaskNumbers). One created straight into a done column is completed at once, and one created for
-    /// someone is assigned to them, which they hear of like any assignment (SPEC section 4.3).
+    /// people is assigned to them, which they hear of like any assignment (SPEC section 4.3). Whether they
+    /// are active members is the handler's to check first.
     /// </summary>
     public static TaskItem Create(
         Project project,
@@ -81,7 +84,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         string? description,
         TaskPriority priority,
         int position,
-        Guid? assigneeId,
+        IReadOnlyCollection<Guid> assigneeIds,
         DateTimeOffset? dueDate,
         Guid createdById,
         DateTimeOffset now)
@@ -98,18 +101,19 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
         ArgumentOutOfRangeException.ThrowIfLessThan(number, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(position);
+        EnsureEachOnce(assigneeIds);
 
         var task = new TaskItem(project, column, title, description, priority, position)
         {
             Number = number,
             DueDate = dueDate?.ToUniversalTime(),
-            AssigneeId = assigneeId,
             CompletedAt = column.IsDone ? now : null,
         };
+        task._assignees.AddRange(assigneeIds.Select(userId => new TaskAssignee(task.Id, userId, createdById, now)));
         task.Raise(new TaskCreatedEvent(task.Id, project.Id, task.Number, createdById));
-        if (assigneeId is not null)
+        if (assigneeIds.Count > 0)
         {
-            task.Raise(new TaskAssignedEvent(task.Id, project.Id, assigneeId, null, createdById));
+            task.Raise(new TaskAssignedEvent(task.Id, project.Id, [.. assigneeIds], [], createdById));
         }
 
         return task;
@@ -141,18 +145,26 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.Description, changedById));
     }
 
-    /// <summary>Null leaves the task to nobody. Whether the assignee is a member is the handler's to check first.</summary>
-    public void Assign(Guid? assigneeId, Guid changedById, DateTimeOffset now)
+    /// <summary>
+    /// The whole list, which takes the place of the one before: an empty one leaves the task to nobody.
+    /// Whoever stays keeps when they were assigned, and the change is one history entry, the old ids and
+    /// the new ones (SPEC section 5.1). Whether the new ones are active members is the handler's to check.
+    /// </summary>
+    public void Assign(IReadOnlyCollection<Guid> assigneeIds, Guid changedById, DateTimeOffset now)
     {
-        if (assigneeId == AssigneeId)
+        EnsureEachOnce(assigneeIds);
+        var before = _assignees.Select(assignee => assignee.UserId).ToArray();
+        Guid[] added = [.. assigneeIds.Where(userId => !before.Contains(userId))];
+        Guid[] removed = [.. before.Where(userId => !assigneeIds.Contains(userId))];
+        if (added.Length == 0 && removed.Length == 0)
         {
             return;
         }
 
-        var previous = AssigneeId;
-        Record(TaskHistoryFields.AssigneeId, previous?.ToString(), assigneeId?.ToString(), changedById, now);
-        AssigneeId = assigneeId;
-        Raise(new TaskAssignedEvent(Id, ProjectId, assigneeId, previous, changedById));
+        Record(TaskHistoryFields.Assignees, FormatIds(before), FormatIds(assigneeIds), changedById, now);
+        _assignees.RemoveAll(assignee => removed.Contains(assignee.UserId));
+        _assignees.AddRange(added.Select(userId => new TaskAssignee(Id, userId, changedById, now)));
+        Raise(new TaskAssignedEvent(Id, ProjectId, added, removed, changedById));
     }
 
     public void SetPriority(TaskPriority priority, Guid changedById, DateTimeOffset now)
@@ -274,6 +286,19 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         string.IsNullOrWhiteSpace(description) ? null : description.TrimEnd();
 
     private static string? Format(DateTimeOffset? moment) => moment?.ToString("O", CultureInfo.InvariantCulture);
+
+    /// <summary>Sorted as text and separated by commas, and empty for nobody, so a list reads the same however it was given.</summary>
+    private static string FormatIds(IEnumerable<Guid> ids) =>
+        string.Join(',', ids.Select(id => id.ToString()).Order(StringComparer.Ordinal));
+
+    private static void EnsureEachOnce(IReadOnlyCollection<Guid> assigneeIds)
+    {
+        ArgumentNullException.ThrowIfNull(assigneeIds);
+        if (assigneeIds.Distinct().Count() != assigneeIds.Count)
+        {
+            throw new ArgumentException("A task has each assignee once.", nameof(assigneeIds));
+        }
+    }
 
     private void Record(string field, string? oldValue, string? newValue, Guid changedById, DateTimeOffset now) =>
         _history.Add(new TaskHistoryEntry(Id, field, oldValue, newValue, changedById, now));

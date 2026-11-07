@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
-import { HarnessLoader } from '@angular/cdk/testing';
+import { HarnessLoader, TestKey } from '@angular/cdk/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { TestBed } from '@angular/core/testing';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
@@ -46,7 +46,7 @@ function row(key: string, extra: Partial<TaskSummaryDto> = {}): TaskSummaryDto {
     columnIsDone: false,
     priority: 'Medium',
     dueDate: null,
-    assignee: null,
+    assignees: [],
     completedAt: null,
     archivedAt: null,
     updatedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -69,7 +69,10 @@ describe('TaskListPage', () => {
         title: 'Login SSO',
         priority: 'High',
         dueDate: new Date(Date.now() - 86_400_000).toISOString(),
-        assignee: { userId: 'u2', displayName: 'Ana Pop' },
+        assignees: [
+          { userId: 'u2', displayName: 'Ana Pop' },
+          { userId: 'u3', displayName: 'Dan Ionescu' },
+        ],
       }),
       row('KAN-2', { columnName: 'Gata', columnIsDone: true, completedAt: '2026-11-05T08:00:00Z' }),
       row('KAN-1'),
@@ -182,15 +185,18 @@ describe('TaskListPage', () => {
     });
   });
 
-  // docs/UI_UX_SPEC.md §7.3: key, title, column, priority, deadline, assignee, last change.
-  it('shows each task with its key, title, column, priority, deadline, assignee and last change', async () => {
+  // docs/UI_UX_SPEC.md §7.3: key, title, column, priority, deadline, assignees, last change.
+  it('shows each task with its key, title, column, priority, deadline, assignees and last change', async () => {
     await visit();
 
     expect(cell('KAN-3', 'title').textContent).toContain('Login SSO');
     expect(cell('KAN-3', 'column').textContent).toContain('De făcut');
     expect(cell('KAN-3', 'priority').querySelector('kb-chip')?.classList).toContain('high');
     expect(cell('KAN-3', 'due').querySelector('kb-chip')?.classList).toContain('deadline-overdue');
-    expect(cell('KAN-3', 'assignee').textContent).toContain('Ana Pop');
+    const stack = cell('KAN-3', 'assignee').querySelector('kb-avatar-stack');
+    expect(stack?.getAttribute('aria-label')).toBe('Ana Pop, Dan Ionescu');
+    expect(stack?.querySelectorAll('kb-avatar').length).toBe(2);
+    expect(page().querySelector('th.mat-column-assignee')?.textContent).toContain('Asignați');
     expect(cell('KAN-3', 'updated').textContent.trim()).toBe('acum 1 minut');
     expect(cell('KAN-1', 'assignee').textContent.trim()).toBe('Neasignat');
     expect(cell('KAN-2', 'column').querySelector('.done')).not.toBeNull();
@@ -344,11 +350,14 @@ describe('TaskListPage', () => {
     const title = sheet.querySelector<HTMLInputElement>('#task-title')!;
     title.value = '  Raport lunar ';
     title.dispatchEvent(new Event('input'));
-    await (
-      await loader.getHarness(
-        MatSelectHarness.with({ selector: '[aria-labelledby~="task-assignee"]' }),
-      )
-    ).clickOptions({ text: /Ana Pop/ });
+    const assignees = await loader.getHarness(
+      MatSelectHarness.with({ selector: '[aria-labelledby~="task-assignee"]' }),
+    );
+    expect(await assignees.isMultiple()).toBe(true);
+    expect(await assignees.getValueText()).toBe('Neasignat');
+    await assignees.clickOptions({ text: /Ana Pop/ });
+    await assignees.clickOptions({ text: /Florin Danci/ });
+    await closeList(assignees);
     await (
       await loader.getHarness(
         MatSelectHarness.with({ selector: '[aria-labelledby~="task-column"]' }),
@@ -362,7 +371,7 @@ describe('TaskListPage', () => {
       description: null,
       priority: 'Medium',
       columnId: 'c2',
-      assigneeId: 'u2',
+      assigneeIds: ['me', 'u2'],
       dueDate: null,
     });
     expect(snackbar.show).toHaveBeenCalledWith('Task-ul KAN-4 a fost creat.');
@@ -389,3 +398,11 @@ describe('TaskListPage', () => {
     expect(sheet.querySelector('#task-title-error')?.textContent).toBe('Scrie titlul task-ului.');
   });
 });
+
+/**
+ * Closes a list as a person does, with Esc on its trigger. MatSelectHarness.close clicks the first
+ * backdrop of the page, which in a sheet or the panel is the dialog's, and closes that instead.
+ */
+async function closeList(select: MatSelectHarness): Promise<void> {
+  await (await select.host()).sendKeys(TestKey.ESCAPE);
+}

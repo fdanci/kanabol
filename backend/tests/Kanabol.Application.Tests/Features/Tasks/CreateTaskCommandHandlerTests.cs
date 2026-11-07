@@ -38,7 +38,7 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
             Description = "Cu **Azure AD**",
             Priority = TaskPriority.High,
             DueDate = Now.AddDays(3),
-            Assignee = (TaskPersonDto?)null,
+            Assignees = Array.Empty<TaskPersonDto>(),
             ColumnId = ColumnAt(project, 0).Id,
             ColumnName = "De făcut",
             Position = 0,
@@ -108,35 +108,44 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
     }
 
     [Fact]
-    public async Task Create_ForAnActiveMember_AssignsThem()
+    public async Task Create_ForTwoActiveMembers_AssignsThemBothWithoutHistory()
     {
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com");
         var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
         SignIn(owner);
 
-        var result = await Create(NewTask(project, assigneeId: member.Id));
+        var result = await Create(NewTask(project, assigneeIds: [member.Id, owner.Id]));
 
-        result.Value.Assignee.Should().Be(new TaskPersonDto(member.Id, member.DisplayName));
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.ToString() : "");
+        result.Value.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([member.Id, owner.Id]);
+        var stored = await Stored(result.Value.Id);
+        stored!.Assignees.Should().BeEquivalentTo([
+            new { UserId = member.Id, AssignedById = (Guid?)owner.Id, AssignedAt = Now },
+            new { UserId = owner.Id, AssignedById = (Guid?)owner.Id, AssignedAt = Now },
+        ]);
+        stored.History.Should().BeEmpty();
     }
 
+    // SPEC section 4.4: only active members of the project, each once, or a 400 on assigneeIds.
     [Fact]
-    public async Task Create_ForSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeId()
+    public async Task Create_ForSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIds()
     {
         var owner = await CreateUser();
         var outsider = await CreateUser("dan@example.com");
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         SignIn(owner);
 
-        var result = await Create(NewTask(project, assigneeId: outsider.Id));
+        var result = await Create(NewTask(project, assigneeIds: [owner.Id, outsider.Id]));
 
         result.Error.Should().Be(TaskErrors.AssigneeNotAMember);
-        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("AssigneeId");
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("AssigneeIds");
         (await TasksOf(project)).Should().BeEmpty();
+        (await NextTaskNumberOf(project)).Should().Be(1);
     }
 
     [Fact]
-    public async Task Create_ForADeactivatedMember_ReturnsAValidationErrorOnAssigneeId()
+    public async Task Create_ForADeactivatedMember_ReturnsAValidationErrorOnAssigneeIds()
     {
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com");
@@ -144,7 +153,20 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
         var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
         SignIn(owner);
 
-        (await Create(NewTask(project, assigneeId: member.Id))).Error.Should().Be(TaskErrors.AssigneeNotAMember);
+        (await Create(NewTask(project, assigneeIds: [member.Id]))).Error.Should().Be(TaskErrors.AssigneeNotAMember);
+    }
+
+    [Fact]
+    public async Task Create_ForTheSamePersonTwice_ReturnsAValidationErrorOnAssigneeIds()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        SignIn(owner);
+
+        var result = await Create(NewTask(project, assigneeIds: [owner.Id, owner.Id]));
+
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("AssigneeIds");
+        (await TasksOf(project)).Should().BeEmpty();
     }
 
     [Theory]
@@ -191,7 +213,7 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
         var user = await CreateUser();
         SignIn(user);
 
-        (await Create(new CreateTaskCommand(Guid.CreateVersion7(), "Login", null, TaskPriority.Low, null, null, null))).Error.Should().Be(ProjectErrors.NotFound);
+        (await Create(new CreateTaskCommand(Guid.CreateVersion7(), "Login", null, TaskPriority.Low, null, [], null))).Error.Should().Be(ProjectErrors.NotFound);
     }
 
     [Theory]
