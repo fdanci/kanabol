@@ -15,7 +15,7 @@ import {
   MatDatepickerToggle,
 } from '@angular/material/datepicker';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { MatSelect } from '@angular/material/select';
+import { MatSelect, MatSelectTrigger } from '@angular/material/select';
 import { problemIn } from '../../shared/models/problem-details';
 import { Avatar } from '../../shared/ui/avatar';
 import { Chip } from '../../shared/ui/chip';
@@ -45,6 +45,7 @@ import { TaskListStore } from './task-list-store';
   imports: [
     MatButton,
     MatSelect,
+    MatSelectTrigger,
     MatOption,
     MatDatepicker,
     MatDatepickerInput,
@@ -65,14 +66,15 @@ export class TaskSheet {
   protected readonly descriptionMax = TASK_DESCRIPTION_MAX;
   protected readonly priorities = PRIORITIES;
   protected readonly priorityLabel = priorityLabel;
-  protected readonly unassigned = '';
+  protected readonly unassigned = $localize`Neasignat`;
   protected readonly busy = signal(false);
   private readonly submitted = signal(false);
 
   protected readonly title = new Field('', taskTitleProblem, this.submitted);
   protected readonly description = new Field('', taskDescriptionProblem, this.submitted);
   protected readonly priority = signal<TaskPriority>('Medium');
-  protected readonly assigneeId = signal(this.unassigned);
+  /** Any number of the active members (docs/UI_UX_SPEC.md §7.3), sent with the task. */
+  protected readonly assigneeIds = signal<string[]>([]);
   protected readonly dueDay = signal<Date | null>(null);
 
   protected readonly columns = computed(() =>
@@ -83,13 +85,19 @@ export class TaskSheet {
   protected readonly assignees = computed(() =>
     this.store.members().filter((member) => member.isActive),
   );
+  /** Who the ticks are, by name, as the select shows them. */
+  protected readonly chosenPeople = computed(() =>
+    this.assignees()
+      .filter((member) => this.assigneeIds().includes(member.userId))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ro-RO', { sensitivity: 'base' })),
+  );
 
   private readonly changed = computed(
     () =>
       this.title.changed() ||
       this.description.changed() ||
       this.priority() !== 'Medium' ||
-      this.assigneeId() !== this.unassigned ||
+      this.assigneeIds().length > 0 ||
       this.dueDay() !== null,
   );
 
@@ -113,7 +121,7 @@ export class TaskSheet {
         description: description.trim() === '' ? null : description,
         priority: this.priority(),
         columnId: this.columnId() || null,
-        assigneeId: this.assigneeId() === this.unassigned ? null : this.assigneeId(),
+        assigneeIds: this.assigneeIds(),
         dueDate: day ? endOfDay(day) : null,
       });
       this.ref.close(saved);

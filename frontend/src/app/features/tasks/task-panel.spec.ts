@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
-import { HarnessLoader } from '@angular/cdk/testing';
+import { HarnessLoader, TestKey } from '@angular/cdk/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { TestBed } from '@angular/core/testing';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
@@ -53,7 +53,14 @@ describe('TaskPanel', () => {
       members: vi.fn(() => of([aMember('me', 'Florin Danci'), aMember('u2', 'Ana Pop')])),
       rename: vi.fn((_id: string, title: string) => answer({ title })()),
       describe: vi.fn((_id: string, description: string | null) => answer({ description })()),
-      assign: answer({ assignee: { userId: 'u2', displayName: 'Ana Pop' } }),
+      assign: vi.fn((_id: string, assigneeIds: string[]) =>
+        answer({
+          assignees: [
+            { userId: 'me', displayName: 'Florin Danci' },
+            { userId: 'u2', displayName: 'Ana Pop' },
+          ].filter((person) => assigneeIds.includes(person.userId)),
+        })(),
+      ),
       prioritize: answer({ priority: 'High' }),
       schedule: vi.fn((_id: string, dueDate: string | null) => answer({ dueDate })()),
       move: answer({ columnId: 'c2', columnName: 'În lucru' }),
@@ -208,31 +215,100 @@ describe('TaskPanel', () => {
     ]);
   });
 
-  it('changes the priority, the column and the assignee where they are', async () => {
+  it('changes the priority and the column where they are', async () => {
     await open();
 
     await (await select('kb-task-priority')).clickOptions({ text: /High/ });
     await (await select('kb-task-column')).clickOptions({ text: 'În lucru' });
-    await (await select('kb-task-assignee')).clickOptions({ text: /Ana Pop/ });
 
     expect(api['prioritize']).toHaveBeenCalledWith('t1', 'High');
     expect(api['move']).toHaveBeenCalledWith('t1', 'c2');
-    expect(api['assign']).toHaveBeenCalledWith('t1', 'u2');
   });
 
-  it('puts a refused choice back, and says why', async () => {
+  // docs/UI_UX_SPEC.md §7.5: ticks with avatars, saved once, when the list closes.
+  it('saves the assignees once, when their list closes, and shows them with their names', async () => {
     await open();
-    api['assign'].mockReturnValueOnce(refused(400, 'Validation', { assigneeId: ['No.'] }));
 
-    const assignee = await select('kb-task-assignee');
-    await assignee.clickOptions({ text: /Ana Pop/ });
+    const assignees = await select('kb-task-assignee');
+    expect(await assignees.isMultiple()).toBe(true);
+    await assignees.clickOptions({ text: /Ana Pop/ });
+    await assignees.clickOptions({ text: /Florin Danci/ });
+    expect(api['assign']).not.toHaveBeenCalled();
+
+    await closeList(assignees);
     await settle();
 
-    expect(await assignee.getValueText()).toBe('Neasignat');
+    expect(api['assign']).toHaveBeenCalledTimes(1);
+    expect(api['assign']).toHaveBeenCalledWith('t1', expect.arrayContaining(['me', 'u2']));
+    expect((api['assign'].mock.calls[0] as [string, string[]])[1]).toHaveLength(2);
+    const shown = panel().querySelector('.assignees .people');
+    expect([...(shown?.querySelectorAll('kb-avatar') ?? [])].length).toBe(2);
+    expect(shown?.textContent).toContain('Florin Danci');
+    expect(shown?.textContent).toContain('Ana Pop');
+  });
+
+  it('sends nothing when the list closes as it was', async () => {
+    await open();
+
+    const assignees = await select('kb-task-assignee');
+    await assignees.clickOptions({ text: /Ana Pop/ });
+    await assignees.clickOptions({ text: /Ana Pop/ });
+    await closeList(assignees);
+    await settle();
+
+    expect(api['assign']).not.toHaveBeenCalled();
+  });
+
+  it('puts the assignees back when the API refuses them, and says why', async () => {
+    await open();
+    api['assign'].mockReturnValueOnce(refused(400, 'Validation', { assigneeIds: ['No.'] }));
+
+    const assignees = await select('kb-task-assignee');
+    await assignees.clickOptions({ text: /Ana Pop/ });
+    await closeList(assignees);
+    await settle();
+
+    expect(await assignees.getValueText()).toBe('Neasignat');
     expect(snackbar.error).toHaveBeenCalledWith(
-      'Poate fi asignat doar un membru activ al proiectului.',
+      'Pot fi asignați doar membri activi ai proiectului, fiecare o dată.',
       null,
     );
+  });
+
+  // docs/SPEC.md §4.4: someone deactivated stays until someone takes them off, then can't come back.
+  it('lets a deactivated assignee be taken off, but not given the task again', async () => {
+    task = { ...task, assignees: [{ userId: 'u3', displayName: 'Bob Ionescu' }] };
+    await open();
+
+    const assignees = await select('kb-task-assignee');
+    await assignees.open();
+    const bob = (await assignees.getOptions({ text: /Bob Ionescu/ }))[0];
+    expect(await bob.isSelected()).toBe(true);
+    expect(await bob.isDisabled()).toBe(false);
+    await bob.click();
+    expect(await bob.isDisabled()).toBe(true);
+    await closeList(assignees);
+    await settle();
+
+    expect(api['assign']).toHaveBeenCalledWith('t1', []);
+  });
+
+  it('shows the assignees with their names to whoever only reads the task', async () => {
+    task = {
+      ...task,
+      canChange: false,
+      assignees: [
+        { userId: 'u2', displayName: 'Ana Pop' },
+        { userId: 'me', displayName: 'Florin Danci' },
+      ],
+    };
+    const opened = await open();
+
+    const people = opened.querySelector('.assignees .people');
+    expect(people?.querySelectorAll('kb-avatar').length).toBe(2);
+    expect(people?.textContent).toContain('Ana Pop');
+    expect(people?.textContent).toContain('Florin Danci');
+    expect(opened.querySelector('#kb-task-assignee')?.textContent).toBe('Asignați');
   });
 
   it('clears the deadline', async () => {
@@ -329,3 +405,11 @@ describe('TaskPanel', () => {
     expect(panel()).not.toBeNull();
   });
 });
+
+/**
+ * Closes a list as a person does, with Esc on its trigger. MatSelectHarness.close clicks the first
+ * backdrop of the page, which in a sheet or the panel is the dialog's, and closes that instead.
+ */
+async function closeList(select: MatSelectHarness): Promise<void> {
+  await (await select.host()).sendKeys(TestKey.ESCAPE);
+}

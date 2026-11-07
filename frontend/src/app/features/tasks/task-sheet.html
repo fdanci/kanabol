@@ -84,15 +84,26 @@
     </div>
 
     <div class="kb-form-row">
-      <span id="task-assignee" class="kb-form-label" i18n>Asignat</span>
+      <span id="task-assignee" class="kb-form-label" i18n>Asignați</span>
       <mat-select
-        class="kb-field kb-select"
+        multiple
+        class="kb-field kb-select assignees"
         panelClass="kb-menu"
         aria-labelledby="task-assignee"
-        [value]="assigneeId()"
-        (selectionChange)="assigneeId.set($event.value)"
+        [placeholder]="unassigned"
+        [value]="assigneeIds()"
+        (selectionChange)="assigneeIds.set($event.value)"
       >
-        <mat-option [value]="unassigned" i18n>Neasignat</mat-option>
+        <mat-select-trigger>
+          <span class="people">
+            @for (person of chosenPeople(); track person.userId) {
+              <span class="person">
+                <kb-avatar [name]="person.displayName" />
+                <span class="kb-truncate">{{ person.displayName }}</span>
+              </span>
+            }
+          </span>
+        </mat-select-trigger>
         @for (member of assignees(); track member.userId) {
           <mat-option [value]="member.userId">
             <span class="person">

@@ -24,8 +24,8 @@ export function refusedFieldMessage(field: string): string {
       return $localize`Titlul nu e bun: e prea lung sau are caractere care nu se văd.`;
     case 'description':
       return $localize`Descrierea e prea lungă sau are caractere care nu se văd.`;
-    case 'assigneeId':
-      return $localize`Poate fi asignat doar un membru activ al proiectului.`;
+    case 'assigneeIds':
+      return $localize`Pot fi asignați doar membri activi ai proiectului, fiecare o dată.`;
     case 'columnId':
       return $localize`Coloana nu mai e pe board-ul proiectului. Reîncarcă pagina.`;
     default:

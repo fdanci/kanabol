@@ -878,8 +878,76 @@ task_4() {
   check "frontend/CLAUDE.md names the stack and the filter" the_shared_piece_is_written_down
 }
 
+# ---- 13b.5: the multiple select with avatars in the panel and the sheet, saved once, and the history.
+
+tasks_ui=$app/features/tasks
+
+both_selects_are_multiple() {
+  node -e "
+    const fs = require('fs');
+    for (const file of process.argv.slice(1)) {
+      const s = fs.readFileSync(file, 'utf8');
+      const select = s.slice(s.lastIndexOf('<mat-select', s.indexOf('-assignee\"')), s.indexOf('</mat-select>', s.indexOf('-assignee\"')));
+      for (const text of ['multiple', '<mat-select-trigger>', '<kb-avatar [name]=\"person.displayName\" />', '[placeholder]=\"unassigned\"']) {
+        if (!select.includes(text)) { console.log(file + ': the assignees select lacks ' + text); process.exit(1); }
+      }
+    }
+  " "$tasks_ui/task-panel.html" "$tasks_ui/task-sheet.html"
+}
+
+the_panel_saves_when_the_list_closes() {
+  in_file '(openedChange)="assigneesOpened($event, assigneeSelect)"' "$tasks_ui/task-panel.html" &&
+    in_file '(selectionChange)="chosenAssignees.set($event.value)"' "$tasks_ui/task-panel.html" &&
+    in_file 'this.chosenAssignees.set(before);' "$tasks_ui/task-panel.ts"
+}
+
+the_api_sends_the_whole_list() {
+  in_file "/tasks/\${id}/assignees\`, { assigneeIds }" "$tasks_ui/tasks-api.ts" &&
+    in_file "case 'assigneeIds':" "$tasks_ui/task-fields.ts" &&
+    lacks "/assignee\`" "$tasks_ui/tasks-api.ts" &&
+    lacks 'assigneeId[^s]|\.assignee\b' "$tasks_ui"/task-panel* "$tasks_ui"/task-sheet* "$tasks_ui/models.ts" "$tasks_ui/task-testing.ts"
+}
+
+panel_specs_name_the_rules() {
+  spec_names "$tasks_ui/task-panel.spec.ts" \
+    'saves the assignees once, when their list closes, and shows them with their names' \
+    'sends nothing when the list closes as it was' \
+    'puts the assignees back when the API refuses them, and says why' \
+    'lets a deactivated assignee be taken off, but not given the task again' \
+    'shows the assignees with their names to whoever only reads the task' &&
+    spec_names "$tasks_ui/task-panel-store.spec.ts" 'sends the whole list of assignees and keeps what the API saved' &&
+    spec_names "$tasks_ui/task-history.spec.ts" \
+      'names the people before and after, by name whatever the case' \
+      'says Neasignat for nobody, on either side'
+}
+
+the_texts_of_the_panel_are_there() {
+  # task-history.ts waits for the timeline of group 16, so its texts aren't in the app yet.
+  messages_have 'Pot fi asignați doar membri activi ai proiectului, fiecare o dată.' && messages_have '>Asignați<'
+}
+
+the_panel_is_written_down() {
+  in_file 'saved once, when the list closes' frontend/CLAUDE.md && in_file '`assigneesChange`' frontend/CLAUDE.md
+}
+
+task_5() {
+  echo "13b.5 The multiple select with avatars in the panel and the sheet, saved once, and the history's names"
+  check "the history's names are tracked" tracked "$tasks_ui/task-history.ts"
+  check "the panel and the sheet pick the assignees from a multiple select with avatars" both_selects_are_multiple
+  check "the panel saves when the list closes, and puts it back when refused" the_panel_saves_when_the_list_closes
+  check "the API gets the whole list, and nothing reads a single assignee" the_api_sends_the_whole_list
+  check "the specs name the save on close, the refusal, a deactivated assignee and the history" panel_specs_name_the_rules
+  check "the panel's specs pass" specs_pass src/app/features/tasks/task-panel.spec.ts 20
+  check "every spec of the tasks feature passes, the sheet's among them" specs_pass "src/app/features/tasks/*.spec.ts" 57
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build sends the list to …/assignees" bundle_has '/assignees'
+  check "the texts are there" the_texts_of_the_panel_are_there
+  check "frontend/CLAUDE.md says how the panel saves them" the_panel_is_written_down
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 
 for task in "$@"; do

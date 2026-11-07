@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
-import { HarnessLoader } from '@angular/cdk/testing';
+import { HarnessLoader, TestKey } from '@angular/cdk/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { TestBed } from '@angular/core/testing';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
@@ -350,11 +350,14 @@ describe('TaskListPage', () => {
     const title = sheet.querySelector<HTMLInputElement>('#task-title')!;
     title.value = '  Raport lunar ';
     title.dispatchEvent(new Event('input'));
-    await (
-      await loader.getHarness(
-        MatSelectHarness.with({ selector: '[aria-labelledby~="task-assignee"]' }),
-      )
-    ).clickOptions({ text: /Ana Pop/ });
+    const assignees = await loader.getHarness(
+      MatSelectHarness.with({ selector: '[aria-labelledby~="task-assignee"]' }),
+    );
+    expect(await assignees.isMultiple()).toBe(true);
+    expect(await assignees.getValueText()).toBe('Neasignat');
+    await assignees.clickOptions({ text: /Ana Pop/ });
+    await assignees.clickOptions({ text: /Florin Danci/ });
+    await closeList(assignees);
     await (
       await loader.getHarness(
         MatSelectHarness.with({ selector: '[aria-labelledby~="task-column"]' }),
@@ -368,7 +371,7 @@ describe('TaskListPage', () => {
       description: null,
       priority: 'Medium',
       columnId: 'c2',
-      assigneeId: 'u2',
+      assigneeIds: ['me', 'u2'],
       dueDate: null,
     });
     expect(snackbar.show).toHaveBeenCalledWith('Task-ul KAN-4 a fost creat.');
@@ -395,3 +398,11 @@ describe('TaskListPage', () => {
     expect(sheet.querySelector('#task-title-error')?.textContent).toBe('Scrie titlul task-ului.');
   });
 });
+
+/**
+ * Closes a list as a person does, with Esc on its trigger. MatSelectHarness.close clicks the first
+ * backdrop of the page, which in a sheet or the panel is the dialog's, and closes that instead.
+ */
+async function closeList(select: MatSelectHarness): Promise<void> {
+  await (await select.host()).sendKeys(TestKey.ESCAPE);
+}
