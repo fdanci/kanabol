@@ -6,6 +6,7 @@ using Kanabol.Api.Realtime;
 using Kanabol.Application;
 using Kanabol.Application.Abstractions;
 using Kanabol.Infrastructure;
+using Microsoft.AspNetCore.Http.Connections;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -65,8 +66,13 @@ app.UseAuthorization();
 app.MapControllers().RequireAuthorization();
 
 // A connection lasts no longer than the token it was opened with: the browser opens another with a fresh
-// one, and IProjectAccess is asked again when it joins its board (SPEC section 9).
-app.MapHub<BoardHub>(BoardHub.Path, options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
+// one, and IProjectAccess is asked again when it joins its board (SPEC section 9). WebSockets only, since a
+// long poll or a send of Server-Sent Events may bring a fresh token and push that expiry back for ever.
+app.MapHub<BoardHub>(BoardHub.Path, options =>
+{
+    options.Transports = HttpTransportType.WebSockets;
+    options.CloseOnAuthenticationExpiration = true;
+}).RequireAuthorization();
 app.MapHealthChecks("/health").AllowAnonymous();
 
 await app.RunAsync();

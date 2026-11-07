@@ -1,5 +1,5 @@
 import { Injectable, InjectionToken, effect, inject, untracked } from '@angular/core';
-import { HubConnectionBuilder } from '@microsoft/signalr';
+import { HttpTransportType, HubConnectionBuilder } from '@microsoft/signalr';
 import { environment } from '../../../environments/environment';
 import { AuthStore } from '../auth/auth-store';
 import { Logger } from '../logging/logger';
@@ -25,7 +25,10 @@ const RECONNECT_DELAYS = [0, 2_000, 10_000, 30_000];
 /** After SignalR gives up, or couldn't start: again after 1 and 5 seconds, then every 30. */
 const RESTART_DELAYS = [1_000, 5_000, 30_000];
 
-/** The board hub, with the token in its address (docs/SPEC.md §4.5), and SignalR's log in ours. */
+/**
+ * The board hub, with the token in its address (docs/SPEC.md §4.5), and SignalR's log in ours. WebSockets
+ * only, as the API offers: it negotiates first, for the connection id that X-Connection-Id carries.
+ */
 export const HUB_LINK_FACTORY = new InjectionToken<(accessToken: () => Promise<string>) => HubLink>(
   'HUB_LINK_FACTORY',
   {
@@ -34,7 +37,10 @@ export const HUB_LINK_FACTORY = new InjectionToken<(accessToken: () => Promise<s
       const log = new HubLog(inject(Logger));
       return (accessToken) =>
         new HubConnectionBuilder()
-          .withUrl(`${environment.hubsBaseUrl}/board`, { accessTokenFactory: accessToken })
+          .withUrl(`${environment.hubsBaseUrl}/board`, {
+            accessTokenFactory: accessToken,
+            transport: HttpTransportType.WebSockets,
+          })
           .withAutomaticReconnect(RECONNECT_DELAYS)
           .configureLogging(log)
           .build();

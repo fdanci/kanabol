@@ -495,7 +495,7 @@ hub_tests_pass() {
     BoardHubTests.JoinProject_AsAMemberDeactivatedSinceTheirToken_IsRefused \
     BoardHubTests.LeaveProject_AfterJoining_StopsTheProjectsMessages \
     BoardHubTests.Connection_WhenItsTokenExpires_IsClosedByTheServer \
-    BoardHubTests.JoinProject_IsLoggedWithTheUserTheProjectAndTheConnection
+    BoardHubTests.JoinProject_IsLoggedWithTheUserTheProjectAndTheConnection     BoardHubTests.Negotiate_OffersWebSocketsOnly     BoardHubTests.Connect_OverAnotherTransport_IsRefused     BoardHubTests.Negotiate_WithTheTokenUnderAnEncodedName_Returns401
 }
 
 request_context_tests_pass() {
@@ -514,6 +514,14 @@ negotiation_needs_a_token() {
 the_token_opens_the_hub_from_the_query_string() {
   admin_is_ready || return 1
   status_is 200 "$(negotiate "&access_token=$admin_token")"
+}
+
+# A long poll, or a send of Server-Sent Events, may bring a fresh token and push the connection's expiry
+# back for ever, so the hub speaks WebSockets alone.
+the_hub_offers_websockets_only() {
+  admin_is_ready || return 1
+  status_is 200 "$(negotiate "&access_token=$admin_token")" || return 1
+  is WebSockets "$(json "b.availableTransports.map(t => t.transport).join()")"
 }
 
 the_query_string_opens_nothing_under_api() {
@@ -611,10 +619,11 @@ task_1() {
   check "its implementation is tracked" tracked "$realtime/HttpRequestContext.cs"
   check "the solution builds without warnings" solution_builds
   check "the formatting is clean" formatting_is_clean
-  check "the hub's tests pass: the token, the groups, the refusals, the expiry and the log" hub_tests_pass
+  check "the hub's tests pass: the token, its name, the groups, the refusals, the transports, the expiry and the log" hub_tests_pass
   check "X-Connection-Id passes only as an id SignalR could make" request_context_tests_pass
   check "the real API refuses a negotiation without a token" negotiation_needs_a_token
   check "and opens it with the token in the query string" the_token_opens_the_hub_from_the_query_string
+  check "it offers WebSockets only" the_hub_offers_websockets_only
   check "a token in the query string opens nothing under /api" the_query_string_opens_nothing_under_api
   check "the hub waits for the forced password change" the_hub_waits_for_the_password_change
   check "a WebSocket with the token only in its address connects" a_websocket_connects_with_the_token_in_the_address
@@ -834,6 +843,7 @@ every_request_carries_the_connection() {
 
 the_service_connects_as_the_spec_says() {
   in_file 'withAutomaticReconnect(RECONNECT_DELAYS)' "$realtime_web/realtime.ts" &&
+    in_file 'transport: HttpTransportType.WebSockets,' "$realtime_web/realtime.ts" &&
     in_file "\`\${environment.hubsBaseUrl}/board\`" "$realtime_web/realtime.ts" &&
     in_file 'accessTokenFactory' "$realtime_web/realtime.ts" &&
     in_file "invoke('JoinProject', projectId)" "$realtime_web/realtime.ts" &&
@@ -870,7 +880,10 @@ realtime_specs_name_the_rules() {
       'sends none without a connection' &&
     spec_names "$realtime_web/hub-log.spec.ts" 'hides the token in an address' &&
     spec_names "$app/core/auth/auth-store.spec.ts" \
-      'is a refreshed one when the token is about to expire'
+      'is a refreshed one when the token is about to expire' \
+      'counts the token from when it came, whatever the clock of this computer says' \
+      'ends the session of this tab' \
+      'keeps the session when it answers for the same user'
 }
 
 board_specs_name_the_rules() {
@@ -878,6 +891,7 @@ board_specs_name_the_rules() {
     'joins the project it opens, and leaves it for the next one' \
     'moves a card someone else moved, without reading the board again, and pulses it' \
     'ignores what its own tab did, which it shows already' \
+    'hears a change of someone else that claims to come from this tab' \
     'ignores the changes of other projects' \
     'reads itself again quietly and pulses the card on TaskCreated, TaskUpdated and TaskRestored' \
     'reads itself again when the connection comes back, for what it missed' \
@@ -936,8 +950,8 @@ task_3() {
   check "the specs name the connection's rules" realtime_specs_name_the_rules
   check "the specs name the board's" board_specs_name_the_rules
   check "the connection's specs pass" specs_pass 'src/app/core/realtime/*.spec.ts' 18
-  check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 24
-  check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 84
+  check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 27
+  check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 85
   check "the project page shows the board with a fake connection" specs_pass src/app/features/projects/project-page.spec.ts 10
   check "the lint is clean" frontend_lint_is_clean
   check "the formatting is clean" frontend_formatting_is_clean
@@ -960,9 +974,10 @@ task_4() {
   check "Docker is running" docker_is_running
   check "the flows are tracked" tracked backend/tests/Kanabol.Api.Tests/Realtime/BoardRealtimeFlowTests.cs
   check "the flows pass: an authenticated handshake hears a TaskMoved, an outsider hears nothing, a tab is the origin of its changes, assignees send TaskUpdated" flow_tests_pass
-  check "every test of real time in the API passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~Kanabol.Api.Tests.Realtime' 30
-  check "the board ignores its own tab" spec_names "$board_web/board-store.spec.ts" 'ignores what its own tab did, which it shows already'
-  check "and its spec passes" specs_pass src/app/features/board/board-store.spec.ts 32
+  check "every test of real time in the API passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~Kanabol.Api.Tests.Realtime' 34
+  check "the board ignores its own tab, and only its own user's change from it" spec_names "$board_web/board-store.spec.ts" \
+    'ignores what its own tab did, which it shows already' 'hears a change of someone else that claims to come from this tab'
+  check "and its spec passes" specs_pass src/app/features/board/board-store.spec.ts 33
 }
 
 if [ "$#" -eq 0 ]; then

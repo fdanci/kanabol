@@ -18,6 +18,15 @@ function session(accessToken: string, mustChangePassword = false): AccessTokenDt
   return { accessToken, expiresAt: '2026-11-06T10:15:00Z', mustChangePassword };
 }
 
+/** A token shaped like the API's, with the claims given; the signature is never checked here. */
+function jwt(claims: Record<string, unknown>): string {
+  const payload = btoa(JSON.stringify(claims))
+    .replace(/=+$/, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+  return `eyJhbGciOiJIUzI1NiJ9.${payload}.c2lnbmF0dXJl`;
+}
+
 function refused(status: number): Observable<never> {
   return throwError(() => new HttpErrorResponse({ status, url: '/api/auth/x' }));
 }
@@ -315,15 +324,9 @@ describe('AuthStore', () => {
 
   // docs/SPEC.md §4.5 and §9: a hub connection carries the token in its address, and can't wait for a 401.
   describe('a fresh token for the hub', () => {
-    /** A token shaped like the API's, which expires so many seconds from now. */
+    /** A token shaped like the API's, which expires so many seconds from now, without iat. */
     function expiringIn(seconds: number): string {
-      const payload = btoa(
-        JSON.stringify({ sub: ANA.id, exp: Math.floor(Date.now() / 1000) + seconds }),
-      )
-        .replace(/=+$/, '')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_');
-      return `eyJhbGciOiJIUzI1NiJ9.${payload}.c2lnbmF0dXJl`;
+      return jwt({ sub: ANA.id, exp: Math.floor(Date.now() / 1000) + seconds });
     }
 
     it('is the token it has while that has more than 30 seconds left', async () => {
@@ -358,6 +361,54 @@ describe('AuthStore', () => {
 
       expect(await store.freshToken()).toBeNull();
       expect(api.refresh).not.toHaveBeenCalled();
+    });
+
+    // The API's clock decides when a token expires; this computer's may be minutes off. The token's own
+    // lifetime, exp less iat, counted from when it came, doesn't depend on either.
+    it('counts the token from when it came, whatever the clock of this computer says', async () => {
+      vi.useFakeTimers();
+      try {
+        const issuedAnHourAgo = Math.floor(Date.now() / 1000) - 3600;
+        const held = jwt({ sub: ANA.id, iat: issuedAnHourAgo, exp: issuedAnHourAgo + 900 });
+        api.login.mockReturnValue(of(session(held)));
+        const store = tab(api);
+        await store.login('ana@example.com', 'parola');
+
+        expect(await store.freshToken()).toBe(held);
+        vi.advanceTimersByTime(875_000);
+
+        expect(await store.freshToken()).toBe('refreshed-token');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  // The refresh cookie is the browser's, shared by every tab: after someone else signs in elsewhere, a
+  // refresh here answers for them. This tab ends its session rather than act as them under the wrong name.
+  describe('a refresh that answers for someone else', () => {
+    it('ends the session of this tab', async () => {
+      api.login.mockReturnValue(of(session(jwt({ sub: ANA.id }))));
+      api.refresh.mockReturnValue(
+        of(session(jwt({ sub: '019a0000-0000-7000-8000-0000000000b2' }))),
+      );
+      const store = tab(api);
+      await store.login('ana@example.com', 'parola');
+
+      expect(await store.refresh()).toBeNull();
+      expect(store.isSignedIn()).toBe(false);
+      expect(store.accessToken()).toBeNull();
+    });
+
+    it('keeps the session when it answers for the same user', async () => {
+      const again = jwt({ sub: ANA.id, n: 2 });
+      api.login.mockReturnValue(of(session(jwt({ sub: ANA.id }))));
+      api.refresh.mockReturnValue(of(session(again)));
+      const store = tab(api);
+      await store.login('ana@example.com', 'parola');
+
+      expect(await store.refresh()).toBe(again);
+      expect(store.isSignedIn()).toBe(true);
     });
   });
 });

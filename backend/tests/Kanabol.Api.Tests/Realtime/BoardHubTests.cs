@@ -2,6 +2,8 @@ using System.Net;
 using Kanabol.Api.Realtime;
 using Kanabol.Api.Tests.Support;
 using Kanabol.Domain.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
@@ -69,6 +71,66 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var response = await Send(HttpMethod.Get, $"/api/auth/me?access_token={Uri.EscapeDataString(token)}", accessToken: null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "only the hubs take a token from the address");
+    }
+
+    // Each long poll, or each send of Server-Sent Events, may bring a fresh token and move the connection's
+    // expiry, so a user who lost a project would keep hearing it: WebSockets alone, whose expiry is set once.
+    [Fact]
+    public async Task Negotiate_OffersWebSocketsOnly()
+    {
+        var user = await CreateUser(UnusedEmail());
+
+        var response = await Negotiate($"&access_token={Uri.EscapeDataString(Api.Factory.CreateToken(user.Id))}");
+
+        using var body = await JsonFrom(response);
+        body.RootElement.GetProperty("availableTransports").EnumerateArray()
+            .Select(transport => transport.GetProperty("transport").GetString())
+            .Should().Equal("WebSockets");
+    }
+
+    [Theory]
+    [InlineData(HttpTransportType.LongPolling)]
+    [InlineData(HttpTransportType.ServerSentEvents)]
+    public async Task Connect_OverAnotherTransport_IsRefused(HttpTransportType transport)
+    {
+        var user = await CreateUser(UnusedEmail());
+        var server = Api.Factory.Server;
+        var connection = new HubConnectionBuilder()
+            .WithUrl(new Uri(server.BaseAddress, $"hubs/board?access_token={Uri.EscapeDataString(Api.Factory.CreateToken(user.Id))}"), options =>
+            {
+                options.Transports = transport;
+                options.HttpMessageHandlerFactory = _ => server.CreateHandler();
+            })
+            .Build();
+        await using var disposed = connection;
+
+        var connecting = () => connection.StartAsync();
+
+        await connecting.Should().ThrowAsync<Exception>();
+        connection.State.Should().Be(HubConnectionState.Disconnected);
+    }
+
+    // ASP.NET decodes the names in a query string, so access%5Ftoken would be read as access_token while
+    // the log's redaction looks for the name as sent: only the literal name opens the hub. The query goes
+    // as sent through the test server, since HttpClient's Uri would decode %5F and %61 itself.
+    [Fact]
+    public async Task Negotiate_WithTheTokenUnderAnEncodedName_Returns401()
+    {
+        var user = await CreateUser(UnusedEmail());
+        var token = Uri.EscapeDataString(Api.Factory.CreateToken(user.Id));
+
+        async Task<int> NegotiateAsSent(string query) =>
+            (await Api.Factory.Server.SendAsync(context =>
+            {
+                context.Request.Method = HttpMethods.Post;
+                context.Request.Path = $"{BoardHub}/negotiate";
+                context.Request.QueryString = new QueryString($"?negotiateVersion=1{query}");
+            })).Response.StatusCode;
+
+        (await NegotiateAsSent($"&access%5Ftoken={token}")).Should().Be(StatusCodes.Status401Unauthorized);
+        (await NegotiateAsSent($"&%61ccess_token={token}")).Should().Be(StatusCodes.Status401Unauthorized);
+        (await NegotiateAsSent($"&access_token={token}")).Should().Be(StatusCodes.Status200OK);
+        (await NegotiateAsSent($"&ACCESS_TOKEN={token}")).Should().Be(StatusCodes.Status200OK, "query names are read whatever their case, and so is the redaction");
     }
 
     [Fact]
