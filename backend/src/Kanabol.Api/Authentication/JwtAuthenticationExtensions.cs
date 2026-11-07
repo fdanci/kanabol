@@ -44,10 +44,13 @@ public static class JwtAuthenticationExtensions
     /// <summary>
     /// A browser can't put a header on a WebSocket, so the hubs alone take the token from access_token in the
     /// query string (SPEC section 4.5). Everywhere else it stays in the header, out of addresses and logs.
+    /// ASP.NET decodes the names in a query string, so the name has to be there as sent, as the logs'
+    /// redaction looks for it, and once.
     /// </summary>
     private static Task TakeHubTokenFromTheQueryString(MessageReceivedContext context)
     {
         if (context.Request.Path.StartsWithSegments(_hubsPath)
+            && NamesTheTokenAsSent(context.Request.QueryString)
             && context.Request.Query.TryGetValue(AccessTokenParameter, out var token)
             && token.Count == 1)
         {
@@ -56,4 +59,8 @@ public static class JwtAuthenticationExtensions
 
         return Task.CompletedTask;
     }
+
+    private static bool NamesTheTokenAsSent(QueryString query) =>
+        query.HasValue && query.Value!.TrimStart('?').Split('&').Any(
+            part => part.StartsWith(AccessTokenParameter + "=", StringComparison.OrdinalIgnoreCase));
 }
