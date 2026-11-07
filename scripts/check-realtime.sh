@@ -268,6 +268,11 @@ body_field() { # body_field <name>: the value of the first text field with that 
   sed -n "s/^[^\"]*\"$1\":\"\([^\"]*\)\".*/\1/p; t; s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$scratch/body" | head -n 1
 }
 
+json() { # json <JavaScript expression on b, the last answer>: prints its value
+  node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
+    "$(native "$scratch/body")" "$1"
+}
+
 status_is() { # status_is <expected status> <actual status>: shows the answer when it differs
   is "$1" "$2" || {
     cat "$scratch/body" 2>/dev/null
@@ -612,8 +617,142 @@ task_1() {
   check "and still has the hub's address, with the token hidden" the_development_log_has_the_address_without_the_token
 }
 
+# ---- 14.2: IBoardNotifier over the hub, fed by the domain event handlers, with small payloads.
+
+realtime_app=backend/src/Kanabol.Application/Features/Realtime
+
+board_events_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    BoardEventsHandlerTests.Create_OfATask_TellsTheProjectTaskCreatedWithWhoAndTheTab \
+    BoardEventsHandlerTests.Create_ForAssignees_AlsoTellsTheProjectTheAssigneesChanged \
+    BoardEventsHandlerTests.Move_ToAnotherColumn_TellsTheProjectTaskMovedWithTheColumnAndThePlace \
+    BoardEventsHandlerTests.Move_WithinItsColumn_TellsOnlyOfTheTaskMovedNotOfThoseAround \
+    BoardEventsHandlerTests.EachChangeOfAField_TellsTheProjectTaskUpdatedWithTheField \
+    BoardEventsHandlerTests.Assign_TakingEveryoneOff_StillTellsTheProjectTheAssigneesChanged \
+    BoardEventsHandlerTests.ArchiveAndRestore_TellTheProjectTaskArchivedThenTaskRestored \
+    BoardEventsHandlerTests.AChange_WithoutAConnection_CarriesNoOrigin \
+    BoardEventsHandlerTests.AChangeThatChangesNothing_TellsNobody \
+    BoardEventsHandlerTests.Assign_OfSomeoneNew_TellsThemNotificationCreatedOnTheirOwnGroup \
+    BoardEventsHandlerTests.AChange_WhenTheHubFails_IsSavedAllTheSameAndTheFailureLogged
+}
+
+step() { # step <name of the tab, or nothing> <method> <path> [JSON body]: one request of a hub run
+  printf '{"request":"%s","method":"%s","token":"%s"%s%s}' "$3" "$2" "$admin_token" \
+    "${1:+,\"as\":\"$1\"}" "${4:+,\"body\":$4}"
+}
+
+# One run on the real API: the admin's tab and Dan's on RT's board, Eva's connected but outside it. The
+# admin's tab makes each change, with its connection id; the last one goes without. The answers are kept
+# in order, and what each tab heard comes last.
+changes_are_heard() {
+  team_is_ready || return 1
+  [ -n "${second_column:-}" ] && return 0
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$rt_id/board-columns")" || return 1
+  column=$(json "b[1].id")
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$rt_id/tasks" '{"title":"Primul","priority":"Low"}')" || return 1
+  first_task=$(body_field id)
+  hub "[
+    {\"connect\":\"admin\",\"token\":\"$admin_token\"},{\"join\":\"admin\",\"project\":\"$rt_id\"},
+    {\"connect\":\"dan\",\"token\":\"$dan_token\"},{\"join\":\"dan\",\"project\":\"$rt_id\"},
+    {\"connect\":\"eva\",\"token\":\"$eva_token\"},{\"join\":\"eva\",\"project\":\"$rt_id\"},
+    $(step admin POST "/api/projects/$rt_id/tasks" '{"title":"Al doilea","priority":"High"}'),
+    $(step admin PATCH "/api/tasks/$first_task/position" "{\"columnId\":\"$column\",\"position\":0}"),
+    $(step admin PUT "/api/tasks/$first_task/title" '{"title":"Primul, redenumit"}'),
+    $(step admin PUT "/api/tasks/$first_task/priority" '{"priority":"Critical"}'),
+    $(step admin PUT "/api/tasks/$first_task/assignees" "{\"assigneeIds\":[\"$dan_id\"]}"),
+    $(step admin DELETE "/api/tasks/$first_task"),
+    $(step admin POST "/api/tasks/$first_task/restore"),
+    $(step '' PUT "/api/tasks/$first_task/description" '{"description":"Fara tab"}')
+  ]" || return 1
+  steps_were "connected|joined|connected|joined|connected|refused: An unexpected error occurred invoking 'JoinProject' on the server. HubException: Project.MemberRequired|201|200|200|200|200|204|200|200" || return 1
+  second_column=$column
+}
+
+# What a tab heard of the project, as event:field or event, in order, without NotificationCreated.
+board_heard_by() { # board_heard_by <name>
+  heard "r.heard.$1.filter(m => m.event !== 'NotificationCreated').map(m => m.event + (m.payload.field ? ':' + m.payload.field : '')).join(' ')"
+}
+
+both_boards_hear_every_change_in_order() {
+  changes_are_heard || return 1
+  expected='TaskCreated TaskMoved TaskUpdated:Title TaskUpdated:Priority TaskUpdated:Assignees TaskArchived TaskRestored TaskUpdated:Description'
+  is "$expected" "$(board_heard_by admin)" || return 1
+  is "$expected" "$(board_heard_by dan)"
+}
+
+an_outsider_hears_nothing() {
+  changes_are_heard || return 1
+  is 0 "$(heard "r.heard.eva.length")"
+}
+
+payload_keys_of() { # payload_keys_of <event>: the names in the first payload Dan heard of it
+  heard "Object.keys(r.heard.dan.find(m => m.event === '$1').payload).join()"
+}
+
+the_payloads_are_small() {
+  changes_are_heard || return 1
+  is 'taskId,projectId,byUserId,originConnectionId' "$(payload_keys_of TaskCreated)" || return 1
+  is 'taskId,projectId,byUserId,originConnectionId,columnId,position' "$(payload_keys_of TaskMoved)" || return 1
+  is 'taskId,projectId,byUserId,originConnectionId,field' "$(payload_keys_of TaskUpdated)" || return 1
+  is 'taskId,projectId,byUserId,originConnectionId' "$(payload_keys_of TaskArchived)" || return 1
+  is 'taskId,projectId,byUserId,originConnectionId' "$(payload_keys_of TaskRestored)"
+}
+
+a_move_says_where_the_card_went() {
+  changes_are_heard || return 1
+  is "$first_task $rt_id $admin_id $second_column 0" \
+    "$(heard "const p = r.heard.dan.find(m => m.event === 'TaskMoved').payload; [p.taskId, p.projectId, p.byUserId, p.columnId, p.position].join(' ')")"
+}
+
+# The admin's tab sent its own connection id, so it can tell its own changes; the last change came
+# without one, and carries none.
+each_event_carries_the_tab_that_made_it() {
+  changes_are_heard || return 1
+  tab=$(heard "r.connections.admin")
+  [ -n "$tab" ] || return 1
+  board="r.heard.dan.filter(m => m.event !== 'NotificationCreated')"
+  is "$tab" "$(heard "[...new Set($board.slice(0, -1).map(m => m.payload.originConnectionId))].join()")" || return 1
+  is null "$(heard "String($board.at(-1).payload.originConnectionId)")" || return 1
+  is "$admin_id" "$(heard "[...new Set($board.map(m => m.payload.byUserId))].join()")"
+}
+
+only_the_new_assignee_hears_of_their_notification() {
+  changes_are_heard || return 1
+  notification=$(in_db "SELECT id FROM notifications WHERE user_id = '$dan_id' AND task_id = '$first_task'")
+  [ -n "$notification" ] || return 1
+  is "{\"notificationId\":\"$notification\"}" "$(heard "JSON.stringify(r.heard.dan.filter(m => m.event === 'NotificationCreated').map(m => m.payload)[0])")" || return 1
+  is 1 "$(heard "r.heard.dan.filter(m => m.event === 'NotificationCreated').length")" || return 1
+  is 0 "$(heard "r.heard.admin.filter(m => m.event === 'NotificationCreated').length")"
+}
+
+no_handler_failed() {
+  changes_are_heard || return 1
+  if grep -qF 'failed on domain event' "$api_log"; then
+    grep -F 'failed on domain event' "$api_log" | cut -c1-300 | head -n 3
+    return 1
+  fi
+}
+
+task_2() {
+  echo "14.2 IBoardNotifier over the hub, fed by the domain event handlers"
+  check "Docker is running" docker_is_running
+  check "the notifier is tracked" tracked "$realtime/HubBoardNotifier.cs"
+  check "the handler of the task events is tracked" tracked "$realtime_app/BoardEventsHandler.cs"
+  check "the handler of the notifications is tracked" tracked "$realtime_app/NotificationCreatedEventHandler.cs"
+  check "the payloads are tracked" tracked "$realtime_app/TaskMovedDto.cs"
+  check "the solution builds without warnings" solution_builds
+  check "the handlers' tests pass: each event, its payload, its tab, and a hub that fails" board_events_tests_pass
+  check "every change reaches both boards of the project, in order" both_boards_hear_every_change_in_order
+  check "a connection outside the project hears none of it" an_outsider_hears_nothing
+  check "the payloads carry only the task, the project, who, the tab, and the move or the field" the_payloads_are_small
+  check "TaskMoved says the column and the place" a_move_says_where_the_card_went
+  check "each event carries the tab that made it, and none without X-Connection-Id" each_event_carries_the_tab_that_made_it
+  check "the new assignee alone hears NotificationCreated, on their own group" only_the_new_assignee_hears_of_their_notification
+  check "no handler failed" no_handler_failed
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 for task in "$@"; do
   "task_$task"

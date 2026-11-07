@@ -153,7 +153,7 @@ In Docker and production, settings come from environment variables:
 - A move renumbers the open tasks of the column it left and of the one it entered, 0, 1, 2..., ties by number, archived tasks taking no place. Every task whose place changes is saved with its `xmin`, so of two moves through one column at once the second gets 409 `Task.ChangedMeanwhile`. Only a change of column goes in the history (`ColumnId`, which the reports read); the others move through `ShiftTo`, quietly.
 - Overdue means open past the deadline, outside a done column, as in the project list. The search finds a part of the title in any case, and `%` or `_` are only characters there.
 - Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
-- `TaskAssignedEvent` carries the ids added and removed, and gives each assignee newly added a `TaskAssigned` notification, the same message for each, saved at once: not those already on the task, nor whoever made the change, also when a task is created for people (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, for SignalR in group 14, and its message is English, cut at 500 characters.
+- `TaskAssignedEvent` carries the ids added and removed, and gives each assignee newly added a `TaskAssigned` notification, the same message for each, saved at once: not those already on the task, nor whoever made the change, also when a task is created for people (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, which SignalR sends to its user, and its message is English, cut at 500 characters.
 
 ## Real time
 
@@ -166,7 +166,17 @@ In Docker and production, settings come from environment variables:
 - A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`), so someone who lost access stops hearing a project within 15 minutes; the browser opens another with a fresh token.
 - Tokens never reach a log: `AccessTokenRedaction` hides the value of `access_token` in every log entry, such as ASP.NET's "Request starting", which Development shows with the whole address, and nginx keeps no access log for `/hubs/`.
 - `IRequestContext` (Application, next to `ICurrentUser`) gives the connection id the browser sends in `X-Connection-Id`, read by `HttpRequestContext`: only an id SignalR could make, letters, digits, `-` and `_`, at most 64, sent once; otherwise null.
-- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address.
+- What the hub sends comes from the domain event handlers in `Features/Realtime`, after the commit, through `IBoardNotifier` (`HubBoardNotifier` in Api, over `IHubContext<BoardHub>`):
+
+| Event                                         | From                                                                                | Payload                                                                           | Group          |
+| --------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------- |
+| `TaskCreated`, `TaskArchived`, `TaskRestored` | their task events                                                                   | `taskId`, `projectId`, `byUserId`, `originConnectionId`                           | `project:{id}` |
+| `TaskMoved`                                   | `TaskMovedEvent`, the moved task only                                               | the same, and `columnId` and `position`, where it went                            | `project:{id}` |
+| `TaskUpdated`                                 | `TaskUpdatedEvent`, and `TaskAssignedEvent` with `Assignees`, a creation's included | the same, and `field`: `Title`, `Description`, `Priority`, `DueDate`, `Assignees` | `project:{id}` |
+| `NotificationCreated`                         | `NotificationCreatedEvent`                                                          | `notificationId`                                                                  | `user:{id}`    |
+
+- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. `CommentAdded` comes with group 15. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
+- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. Handler tests read what was sent from the `BoardNotifier` substitute, and set the connection through `RequestContext`.
 
 ## Browser logs
 

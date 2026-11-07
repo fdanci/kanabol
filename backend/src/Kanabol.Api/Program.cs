@@ -33,6 +33,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<IBoardNotifier, HubBoardNotifier>();
 builder.Services.AddJwtAuthentication();
 builder.Services.AddPermissionAuthorization();
 builder.Services.AddLoginRateLimit();
