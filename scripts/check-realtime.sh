@@ -5,10 +5,19 @@
 # in the query string, its logs and what each connection hears, and the frontend's production build.
 #
 # Usage: scripts/check-realtime.sh [task-number...]    (no arguments: every task)
-# Exits non-zero if any check fails. The backend tasks need Docker running and a PostgreSQL whose user
-# may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user secrets
-# (ConnectionStrings:Default); each run works in its own database and drops it. The frontend task needs
-# only the packages that scripts/setup.sh installs.
+# Exits non-zero if any check fails. What each task does, and needs:
+#   1  the hub, the token from the query string and X-Connection-Id: its tests, then the real API in
+#      Production and in Development, over a WebSocket, and the logs without the token. Docker, PostgreSQL.
+#   2  the events of the domain on the hub: their tests, then every change on the real API, heard by two
+#      boards and an outsider. Docker, PostgreSQL.
+#   3  Realtime, the interceptor and the board that listens: specs, lint, formatting, the production
+#      build. Only the packages that scripts/setup.sh installs.
+#   4  the group's flows end to end in the API's tests, and the board's spec of its own tab. Docker and
+#      the packages.
+# PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
+# or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
+# drops it. Docker runs the tests' own PostgreSQL. A small SignalR client in Node, written by the script,
+# speaks to the hub as a browser does.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -936,8 +945,28 @@ task_3() {
   check "frontend/CLAUDE.md says how it works" the_frontend_notes_say_it
 }
 
+# ---- 14.4: the group's flows end to end, as Tasks.md lists them.
+
+flow_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    BoardRealtimeFlowTests.PatchPosition_ByAMember_ReachesAnotherBoardOverAnAuthenticatedHandshake \
+    BoardRealtimeFlowTests.AnOutsider_IsRefusedTheProjectAndHearsNoneOfItsChanges \
+    BoardRealtimeFlowTests.AChange_ComesBackToTheTabThatMadeIt_WithItsOwnConnectionAsTheOrigin \
+    BoardRealtimeFlowTests.PutAssignees_SendsTaskUpdatedWithAssigneesToTheBoard_AndNotificationCreatedToTheNewAssigneeOnly
+}
+
+task_4() {
+  echo "14.4 The group's flows: the handshake and a TaskMoved, the outsider, the own tab, the assignees"
+  check "Docker is running" docker_is_running
+  check "the flows are tracked" tracked backend/tests/Kanabol.Api.Tests/Realtime/BoardRealtimeFlowTests.cs
+  check "the flows pass: an authenticated handshake hears a TaskMoved, an outsider hears nothing, a tab is the origin of its changes, assignees send TaskUpdated" flow_tests_pass
+  check "every test of real time in the API passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~Kanabol.Api.Tests.Realtime' 30
+  check "the board ignores its own tab" spec_names "$board_web/board-store.spec.ts" 'ignores what its own tab did, which it shows already'
+  check "and its spec passes" specs_pass src/app/features/board/board-store.spec.ts 32
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 for task in "$@"; do
   "task_$task"
