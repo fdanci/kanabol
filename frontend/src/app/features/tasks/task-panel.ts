@@ -143,7 +143,11 @@ export class TaskPanel {
       .filter((person) => person !== undefined)
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ro-RO', { sensitivity: 'base' }));
   });
-  /** Not null: mat-select takes an option of null for no choice at all, and would show nothing. */
+  /**
+   * The priority the select's chip shows: the one chosen, at once, then the task's as saved, or as it
+   * was when the API refuses the change.
+   */
+  protected readonly chosenPriority = linkedSignal(() => this.store.task()?.priority ?? null);
 
   protected readonly editingTitle = signal(false);
   protected readonly titleDraft = signal('');
@@ -282,11 +286,13 @@ export class TaskPanel {
   }
 
   protected async prioritize(select: MatSelect, priority: TaskPriority): Promise<void> {
-    this.revertIfRefused(
-      select,
-      this.store.task()?.priority,
-      await this.store.prioritize(priority),
-    );
+    const before = this.store.task()?.priority ?? null;
+    this.chosenPriority.set(priority);
+    const outcome = await this.store.prioritize(priority);
+    if (!outcome.saved) {
+      this.chosenPriority.set(this.store.task()?.priority ?? before);
+    }
+    this.revertIfRefused(select, before, outcome);
   }
 
   protected async schedule(day: Date | null): Promise<void> {

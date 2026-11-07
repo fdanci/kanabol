@@ -11,6 +11,8 @@
 #      outsider. Docker, PostgreSQL.
 #   2  the "Istoric" tab of the task's panel: specs, lint, formatting, the production build. Only the
 #      packages that scripts/setup.sh installs.
+#   3  the panel's priority select, with the priority's chip in its trigger: specs, lint, formatting, the
+#      production build. Only the packages.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -654,8 +656,42 @@ task_2() {
   check "frontend/CLAUDE.md says how it works" in_file '`kb-task-timeline`' frontend/CLAUDE.md
 }
 
+# ---- 16.3: the panel's priority select shows its chip.
+
+the_priority_spec_names_the_rule() {
+  spec_names "$tasks_web/task-panel.spec.ts" \
+    'shows the priority as its chip in the select, not the name of its icon' \
+    'changes the priority and the column where they are'
+}
+
+# docs/UI_UX_SPEC.md §7.5: mat-select-trigger with kb-chip, as the assignees have their own trigger.
+the_priority_select_has_a_trigger_of_its_own() {
+  node -e "
+    const html = require('fs').readFileSync(process.argv[1], 'utf8');
+    const start = html.indexOf('#prioritySelect');
+    const end = html.indexOf('</mat-select>', start);
+    const select = html.slice(start, end);
+    const trigger = select.slice(select.indexOf('<mat-select-trigger>'), select.indexOf('</mat-select-trigger>'));
+    if (start < 0 || !trigger.includes('<kb-chip [kind]=\"\$any(chosen.toLowerCase())\">') || !trigger.includes('priorityLabel(chosen)')) {
+      console.log('the priority select has no mat-select-trigger with its kb-chip');
+      process.exit(1);
+    }" "$(native "$tasks_web/task-panel.html")" &&
+    in_file 'protected readonly chosenPriority = linkedSignal(' "$tasks_web/task-panel.ts"
+}
+
+task_3() {
+  echo "16.3 The panel's priority select shows the priority's chip, not its icon's name"
+  check "the specs name the rule" the_priority_spec_names_the_rule
+  check "the specs of the panel pass" specs_pass 'src/app/features/tasks/task-panel.spec.ts' 24
+  check "the priority select has a mat-select-trigger with kb-chip" the_priority_select_has_a_trigger_of_its_own
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "frontend/CLAUDE.md says how it works" in_file 'the priority select shows its `kb-chip`' frontend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 for task in "$@"; do
   "task_$task"

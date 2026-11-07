@@ -138,6 +138,15 @@ describe('TaskPanel', () => {
     );
   }
 
+  /** What a sighted reader sees: the text without what's hidden from them, such as an icon's ligature. */
+  function visibleText(element: HTMLElement): string {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => {
+      hidden.remove();
+    });
+    return copy.textContent.replace(/\s+/g, ' ').trim();
+  }
+
   afterEach(() => {
     TestBed.inject(MatDialog).closeAll();
   });
@@ -236,6 +245,28 @@ describe('TaskPanel', () => {
 
     expect(api['prioritize']).toHaveBeenCalledWith('t1', 'High');
     expect(api['move']).toHaveBeenCalledWith('t1', 'c2');
+  });
+
+  // docs/UI_UX_SPEC.md §7.5: the select shows the priority's chip, through mat-select-trigger, not
+  // the text of its option, which held the icon's name: "arrow_upwardHigh" (a bug from group 12).
+  it('shows the priority as its chip in the select, not the name of its icon', async () => {
+    await open();
+    const host = panel().querySelector<HTMLElement>('[aria-labelledby~="kb-task-priority"]')!;
+    expect(visibleText(host)).toBe('Medium');
+    expect(host.querySelector('kb-chip')?.classList).toContain('medium');
+
+    await (await select('kb-task-priority')).clickOptions({ text: /High/ });
+    await settle();
+
+    expect(visibleText(host)).toBe('High');
+    expect(host.querySelector('kb-chip')?.classList).toContain('high');
+
+    api['prioritize'].mockReturnValueOnce(refused(403, 'Project.MemberRequired'));
+    await (await select('kb-task-priority')).clickOptions({ text: /Critical/ });
+    await settle();
+
+    expect(visibleText(host)).toBe('High');
+    expect(host.querySelector('kb-chip')?.classList).toContain('high');
   });
 
   // docs/UI_UX_SPEC.md §7.5: ticks with avatars, saved once, when the list closes.
