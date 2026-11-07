@@ -654,8 +654,105 @@ task_2() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- 13b.3: TaskAssigned for each assignee newly added, and nobody else.
+
+notification_handler=backend/src/Kanabol.Application/Features/Notifications/TaskAssignedEventHandler.cs
+
+# NTF, with Dan, Ioana and Eva as members, and no notification before.
+creates_the_notified_project() {
+  team_is_ready || return 1
+  [ -n "${ntf_id:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Notificari","key":"NTF"}')" || return 1
+  ntf_id=$(body_field id)
+  for member in "$dan_id" "$ioana_id" "$eva_id"; do
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$ntf_id/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
+  done
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$ntf_id/tasks" '{"title":"Login SSO","priority":"Medium"}')" || return 1
+  ntf_task=$(body_field id)
+  [ -n "$ntf_task" ]
+}
+
+ntf_notifications_of() { # ntf_notifications_of <user id>: type, task and message of each, oldest first
+  in_db "SELECT type, task_id, message FROM notifications WHERE user_id = '$1' AND task_id IN (SELECT id FROM task_items WHERE project_id = '$ntf_id') ORDER BY created_at, id"
+}
+
+ntf_count() {
+  in_db "SELECT count(*) FROM notifications WHERE task_id IN (SELECT id FROM task_items WHERE project_id = '$ntf_id')"
+}
+
+two_added_both_hear_of_it() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$ntf_task/assignees" "{\"assigneeIds\":[\"$dan_id\",\"$ioana_id\"]}")" || return 1
+  is "TaskAssigned|$ntf_task|Administrator assigned you NTF-1: Login SSO" "$(ntf_notifications_of "$dan_id")" || return 1
+  is "TaskAssigned|$ntf_task|Administrator assigned you NTF-1: Login SSO" "$(ntf_notifications_of "$ioana_id")" || return 1
+  is 2 "$(ntf_count)"
+}
+
+only_the_new_one_hears_of_it() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$ntf_task/assignees" "{\"assigneeIds\":[\"$ioana_id\",\"$eva_id\",\"$dan_id\"]}")" || return 1
+  is "TaskAssigned|$ntf_task|Administrator assigned you NTF-1: Login SSO" "$(ntf_notifications_of "$eva_id")" || return 1
+  is 3 "$(ntf_count)"
+}
+
+taking_someone_off_tells_nobody() {
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$ntf_task/assignees" "{\"assigneeIds\":[\"$eva_id\"]}")" || return 1
+  is 3 "$(ntf_count)"
+}
+
+whoever_makes_the_change_is_not_told() {
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$ntf_task/assignees" "{\"assigneeIds\":[\"$eva_id\",\"$dan_id\",\"$admin_id\"]}")" || return 1
+  is 1 "$(ntf_notifications_of "$dan_id" | wc -l | tr -d ' ')" || return 1
+  is "TaskAssigned|$ntf_task|Dan Ionescu assigned you NTF-1: Login SSO" "$(ntf_notifications_of "$admin_id")" || return 1
+  is 4 "$(ntf_count)"
+}
+
+a_creation_tells_those_it_is_for() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$ntf_id/tasks" "{\"title\":\"Raport\",\"priority\":\"Low\",\"assigneeIds\":[\"$admin_id\",\"$ioana_id\",\"$dan_id\"]}")" || return 1
+  report=$(body_field id)
+  is "TaskAssigned|$report|Administrator assigned you NTF-2: Raport" "$(ntf_notifications_of "$ioana_id" | tail -n 1)" || return 1
+  is "TaskAssigned|$report|Administrator assigned you NTF-2: Raport" "$(ntf_notifications_of "$dan_id" | tail -n 1)" || return 1
+  is 6 "$(ntf_count)"
+}
+
+the_handler_reads_the_added_ones() {
+  in_file 'domainEvent.AddedIds' "$notification_handler" &&
+    lacks 'AssigneeId is not|PreviousAssigneeId' "$notification_handler"
+}
+
+notification_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    TaskAssignedNotificationTests.Assign_ToTwoOthers_NotifiesEachWithTheMessageOfOne \
+    TaskAssignedNotificationTests.Assign_AddingSomeoneToThoseAlreadyThere_NotifiesOnlyTheNewOne \
+    TaskAssignedNotificationTests.Assign_ByOneWhoAddsThemselvesWithOthers_NotifiesOnlyTheOthers \
+    TaskAssignedNotificationTests.Create_ForTwoOthersAndThemselves_NotifiesTheTwo \
+    TaskAssignedNotificationTests.Assign_TakingSomeoneOffAndKeepingTheRest_NotifiesNobody \
+    TaskAssignedNotificationTests.Assign_ToTwo_LogsEachNotification
+}
+
+the_rule_is_written_down() {
+  in_file 'each assignee newly added' backend/CLAUDE.md
+}
+
+task_3() {
+  echo "13b.3 TaskAssigned for each assignee newly added, and nobody else"
+  check "Docker is running" docker_is_running
+  check "the handler is tracked" tracked "$notification_handler"
+  check "the solution builds without warnings" solution_builds
+  check "the handler reads who was added, not a single assignee" the_handler_reads_the_added_ones
+  check "the tests of those added, those already there and the one who made the change pass" notification_tests_pass
+  check "every test of the notification passes" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskAssignedNotificationTests' 14
+  check "backend/CLAUDE.md says who hears of it" the_rule_is_written_down
+  check "the real API starts, with a project of three members" creates_the_notified_project
+  check "two assigned at once both hear of it, with the message unchanged" two_added_both_hear_of_it
+  check "of three, only the one newly added hears of it" only_the_new_one_hears_of_it
+  check "taking people off tells nobody" taking_someone_off_tells_nobody
+  check "whoever makes the change isn't told, the others are" whoever_makes_the_change_is_not_told
+  check "a creation tells those it is for, but not its creator" a_creation_tells_those_it_is_for
+  check "each notification is logged" log_has_entry "User {AssigneeUserId} notified of being assigned task {TaskId}, notification {NotificationId}" "\"AssigneeUserId\":\"$eva_id\""
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 
 for task in "$@"; do

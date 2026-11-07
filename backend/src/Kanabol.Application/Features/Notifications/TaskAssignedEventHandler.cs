@@ -9,9 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace Kanabol.Application.Features.Notifications;
 
 /// <summary>
-/// The new assignee hears of it, unless they assigned the task to themselves (SPEC section 4.3). It runs
-/// once the assignment is saved, for a creation with an assignee too. The message is in English, like
-/// the API: the notifications page writes its own Romanian text from the type and the task (group 17).
+/// Each assignee newly added hears of it, not those already on the task, nor whoever made the change
+/// (SPEC section 4.3). It runs once the assignment is saved, for a creation with assignees too, and saves
+/// all its notifications at once. The message is in English, like the API, and the same for each: the
+/// notifications page writes its own Romanian text from the type and the task (group 17).
 /// </summary>
 public sealed class TaskAssignedEventHandler(
     IAppDbContext db,
@@ -20,14 +21,12 @@ public sealed class TaskAssignedEventHandler(
 {
     public async Task Handle(TaskAssignedEvent domainEvent, CancellationToken ct)
     {
-        foreach (var assigneeId in domainEvent.AddedIds.Where(addedId => addedId != domainEvent.AssignedById))
+        Guid[] notified = [.. domainEvent.AddedIds.Where(addedId => addedId != domainEvent.AssignedById)];
+        if (notified.Length == 0)
         {
-            await Notify(assigneeId, domainEvent, ct);
+            return;
         }
-    }
 
-    private async Task Notify(Guid assigneeId, TaskAssignedEvent domainEvent, CancellationToken ct)
-    {
         var task = await (
                 from found in db.TaskItems.IgnoreQueryFilters()
                 join project in db.Projects.IgnoreQueryFilters() on found.ProjectId equals project.Id
@@ -39,19 +38,22 @@ public sealed class TaskAssignedEventHandler(
             .Select(user => user.DisplayName)
             .FirstOrDefaultAsync(ct);
 
-        var notification = new Notification(
-            assigneeId,
-            NotificationType.TaskAssigned,
-            domainEvent.TaskId,
-            $"{assignedBy ?? "Someone"} assigned you {TaskKey.Format(task.Key, task.Number)}: {task.Title}",
-            clock.UtcNow);
-        db.Notifications.Add(notification);
+        var message = $"{assignedBy ?? "Someone"} assigned you {TaskKey.Format(task.Key, task.Number)}: {task.Title}";
+        var now = clock.UtcNow;
+        Notification[] notifications =
+        [
+            .. notified.Select(assigneeId => new Notification(assigneeId, NotificationType.TaskAssigned, domainEvent.TaskId, message, now)),
+        ];
+        db.Notifications.AddRange(notifications);
         await db.SaveChangesAsync(ct);
 
-        logger.LogInformation(
-            "User {AssigneeUserId} notified of being assigned task {TaskId}, notification {NotificationId}",
-            assigneeId,
-            domainEvent.TaskId,
-            notification.Id);
+        foreach (var notification in notifications)
+        {
+            logger.LogInformation(
+                "User {AssigneeUserId} notified of being assigned task {TaskId}, notification {NotificationId}",
+                notification.UserId,
+                domainEvent.TaskId,
+                notification.Id);
+        }
     }
 }
