@@ -13,7 +13,7 @@ public static class TaskRuleExtensions
     public static IRuleBuilderOptions<T, string?> IsATaskDescription<T>(this IRuleBuilderInitial<T, string?> rule) =>
         rule
             .MaximumLength(TaskItem.MaxDescriptionLength)
-            .Must(description => description is null || !description.Any(IsHiddenOutsideLayout))
+            .Must(description => description is null || !description.Any(TextRuleExtensions.IsHiddenOutsideLayout))
             .WithMessage("This has a character that can't be seen.");
 
     public static IRuleBuilderOptions<T, TaskPriority> IsATaskPriority<T>(this IRuleBuilderInitial<T, TaskPriority> rule) =>
@@ -25,7 +25,4 @@ public static class TaskRuleExtensions
             .NotNull()
             .Must(ids => ids is null || ids.Distinct().Count() == ids.Count)
             .WithMessage("Each person can be assigned only once.");
-
-    private static bool IsHiddenOutsideLayout(char character) =>
-        character is not ('\n' or '\r' or '\t') && TextRuleExtensions.IsHidden(character);
 }

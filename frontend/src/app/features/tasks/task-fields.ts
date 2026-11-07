@@ -1,6 +1,10 @@
-/** What the API takes (TaskItem.MaxTitleLength, MaxDescriptionLength). */
+/** What the API takes (TaskItem.MaxTitleLength, MaxDescriptionLength, Comment.MaxBodyLength). */
 export const TASK_TITLE_MAX = 300;
 export const TASK_DESCRIPTION_MAX = 20_000;
+export const COMMENT_MAX = 5_000;
+
+/** A file goes up to 25 MB, 25 × 1,048,576 bytes (docs/SPEC.md §10). */
+export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 
 export function taskTitleProblem(value: string): string | null {
   if (value.trim() === '') {
@@ -17,6 +21,12 @@ export function taskDescriptionProblem(value: string): string | null {
     : null;
 }
 
+export function commentProblem(value: string): string | null {
+  return value.length > COMMENT_MAX
+    ? $localize`Un comentariu are cel mult ${COMMENT_MAX.toLocaleString('ro-RO')}:max: de caractere.`
+    : null;
+}
+
 /** What the API refused, in words for the field it was about (the API keeps its own in English). */
 export function refusedFieldMessage(field: string): string {
   switch (field) {
@@ -28,6 +38,10 @@ export function refusedFieldMessage(field: string): string {
       return $localize`Pot fi asignați doar membri activi ai proiectului, fiecare o dată.`;
     case 'columnId':
       return $localize`Coloana nu mai e pe board-ul proiectului. Reîncarcă pagina.`;
+    case 'body':
+      return $localize`Comentariul e gol, prea lung sau are caractere care nu se văd.`;
+    case 'file':
+      return $localize`Tipul sau numele fișierului nu e acceptat.`;
     default:
       return $localize`Valoarea nu a fost primită. Reîncarcă pagina și reîncearcă.`;
   }

@@ -1,5 +1,8 @@
 using Kanabol.Application.Abstractions;
 using Kanabol.Application.Common;
+using Kanabol.Application.Features.Comments;
+using Kanabol.Application.Features.Comments.Commands.AddComment;
+using Kanabol.Application.Features.Comments.Commands.EditComment;
 using Kanabol.Application.Features.Realtime;
 using Kanabol.Application.Features.Tasks;
 using Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
@@ -190,6 +193,32 @@ public sealed class BoardEventsHandlerTests(PostgresFixture postgres) : TaskHand
         await using var db = Postgres.CreateContext();
         var notification = await db.Notifications.SingleAsync(found => found.UserId == dan.Id && found.Type == NotificationType.TaskAssigned);
         SentToUsers().Should().Equal((dan.Id, "NotificationCreated", new NotificationCreatedDto(notification.Id)));
+    }
+
+    // Tasks.md group 15: the board reads itself again, for the count on the card.
+    [Fact]
+    public async Task Comment_OnATask_TellsTheProjectCommentAddedWithTheCommentAndTheTab()
+    {
+        var (_, dan, project, task) = await ATaskOnTheBoard();
+        SignIn(dan);
+
+        var comment = await Handle<AddCommentCommand, CommentDto>(new AddCommentCommand(task.Id, "Merge"));
+
+        SentToProjects().Should().Equal((project.Id, "CommentAdded", new CommentAddedDto(task.Id, project.Id, dan.Id, Tab, comment.Value.Id)));
+    }
+
+    [Fact]
+    public async Task EditOfAComment_TellsTheBoardNothing()
+    {
+        var (_, dan, _, task) = await ATaskOnTheBoard();
+        SignIn(dan);
+        var comment = await Handle<AddCommentCommand, CommentDto>(new AddCommentCommand(task.Id, "Prima forma"));
+        BoardNotifier.ClearReceivedCalls();
+
+        (await Handle<EditCommentCommand, CommentDto>(new EditCommentCommand(comment.Value.Id, "A doua forma"))).IsSuccess.Should().BeTrue();
+
+        SentToProjects().Should().BeEmpty();
+        SentToUsers().Should().BeEmpty();
     }
 
     [Fact]

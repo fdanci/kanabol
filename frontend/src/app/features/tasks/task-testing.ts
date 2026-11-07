@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { TaskItemDto, TaskMemberDto, TaskProjectDto } from './models';
+import { AttachmentDto, CommentDto, TaskItemDto, TaskMemberDto, TaskProjectDto } from './models';
 
 /** What the specs of the tasks feature build their tasks, projects and refusals from. */
 export function aTask(extra: Partial<TaskItemDto> = {}): TaskItemDto {
@@ -23,7 +23,34 @@ export function aTask(extra: Partial<TaskItemDto> = {}): TaskItemDto {
     createdAt: '2026-11-05T08:00:00Z',
     createdBy: { userId: 'me', displayName: 'Florin Danci' },
     updatedAt: null,
+    attachments: [],
     canChange: true,
+    ...extra,
+  };
+}
+
+export function aComment(extra: Partial<CommentDto> = {}): CommentDto {
+  return {
+    id: 'cm1',
+    taskId: 't1',
+    author: { userId: 'me', displayName: 'Florin Danci' },
+    body: 'Merge',
+    createdAt: '2026-11-07T08:00:00Z',
+    updatedAt: null,
+    canEdit: true,
+    ...extra,
+  };
+}
+
+export function anAttachment(extra: Partial<AttachmentDto> = {}): AttachmentDto {
+  return {
+    id: 'a1',
+    fileName: 'brief.pdf',
+    contentType: 'application/pdf',
+    size: 1_234,
+    uploadedBy: { userId: 'me', displayName: 'Florin Danci' },
+    uploadedAt: '2026-11-07T08:00:00Z',
+    canDelete: true,
     ...extra,
   };
 }

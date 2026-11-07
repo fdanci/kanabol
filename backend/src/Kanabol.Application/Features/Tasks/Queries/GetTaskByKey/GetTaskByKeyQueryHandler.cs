@@ -46,6 +46,6 @@ public sealed class GetTaskByKeyQueryHandler(
             return access.Error;
         }
 
-        return (await db.ReadTask(found.Id, currentUser.Id, query.IncludeArchived, ct))!;
+        return (await db.ReadTask(found.Id, currentUser, query.IncludeArchived, ct))!;
     }
 }

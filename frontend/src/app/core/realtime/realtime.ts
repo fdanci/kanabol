@@ -218,11 +218,18 @@ export class Realtime {
     await Promise.all([...this.projects].map((projectId) => this.invokeJoin(projectId, link)));
   }
 
+  /**
+   * The hub answers null for a join, or the refusal's code, such as for a project the user no longer
+   * sees: the board says so when it reads itself. It throws only when the connection went meanwhile, and
+   * joinAll runs again when it comes back.
+   */
   private async invokeJoin(projectId: string, link = this.link): Promise<void> {
     try {
-      await link?.invoke('JoinProject', projectId);
+      const refusal = await link?.invoke('JoinProject', projectId);
+      if (typeof refusal === 'string') {
+        this.logger.warn('The board could not join its project on the hub', refusal);
+      }
     } catch (error) {
-      // Refused, such as for a project the user no longer sees: the board says so when it reads itself.
       this.logger.warn('The board could not join its project on the hub', error);
     }
   }

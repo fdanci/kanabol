@@ -60,6 +60,13 @@ const BY_CODE: Record<string, () => string> = {
   'Task.NotFound': () => $localize`Task-ul nu mai există sau a fost arhivat.`,
   'Task.ChangedMeanwhile': () =>
     $localize`Task-ul s-a schimbat între timp. L-am citit din nou, reîncearcă.`,
+  'Task.Archived': () => $localize`Task-ul e arhivat. Restaurează-l întâi.`,
+  // Comments and files (docs/SPEC.md §4.4).
+  'Comment.NotFound': () => $localize`Comentariul nu mai există.`,
+  'Comment.NotYours': () => $localize`Doar autorul unui comentariu îl poate schimba.`,
+  'Attachment.NotFound': () => $localize`Fișierul nu mai există.`,
+  'Attachment.NotYours': () =>
+    $localize`Doar cine a urcat fișierul, sau cine poate arhiva task-uri, îl poate șterge.`,
   // The columns of a board (docs/UI_UX_SPEC.md §7.4).
   'Column.NotFound': () => $localize`Coloana nu mai e pe board. Reîncarcă pagina.`,
   'Column.NotEmpty': () =>

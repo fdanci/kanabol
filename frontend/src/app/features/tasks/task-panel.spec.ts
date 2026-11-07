@@ -6,6 +6,7 @@ import { MATERIAL_ANIMATIONS } from '@angular/material/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MatMenuHarness } from '@angular/material/menu/testing';
 import { MatSelectHarness } from '@angular/material/select/testing';
+import { MatTabHarness } from '@angular/material/tabs/testing';
 import { Router, RouterOutlet, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { of } from 'rxjs';
@@ -15,7 +16,8 @@ import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskItemDto } from './models';
 import { TaskPanelRoute } from './task-panel-route';
-import { aMember, aProject, aTask, refused } from './task-testing';
+import { CommentsApi } from './comments-api';
+import { aComment, aMember, aProject, aTask, anAttachment, refused } from './task-testing';
 import { TasksApi } from './tasks-api';
 
 @Component({
@@ -31,6 +33,7 @@ class Page {}
 describe('TaskPanel', () => {
   let task: TaskItemDto;
   let api: Record<string, ReturnType<typeof vi.fn>>;
+  let comments: Record<string, ReturnType<typeof vi.fn>>;
   let confirmation: { ask: ReturnType<typeof vi.fn>; discardChanges: ReturnType<typeof vi.fn> };
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   const held = signal<string[]>([]);
@@ -67,6 +70,7 @@ describe('TaskPanel', () => {
       archive: vi.fn(() => of(undefined)),
       restore: answer({ archivedAt: null }),
     };
+    comments = { list: vi.fn(() => of([aComment()])), add: vi.fn(), edit: vi.fn() };
     confirmation = {
       ask: vi.fn(() => Promise.resolve(true)),
       discardChanges: vi.fn(() => Promise.resolve(true)),
@@ -86,6 +90,7 @@ describe('TaskPanel', () => {
           },
         ]),
         { provide: TasksApi, useValue: api },
+        { provide: CommentsApi, useValue: comments },
         { provide: AuthStore, useValue: { has: (name: string) => held().includes(name) } },
         { provide: Confirmation, useValue: confirmation },
         { provide: Snackbar, useValue: snackbar },
@@ -367,6 +372,42 @@ describe('TaskPanel', () => {
     await settle();
 
     expect(api['restore']).toHaveBeenCalledWith('t1');
+  });
+
+  // docs/UI_UX_SPEC.md §6.7 and §7.5: Comentarii first, then Atașamente; Istoric comes with group 16.
+  it('shows the comments and the files of the task in its tabs', async () => {
+    task = aTask({ attachments: [anAttachment({ fileName: 'brief.pdf' })] });
+    const opened = await open();
+
+    const tabs = await overlay.getAllHarnesses(MatTabHarness);
+    expect(await Promise.all(tabs.map((tab) => tab.getLabel()))).toEqual([
+      'Comentarii',
+      'Atașamente',
+      'Istoric',
+    ]);
+    expect(comments['list']).toHaveBeenCalledWith('t1');
+    expect(opened.querySelector('kb-task-comments .comment')?.textContent).toContain('Merge');
+    expect(opened.querySelector('kb-task-comments .new')).not.toBeNull();
+
+    await tabs[1].select();
+    await settle();
+
+    expect(opened.querySelector('kb-task-attachments .attachment .name')?.textContent.trim()).toBe(
+      'brief.pdf',
+    );
+    expect(opened.querySelector('kb-task-attachments kb-upload-zone')).not.toBeNull();
+    expect(opened.textContent).not.toContain('vin într-o versiune următoare');
+  });
+
+  it('has neither a comment form nor an upload zone for someone who can only read the task', async () => {
+    task = aTask({ canChange: false, attachments: [anAttachment({ canDelete: false })] });
+    const opened = await open();
+
+    expect(opened.querySelector('kb-task-comments .new')).toBeNull();
+    await (await overlay.getAllHarnesses(MatTabHarness))[1].select();
+    await settle();
+    expect(opened.querySelector('kb-task-attachments kb-upload-zone')).toBeNull();
+    expect(opened.querySelector('kb-task-attachments .delete')).toBeNull();
   });
 
   it('says when the task is missing', async () => {

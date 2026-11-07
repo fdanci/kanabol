@@ -10,7 +10,9 @@ namespace Kanabol.Application.Features.Realtime;
 /// payloads are small: the board moves a card itself on TaskMoved and reads itself again on the rest. Each
 /// carries the X-Connection-Id of the request, so the tab that made the change can ignore it. A change of
 /// assignees raises no TaskUpdatedEvent, so TaskAssignedEvent sends TaskUpdated with Assignees, also when a
-/// creation assigns people. The domain knows nothing of SignalR: IBoardNotifier does.
+/// creation assigns people. A comment sends CommentAdded with its id, and a file attached or taken off
+/// TaskUpdated with Attachments, for the count on the card. The domain knows nothing of SignalR:
+/// IBoardNotifier does.
 /// </summary>
 public sealed class BoardEventsHandler(IBoardNotifier notifier, IRequestContext request) :
     IDomainEventHandler<TaskCreatedEvent>,
@@ -18,7 +20,9 @@ public sealed class BoardEventsHandler(IBoardNotifier notifier, IRequestContext 
     IDomainEventHandler<TaskUpdatedEvent>,
     IDomainEventHandler<TaskAssignedEvent>,
     IDomainEventHandler<TaskArchivedEvent>,
-    IDomainEventHandler<TaskRestoredEvent>
+    IDomainEventHandler<TaskRestoredEvent>,
+    IDomainEventHandler<CommentAddedEvent>,
+    IDomainEventHandler<AttachmentsChangedEvent>
 {
     public Task Handle(TaskCreatedEvent domainEvent, CancellationToken ct) =>
         Notify(domainEvent.ProjectId, BoardEvents.TaskCreated, new TaskEventDto(domainEvent.TaskId, domainEvent.ProjectId, domainEvent.CreatedById, request.ConnectionId), ct);
@@ -49,6 +53,20 @@ public sealed class BoardEventsHandler(IBoardNotifier notifier, IRequestContext 
 
     public Task Handle(TaskRestoredEvent domainEvent, CancellationToken ct) =>
         Notify(domainEvent.ProjectId, BoardEvents.TaskRestored, new TaskEventDto(domainEvent.TaskId, domainEvent.ProjectId, domainEvent.RestoredById, request.ConnectionId), ct);
+
+    public Task Handle(CommentAddedEvent domainEvent, CancellationToken ct) =>
+        Notify(
+            domainEvent.ProjectId,
+            BoardEvents.CommentAdded,
+            new CommentAddedDto(domainEvent.TaskId, domainEvent.ProjectId, domainEvent.AuthorId, request.ConnectionId, domainEvent.CommentId),
+            ct);
+
+    public Task Handle(AttachmentsChangedEvent domainEvent, CancellationToken ct) =>
+        Notify(
+            domainEvent.ProjectId,
+            BoardEvents.TaskUpdated,
+            new TaskUpdatedDto(domainEvent.TaskId, domainEvent.ProjectId, domainEvent.ChangedById, request.ConnectionId, nameof(TaskItem.Attachments)),
+            ct);
 
     private Task Notify(Guid projectId, string eventName, object payload, CancellationToken ct) =>
         notifier.NotifyProjectAsync(projectId, eventName, payload, ct);

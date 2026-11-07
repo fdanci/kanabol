@@ -1,4 +1,4 @@
-import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpEvent, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -31,6 +31,20 @@ export class ApiClient {
 
   delete<T = void>(path: string, options?: RequestOptions): Observable<T> {
     return this.http.delete<T>(this.url(path), options);
+  }
+
+  /** A form, such as a file, with every event on the way: the upload's progress, then the answer. */
+  upload<T>(path: string, form: FormData, options?: RequestOptions): Observable<HttpEvent<T>> {
+    return this.http.post<T>(this.url(path), form, {
+      ...options,
+      observe: 'events',
+      reportUploadProgress: true,
+    });
+  }
+
+  /** A file, which a link can't fetch: the token is in memory, not in a cookie. */
+  blob(path: string, options?: RequestOptions): Observable<Blob> {
+    return this.http.get(this.url(path), { ...options, responseType: 'blob' });
   }
 
   private url(path: string): string {

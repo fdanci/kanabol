@@ -20,6 +20,7 @@ Run from `backend/`:
 - Run the project checks, from the repo root: `scripts/check-projects.sh [task-number...]`, under the same conditions.
 - Run the task checks, from the repo root: `scripts/check-tasks.sh [task-number...]`, under the same conditions, those of the board: `scripts/check-board.sh [task-number...]`, and those of several assignees: `scripts/check-assignees.sh [task-number...]`.
 - Run the real-time checks, from the repo root: `scripts/check-realtime.sh [task-number...]`, under the same conditions. They reach the hub over a real WebSocket, with a small SignalR client in Node.
+- Run the checks of comments and attachments, from the repo root: `scripts/check-comments.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -56,15 +57,16 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 
 In Docker and production, settings come from environment variables:
 
-| Variable                               | Value                                                      |
-| -------------------------------------- | ---------------------------------------------------------- |
-| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                    |
-| `ConnectionStrings__Default`           | The PostgreSQL connection string                           |
-| `Jwt__Secret`                          | The key that signs JWTs                                    |
-| `Admin__InitialPassword`               | The first admin's password, needed on the first start only |
-| `Storage__Root`                        | The attachments folder, `/data/attachments` by default     |
-| `Database__MigrateOnStartup`           | `true` by default                                          |
-| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                |
+| Variable                               | Value                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                     |
+| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                            |
+| `Jwt__Secret`                          | The key that signs JWTs                                                                     |
+| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                  |
+| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                      |
+| `Storage__AllowedExtensions__0`, `__1` | The extensions a file may have, instead of the default list in `appsettings.json`, by index |
+| `Database__MigrateOnStartup`           | `true` by default                                                                           |
+| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                 |
 
 ## Access rules
 
@@ -155,6 +157,32 @@ In Docker and production, settings come from environment variables:
 - Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
 - `TaskAssignedEvent` carries the ids added and removed, and gives each assignee newly added a `TaskAssigned` notification, the same message for each, saved at once: not those already on the task, nor whoever made the change, also when a task is created for people (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, which SignalR sends to its user, and its message is English, cut at 500 characters.
 
+## Comments
+
+| Endpoint                                           | Does                                                                      | Needs                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `GET /api/tasks/{id}/comments`                     | Every comment of the task, from the oldest, without pages, with `canEdit` | member, `projects.view_all` or `manage`                      |
+| `POST /api/tasks/{id}/comments`                    | A comment with `body`, answered with where it is, `/api/comments/{id}`    | a real membership, an open project and an open task          |
+| `GET /api/comments/{id}`, `PUT /api/comments/{id}` | One comment, and another `body` for it                                    | reading as for the list; changing, its author, as for adding |
+
+- A body is basic markdown, like a description, of 1 to 5,000 characters, lines and tabs kept, other hidden characters refused (400 on `body`), its blank end trimmed. Nothing deletes a comment in v1: `DELETE` answers 405.
+- Someone else's comment answers 403 `Comment.NotYours`, even for the project's owner; a missing one 404 `Comment.NotFound`. An archived task answers 409 `Task.Archived` to a new comment or an edit, and its comments are there only for `tasks.archive`, from the token, as the task is: anyone else gets 404 `Task.NotFound` (`TaskVisibility`).
+- A comment comes through `TaskItem.AddComment`, which raises `CommentAddedEvent`. It isn't a change of the task: no history, no `updated_at`. `CommentAddedEventHandler` gives the task's assignees and its creator a `CommentAdded` notification, each once, not the author, "Ana commented on KAN-1: Login SSO", all in one save, and only to those who can still open the task: active members of the project. An edit notifies nobody.
+
+## Attachments
+
+| Endpoint                           | Does                                                                                                                | Needs                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `POST /api/tasks/{id}/attachments` | One file, as multipart in the field `file`, answered with where it is, `/api/attachments/{id}`. The task lists them | a real membership, an open project and an open task                     |
+| `GET /api/attachments/{id}`        | The file, always as a download (`Content-Disposition: attachment`, `nosniff`), under the name it came with          | member, `projects.view_all` or `manage`                                 |
+| `DELETE /api/attachments/{id}`     | Deletes the row, then the file on disk                                                                              | whoever uploaded it, still a real member, or `tasks.archive`; open task |
+
+- A file goes up to 25 MB, 25 × 1,048,576 bytes, with an extension of `Storage:AllowedExtensions` (`pdf`, `png`, `jpg`, `jpeg`, `gif`, `txt`, `md`, `csv`, `xlsx`, `docx`, `zip` in `appsettings.json`), the last one after a dot, in any case. Anything else answers 400 on `file`: a bigger file, another extension, a name empty, over 255 characters or with a hidden character, no file, two files or another field. The request may be 1 MB bigger than the file; above that MVC doesn't read the form (`DisableFormValueModelBinding`) and the action answers the same 400. nginx stops a request over 30 MB with 413.
+- The name keeps only what comes after the last `/` or `\`, and never reaches the disk: `LocalFileStorage` keeps the file as `{yyyy}/{MM}/{guid}{ext}` under `Storage:Root`, the extension in lower case, and refuses a key leading outside the root. The content type comes from the extension. A relative root is taken from the folder the API runs in.
+- The file goes to disk first, then its row; a save that fails deletes the file again. Deleting goes the other way, and a file the disk keeps after its row went is a warning in the log. The task lists its files in its DTO, from the first, with `canDelete`.
+- An archived task answers 409 `Task.Archived` to an upload and a delete, and its files are there only for `tasks.archive`, as its comments: anyone else gets 404 `Attachment.NotFound`. Someone else's file answers 403 `Attachment.NotYours`.
+- `TaskItem.AddAttachment` and `RemoveAttachment` raise `AttachmentsChangedEvent`, which the board hears as `TaskUpdated` with `Attachments`. Attachments aren't in the history.
+
 ## Real time
 
 | Hub           | Does                                                                                                                                                     | Needs                                         |
@@ -163,20 +191,21 @@ In Docker and production, settings come from environment variables:
 
 - The token comes from `access_token` in the query string, since a browser can't put a header on a WebSocket, and only on `/hubs`: under `/api` it opens nothing (`JwtAuthenticationExtensions`). The name has to be in the address as sent, once: ASP.NET decodes `access%5Ftoken` into the same name, which the logs' redaction wouldn't see. The forced password change closes the hub too (403 `Auth.PasswordChangeRequired`).
 - The hub speaks WebSockets only. A long poll, or a send of Server-Sent Events, may bring a fresh token and push the connection's expiry back, so a user who lost a project would keep hearing it for ever.
-- `JoinProject` asks `IProjectAccess.EnsureMemberAsync`, so a member, `projects.view_all` or `projects.manage`, and an active account. A refusal is a `HubException` whose message ends with the code, `Project.MemberRequired`, and a warning in the log. Joins and refusals are logged with `UserId`, `ProjectId` and `ConnectionId`.
+- `JoinProject` asks `IProjectAccess.EnsureMemberAsync`, so a member, `projects.view_all` or `projects.manage`, and an active account. It answers null for a join, and the code for a refusal, `Project.MemberRequired`, with a warning in the log: a refusal is an ordinary answer, and SignalR would log a method that throws as an `Error`. Joins and refusals are logged with `UserId`, `ProjectId` and `ConnectionId`.
 - A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`), so someone who lost access stops hearing a project within 15 minutes; the browser opens another with a fresh token.
 - Tokens never reach a log: `AccessTokenRedaction` hides the value of `access_token` in every log entry, such as ASP.NET's "Request starting", which Development shows with the whole address, and nginx keeps no access log for `/hubs/`.
 - `IRequestContext` (Application, next to `ICurrentUser`) gives the connection id the browser sends in `X-Connection-Id`, read by `HttpRequestContext`: only an id SignalR could make, letters, digits, `-` and `_`, at most 64, sent once; otherwise null.
 - What the hub sends comes from the domain event handlers in `Features/Realtime`, after the commit, through `IBoardNotifier` (`HubBoardNotifier` in Api, over `IHubContext<BoardHub>`):
 
-| Event                                         | From                                                                                | Payload                                                                           | Group          |
-| --------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------- |
-| `TaskCreated`, `TaskArchived`, `TaskRestored` | their task events                                                                   | `taskId`, `projectId`, `byUserId`, `originConnectionId`                           | `project:{id}` |
-| `TaskMoved`                                   | `TaskMovedEvent`, the moved task only                                               | the same, and `columnId` and `position`, where it went                            | `project:{id}` |
-| `TaskUpdated`                                 | `TaskUpdatedEvent`, and `TaskAssignedEvent` with `Assignees`, a creation's included | the same, and `field`: `Title`, `Description`, `Priority`, `DueDate`, `Assignees` | `project:{id}` |
-| `NotificationCreated`                         | `NotificationCreatedEvent`                                                          | `notificationId`                                                                  | `user:{id}`    |
+| Event                                         | From                                                                                                                              | Payload                                                                                          | Group          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------- |
+| `TaskCreated`, `TaskArchived`, `TaskRestored` | their task events                                                                                                                 | `taskId`, `projectId`, `byUserId`, `originConnectionId`                                          | `project:{id}` |
+| `TaskMoved`                                   | `TaskMovedEvent`, the moved task only                                                                                             | the same, and `columnId` and `position`, where it went                                           | `project:{id}` |
+| `TaskUpdated`                                 | `TaskUpdatedEvent`, `TaskAssignedEvent` with `Assignees`, a creation's included, and `AttachmentsChangedEvent` with `Attachments` | the same, and `field`: `Title`, `Description`, `Priority`, `DueDate`, `Assignees`, `Attachments` | `project:{id}` |
+| `CommentAdded`                                | `CommentAddedEvent`                                                                                                               | the same, and `commentId`                                                                        | `project:{id}` |
+| `NotificationCreated`                         | `NotificationCreatedEvent`                                                                                                        | `notificationId`                                                                                 | `user:{id}`    |
 
-- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. `CommentAdded` comes with group 15. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
+- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
 - Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. Handler tests read what was sent from the `BoardNotifier` substitute, and set the connection through `RequestContext`.
 
 ## Browser logs

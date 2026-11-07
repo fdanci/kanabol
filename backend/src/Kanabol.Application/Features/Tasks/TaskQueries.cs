@@ -1,4 +1,5 @@
 using Kanabol.Application.Abstractions;
+using Kanabol.Application.Features.Attachments;
 using Kanabol.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,9 +15,10 @@ public static class TaskQueries
     public static IQueryable<TaskItem> Tasks(this IAppDbContext db, bool includeArchived) =>
         db.TaskItems.IgnoreQueryFilters().Where(task => includeArchived || task.ArchivedAt == null);
 
-    /// <summary>The task as the user given sees it, in a project archived or not. Access is the caller's to check first.</summary>
-    public static async Task<TaskItemDto?> ReadTask(this IAppDbContext db, Guid taskId, Guid userId, bool includeArchived, CancellationToken ct)
+    /// <summary>The task as the caller sees it, in a project archived or not. Access is the caller's to check first.</summary>
+    public static async Task<TaskItemDto?> ReadTask(this IAppDbContext db, Guid taskId, ICurrentUser caller, bool includeArchived, CancellationToken ct)
     {
+        var userId = caller.Id;
         var row = await (
                 from task in db.Tasks(includeArchived)
                 join project in db.Projects.IgnoreQueryFilters() on task.ProjectId equals project.Id
@@ -59,9 +61,14 @@ public static class TaskQueries
             .AsNoTracking()
             .FirstOrDefaultAsync(ct);
 
-        return row is null
-            ? null
-            : new TaskItemDto(
+        if (row is null)
+        {
+            return null;
+        }
+
+        var visible = new VisibleTask(row.Id, row.ProjectId, row.ArchivedAt is not null, row.ProjectArchivedAt is not null, row.IsRealMember);
+        var attachments = await db.ReadAttachments(visible, caller, ct);
+        return new TaskItemDto(
                 row.Id,
                 row.ProjectId,
                 row.ProjectName,
@@ -80,7 +87,8 @@ public static class TaskQueries
                 row.CreatedAt,
                 row.CreatedById is { } creatorId ? new TaskPersonDto(creatorId, row.CreatorName ?? "") : null,
                 row.UpdatedAt,
-                row.IsRealMember && row.ProjectArchivedAt is null && row.ArchivedAt is null);
+                attachments,
+                visible.CanAddTo);
     }
 
     /// <summary>Only active members can be given a task (SPEC section 4.4). The ids come each once, which the validators hold.</summary>

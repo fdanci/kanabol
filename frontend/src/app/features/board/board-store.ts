@@ -100,6 +100,9 @@ export class BoardStore {
       this.realtime.on('TaskArchived', (message) => {
         this.heardChange(message, false);
       }),
+      this.realtime.on('CommentAdded', (message) => {
+        this.heardChange(message, true);
+      }),
       // Whatever happened while the connection was away went unheard.
       this.realtime.onReconnected(() => {
         this.readAgain();

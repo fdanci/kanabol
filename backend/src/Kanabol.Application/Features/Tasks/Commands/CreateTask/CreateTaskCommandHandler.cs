@@ -100,6 +100,6 @@ public sealed class CreateTaskCommandHandler(
             created.Id,
             TaskKey.Format(project.Key, created.Number),
             project.Id);
-        return (await db.ReadTask(created.Id, currentUser.Id, includeArchived: false, ct))!;
+        return (await db.ReadTask(created.Id, currentUser, includeArchived: false, ct))!;
     }
 }

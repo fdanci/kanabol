@@ -4,7 +4,7 @@ import { Subject, of } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { TaskItemDto } from './models';
 import { TaskChanges } from '../../shared/task-changes';
-import { aMember, aProject, aTask, refused } from './task-testing';
+import { aMember, aProject, aTask, anAttachment, refused } from './task-testing';
 import { TaskPanelStore } from './task-panel-store';
 import { TasksApi } from './tasks-api';
 
@@ -206,5 +206,18 @@ describe('TaskPanelStore', () => {
     held.set(['tasks.archive']);
     await store.load('KAN-1');
     expect(store.canRestore()).toBe(true);
+  });
+
+  it('adds a file the API now has at the end of the list, and takes a deleted one off, counting each', async () => {
+    api['byKey'].mockReturnValue(of(aTask({ attachments: [anAttachment({ id: 'a1' })] })));
+    await store.load('KAN-1');
+    const before = changes.version();
+
+    store.attached(anAttachment({ id: 'a2', fileName: 'schita.png' }));
+    expect(store.task()?.attachments.map((attachment) => attachment.id)).toEqual(['a1', 'a2']);
+    store.detached('a1');
+
+    expect(store.task()?.attachments.map((attachment) => attachment.id)).toEqual(['a2']);
+    expect(changes.version()).toBe(before + 2);
   });
 });

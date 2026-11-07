@@ -241,6 +241,27 @@ html {
       container-text-color: var(--kb-navy-900),
     )
   );
+  // The tabs of a task's panel, the only mat-tab-group (6.7): 36px, 13px/500 labels in sentence case,
+  // a 2px indicator in accent-600, the inactive labels in text-600.
+  @include mat.tabs-overrides(
+    (
+      container-height: 36px,
+      label-text-size: 13px,
+      label-text-weight: 500,
+      label-text-tracking: normal,
+      active-indicator-height: 2px,
+      active-indicator-color: var(--kb-accent-600),
+      active-hover-indicator-color: var(--kb-accent-600),
+      active-focus-indicator-color: var(--kb-accent-600),
+      active-label-text-color: var(--kb-text-900),
+      active-hover-label-text-color: var(--kb-text-900),
+      active-focus-label-text-color: var(--kb-text-900),
+      inactive-label-text-color: var(--kb-text-600),
+      inactive-hover-label-text-color: var(--kb-text-900),
+      inactive-focus-label-text-color: var(--kb-text-900),
+      divider-color: var(--kb-border-200),
+    )
+  );
   // Tables (6.0.9): 40px rows of 13px text, a 28px header in caption 600, no lines between rows.
   // The zebra and the line under the header come from kb-table.
   @include mat.table-overrides(

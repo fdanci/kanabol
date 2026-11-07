@@ -16,8 +16,14 @@ export interface TaskMovedMessage extends TaskMessage {
   position: number;
 }
 
+/** Attachments: a file attached to the task or taken off it, for the count on its card. */
 export interface TaskUpdatedMessage extends TaskMessage {
-  field: 'Title' | 'Description' | 'Priority' | 'DueDate' | 'Assignees';
+  field: 'Title' | 'Description' | 'Priority' | 'DueDate' | 'Assignees' | 'Attachments';
+}
+
+/** A comment on the task, for the count on its card: an open panel doesn't listen in v1. */
+export interface CommentAddedMessage extends TaskMessage {
+  commentId: string;
 }
 
 /** On the user's own group, for the bell (group 17a). */
@@ -25,13 +31,14 @@ export interface NotificationCreatedMessage {
   notificationId: string;
 }
 
-/** Each event the hub sends, by name, with its payload. CommentAdded comes with group 15. */
+/** Each event the hub sends, by name, with its payload. */
 export interface BoardEvents {
   TaskCreated: TaskMessage;
   TaskMoved: TaskMovedMessage;
   TaskUpdated: TaskUpdatedMessage;
   TaskArchived: TaskMessage;
   TaskRestored: TaskMessage;
+  CommentAdded: CommentAddedMessage;
   NotificationCreated: NotificationCreatedMessage;
 }
 

@@ -22,6 +22,7 @@ public static class DependencyInjection
             .AddScoped<ProjectChanges>()
             .AddScoped<ArchivedTasksAccess>()
             .AddScoped<TaskChanges>()
+            .AddScoped<TaskVisibility>()
             .AddHandlersFrom(typeof(DependencyInjection).Assembly);
 
     public static IServiceCollection AddHandlersFrom(this IServiceCollection services, Assembly assembly)
