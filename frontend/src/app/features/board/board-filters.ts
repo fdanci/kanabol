@@ -3,7 +3,8 @@ import { BoardColumnDto, BoardTaskDto } from './models';
 
 /**
  * Which cards the filters let through (docs/UI_UX_SPEC.md §7.4), all of them holding at once, in the
- * browser: the board has every open task already. "me" is whoever is looking. Late means open past
+ * browser: the board has every open task already. A card passes the assignee filter when they are among
+ * its assignees, and "me" is whoever is looking. Late means open past
  * the deadline, outside a done column, as the API counts it. The search finds a part of the title.
  */
 export function cardFilter(
@@ -17,7 +18,7 @@ export function cardFilter(
   const search = filters.search.trim().toLocaleLowerCase('ro-RO');
   const done = new Set(columns.filter((column) => column.isDone).map((column) => column.id));
   return (task) =>
-    (assignee === null || task.assignee?.userId === assignee) &&
+    (assignee === null || task.assignees.some((person) => person.userId === assignee)) &&
     (priorities.size === 0 || priorities.has(task.priority)) &&
     (!filters.overdue ||
       (task.dueDate !== null &&

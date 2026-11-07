@@ -120,13 +120,6 @@ td.title kb-chip {
   color: var(--kb-success-600);
 }
 
-.person {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--kb-space-2);
-  max-width: 180px;
-}
-
 .none,
 .updated {
   color: var(--kb-text-600);

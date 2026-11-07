@@ -751,8 +751,135 @@ task_3() {
   check "the log has no unhandled exception" no_errors_in_the_log
 }
 
+# ---- The frontend: specs, lint, the production build and the texts.
+
+web=frontend
+app=$web/src/app
+stack=$app/shared/ui/avatar-stack.ts
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*' '__').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is an it() of that file
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "it('$name'" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+# The production build, made once per run.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  cat "$scratch"/dist/browser/*.js >"$scratch/bundle.js" && touch "$scratch/built"
+}
+
+bundle_has() { # bundle_has <text>
+  built && in_file "$1" "$scratch/bundle.js"
+}
+
+# The texts as ng extract-i18n writes them for translation, made once per run.
+extracted() {
+  [ -f "$scratch/locale/messages.xlf" ] && return 0
+  (cd "$web" && npx ng extract-i18n --output-path "$scratch/locale") >"$scratch/extract.log" 2>&1 || {
+    plain "$scratch/extract.log" | tail -n 25
+    return 1
+  }
+}
+
+messages_have() { # messages_have <text>
+  extracted && in_file "$1" "$scratch/locale/messages.xlf"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+# ---- 13b.4: kb-avatar-stack on the card and in the List, and the filters among the assignees.
+
+stack_follows_the_ui_spec() {
+  in_file 'export const STACK_MAX = 3;' "$stack" &&
+    in_file "selector: 'kb-avatar-stack'" "$stack" &&
+    in_file '[matTooltip]="names()"' "$stack" &&
+    in_file "'[attr.aria-label]'" "$stack" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-' "$stack"
+}
+
+the_card_and_the_list_use_it() {
+  in_file '<kb-avatar-stack [people]="task().assignees" />' "$app/features/board/task-card.ts" &&
+    in_file '<kb-avatar-stack [people]="task.assignees" />' "$app/features/tasks/task-list-page.html" &&
+    lacks '\bassignee\??\.' "$app/features/board/"*.ts "$app/features/tasks/task-list-page."* "$app/features/tasks/task-list-store.ts"
+}
+
+the_filter_looks_among_the_assignees() {
+  in_file 'task.assignees.some((person) => person.userId === assignee)' "$app/features/board/board-filters.ts"
+}
+
+stack_specs_name_the_rules() {
+  spec_names "$app/shared/ui/avatar-stack.spec.ts" \
+    'shows everyone up to three, without +N' \
+    'shows the first three of more, and how many are left' \
+    'names everyone once for a screen reader, the avatars and +N staying quiet' \
+    'puts every name in the tooltip' &&
+    spec_names "$app/features/board/board-page.spec.ts" 'finds a card for each of those it is assigned to'
+}
+
+the_texts_are_there() {
+  messages_have '>Asignați<' && messages_have '>Neasignat<'
+}
+
+the_shared_piece_is_written_down() {
+  in_file '`kb-avatar-stack`' frontend/CLAUDE.md && in_file 'among its assignees' frontend/CLAUDE.md
+}
+
+task_4() {
+  echo "13b.4 kb-avatar-stack on the card and in the List, and the filters among the assignees"
+  check "the stack is tracked" tracked "$stack"
+  check "its specs are tracked" tracked "$app/shared/ui/avatar-stack.spec.ts"
+  check "it shows at most three and +N, the names in the tooltip and the aria-label, with tokens only" stack_follows_the_ui_spec
+  check "the card and the List show it, and nothing reads a single assignee" the_card_and_the_list_use_it
+  check "the board's filter finds a card among its assignees" the_filter_looks_among_the_assignees
+  check "the specs name the stack's rules and the shared card" stack_specs_name_the_rules
+  check "the stack's specs pass" specs_pass src/app/shared/ui/avatar-stack.spec.ts 5
+  check "every spec of the board passes" specs_pass "src/app/features/board/*.spec.ts" 67
+  check "the List's specs pass" specs_pass src/app/features/tasks/task-list-page.spec.ts 15
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build has the stack" bundle_has 'kb-avatar-stack'
+  check "the texts are there, Asignați and Neasignat" the_texts_are_there
+  check "frontend/CLAUDE.md names the stack and the filter" the_shared_piece_is_written_down
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 
 for task in "$@"; do

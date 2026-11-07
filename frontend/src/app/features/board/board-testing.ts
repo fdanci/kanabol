@@ -25,7 +25,7 @@ export function aCard(
     position,
     priority: 'Medium',
     dueDate: null,
-    assignee: null,
+    assignees: [],
     completedAt: null,
     commentCount: 0,
     attachmentCount: 0,

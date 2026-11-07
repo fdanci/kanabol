@@ -46,7 +46,7 @@ function row(key: string, extra: Partial<TaskSummaryDto> = {}): TaskSummaryDto {
     columnIsDone: false,
     priority: 'Medium',
     dueDate: null,
-    assignee: null,
+    assignees: [],
     completedAt: null,
     archivedAt: null,
     updatedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -69,7 +69,10 @@ describe('TaskListPage', () => {
         title: 'Login SSO',
         priority: 'High',
         dueDate: new Date(Date.now() - 86_400_000).toISOString(),
-        assignee: { userId: 'u2', displayName: 'Ana Pop' },
+        assignees: [
+          { userId: 'u2', displayName: 'Ana Pop' },
+          { userId: 'u3', displayName: 'Dan Ionescu' },
+        ],
       }),
       row('KAN-2', { columnName: 'Gata', columnIsDone: true, completedAt: '2026-11-05T08:00:00Z' }),
       row('KAN-1'),
@@ -182,15 +185,18 @@ describe('TaskListPage', () => {
     });
   });
 
-  // docs/UI_UX_SPEC.md §7.3: key, title, column, priority, deadline, assignee, last change.
-  it('shows each task with its key, title, column, priority, deadline, assignee and last change', async () => {
+  // docs/UI_UX_SPEC.md §7.3: key, title, column, priority, deadline, assignees, last change.
+  it('shows each task with its key, title, column, priority, deadline, assignees and last change', async () => {
     await visit();
 
     expect(cell('KAN-3', 'title').textContent).toContain('Login SSO');
     expect(cell('KAN-3', 'column').textContent).toContain('De făcut');
     expect(cell('KAN-3', 'priority').querySelector('kb-chip')?.classList).toContain('high');
     expect(cell('KAN-3', 'due').querySelector('kb-chip')?.classList).toContain('deadline-overdue');
-    expect(cell('KAN-3', 'assignee').textContent).toContain('Ana Pop');
+    const stack = cell('KAN-3', 'assignee').querySelector('kb-avatar-stack');
+    expect(stack?.getAttribute('aria-label')).toBe('Ana Pop, Dan Ionescu');
+    expect(stack?.querySelectorAll('kb-avatar').length).toBe(2);
+    expect(page().querySelector('th.mat-column-assignee')?.textContent).toContain('Asignați');
     expect(cell('KAN-3', 'updated').textContent.trim()).toBe('acum 1 minut');
     expect(cell('KAN-1', 'assignee').textContent.trim()).toBe('Neasignat');
     expect(cell('KAN-2', 'column').querySelector('.done')).not.toBeNull();

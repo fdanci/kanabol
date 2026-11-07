@@ -165,16 +165,13 @@
       <ng-container matColumnDef="assignee">
         <th mat-header-cell *matHeaderCellDef [attr.aria-sort]="ariaSort('assignee')">
           <button type="button" class="sort" (click)="sortBy('assignee')">
-            <ng-container i18n>Asignat</ng-container>
+            <ng-container i18n>Asignați</ng-container>
             <span class="material-symbols-outlined chevron" aria-hidden="true">expand_more</span>
           </button>
         </th>
         <td mat-cell *matCellDef="let task" class="assignee">
-          @if (task.assignee; as assignee) {
-            <span class="person">
-              <kb-avatar [name]="assignee.displayName" />
-              <span class="kb-truncate">{{ assignee.displayName }}</span>
-            </span>
+          @if (task.assignees.length > 0) {
+            <kb-avatar-stack [people]="task.assignees" />
           } @else {
             <span class="none">{{ unassigned }}</span>
           }

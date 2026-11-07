@@ -31,7 +31,7 @@ export interface TaskItemDto {
   canChange: boolean;
 }
 
-/** A row of the project's List view. updatedAt is the last change, or the creation. */
+/** A row of the project's List view. Assignees come by name; updatedAt is the last change, or the creation. */
 export interface TaskSummaryDto {
   id: string;
   key: string;
@@ -42,7 +42,7 @@ export interface TaskSummaryDto {
   columnIsDone: boolean;
   priority: TaskPriority;
   dueDate: string | null;
-  assignee: TaskPersonDto | null;
+  assignees: TaskPersonDto[];
   completedAt: string | null;
   archivedAt: string | null;
   updatedAt: string;
