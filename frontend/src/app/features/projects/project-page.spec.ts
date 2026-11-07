@@ -25,6 +25,7 @@ import {
 } from './models';
 import { ProjectsApi } from './projects-api';
 import { PROJECTS_ROUTES } from './projects.routes';
+import { provideFakeRealtime } from '../../core/realtime/realtime-testing';
 
 function member(
   userId: string,
@@ -124,6 +125,7 @@ describe('ProjectPage', () => {
     };
     TestBed.configureTestingModule({
       providers: [
+        provideFakeRealtime(),
         provideRouter([{ path: 'projects', children: PROJECTS_ROUTES }]),
         { provide: ProjectsApi, useValue: api },
         // The board is another feature's page: only its calls to the API are answered here.

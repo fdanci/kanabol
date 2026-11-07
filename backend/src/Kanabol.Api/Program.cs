@@ -2,6 +2,7 @@ using Kanabol.Api.Authentication;
 using Kanabol.Api.Authorization;
 using Kanabol.Api.Errors;
 using Kanabol.Api.Logging;
+using Kanabol.Api.Realtime;
 using Kanabol.Application;
 using Kanabol.Application.Abstractions;
 using Kanabol.Infrastructure;
@@ -16,7 +17,8 @@ if (builder.Environment.IsDevelopment())
 
 builder.Host.UseSerilog((context, services, logger) => logger
     .ReadFrom.Configuration(context.Configuration)
-    .ReadFrom.Services(services));
+    .ReadFrom.Services(services)
+    .Enrich.With<AccessTokenRedaction>());
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options => options.InvalidModelStateResponseFactory = ModelStateProblems.Create)
@@ -29,6 +31,9 @@ builder.Services.AddHealthChecks();
 builder.Services.AddSwaggerWithBearerToken();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IBoardNotifier, HubBoardNotifier>();
 builder.Services.AddJwtAuthentication();
 builder.Services.AddPermissionAuthorization();
 builder.Services.AddLoginRateLimit();
@@ -58,6 +63,10 @@ app.UseAuthorization();
 
 // Every controller needs a signed-in user unless it says [AllowAnonymous], so forgetting an attribute closes an endpoint.
 app.MapControllers().RequireAuthorization();
+
+// A connection lasts no longer than the token it was opened with: the browser opens another with a fresh
+// one, and IProjectAccess is asked again when it joins its board (SPEC section 9).
+app.MapHub<BoardHub>(BoardHub.Path, options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
 app.MapHealthChecks("/health").AllowAnonymous();
 
 await app.RunAsync();

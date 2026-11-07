@@ -7,6 +7,20 @@ import { CurrentUserDto } from './models';
 /** The name every tab of the app takes its turn on, to refresh. */
 export const REFRESH_LOCK = 'kb.auth.refresh';
 
+/** Less than this left, and a token for the hub is refreshed first. */
+const FRESH_FOR_SECONDS = 30;
+
+/** How long the token has, from its exp claim; 0 when it can't be read. Reading it checks nothing. */
+function secondsLeftOf(token: string): number {
+  try {
+    const payload = (token.split('.')[1] ?? '').replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(payload)) as { exp?: unknown };
+    return typeof exp === 'number' ? exp - Date.now() / 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * The session: the access token, kept in memory only, and the signed-in user (docs/SPEC.md §4.5).
  * The refresh token is an HttpOnly cookie the browser sends by itself, and this code never sees it.
@@ -73,6 +87,19 @@ export class AuthStore {
       this.refreshing = null;
     });
     return this.refreshing;
+  }
+
+  /**
+   * For the hub (docs/SPEC.md §9): it carries the token in its address when it connects, and can't wait
+   * for a 401, so a token with 30 seconds or less left, or one that can't be read, is refreshed first.
+   * Null when signed out.
+   */
+  freshToken(): Promise<string | null> {
+    const held = this.token();
+    if (held === null) {
+      return Promise.resolve(null);
+    }
+    return secondsLeftOf(held) > FRESH_FOR_SECONDS ? Promise.resolve(held) : this.refresh();
   }
 
   /** For a request refused with the token it carried: a newer one, if this tab has one already. */

@@ -9,6 +9,10 @@ namespace Kanabol.Api.Authentication;
 
 public static class JwtAuthenticationExtensions
 {
+    private const string AccessTokenParameter = "access_token";
+
+    private static readonly PathString _hubsPath = new("/hubs");
+
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services)
     {
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
@@ -31,8 +35,25 @@ public static class JwtAuthenticationExtensions
                     // One server signs and checks, so the default five minutes would only extend the 15.
                     ClockSkew = TimeSpan.Zero,
                 };
+                bearer.Events = new JwtBearerEvents { OnMessageReceived = TakeHubTokenFromTheQueryString };
             });
 
         return services;
+    }
+
+    /// <summary>
+    /// A browser can't put a header on a WebSocket, so the hubs alone take the token from access_token in the
+    /// query string (SPEC section 4.5). Everywhere else it stays in the header, out of addresses and logs.
+    /// </summary>
+    private static Task TakeHubTokenFromTheQueryString(MessageReceivedContext context)
+    {
+        if (context.Request.Path.StartsWithSegments(_hubsPath)
+            && context.Request.Query.TryGetValue(AccessTokenParameter, out var token)
+            && token.Count == 1)
+        {
+            context.Token = token[0];
+        }
+
+        return Task.CompletedTask;
     }
 }

@@ -10,6 +10,7 @@ import { Router, RouterOutlet, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Observable, Subject, of } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
+import { FakeRealtime, provideFakeRealtime } from '../../core/realtime/realtime-testing';
 import { TaskChanges } from '../../shared/task-changes';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
@@ -38,6 +39,7 @@ class PanelLike {}
 
 describe('BoardPage', () => {
   let board: BoardDto;
+  let realtime: FakeRealtime;
   let api: Record<string, ReturnType<typeof vi.fn>>;
   const held = signal<string[]>(['tasks.create']);
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
@@ -61,6 +63,7 @@ describe('BoardPage', () => {
       deleteColumn: vi.fn(() => of(undefined)),
     };
     snackbar = { show: vi.fn(), error: vi.fn() };
+    realtime = new FakeRealtime();
     announcer = { announce: vi.fn(() => Promise.resolve()) };
     confirmation = {
       ask: vi.fn(() => Promise.resolve(true)),
@@ -84,6 +87,7 @@ describe('BoardPage', () => {
           },
         ]),
         { provide: BoardApi, useValue: api },
+        provideFakeRealtime(realtime),
         {
           provide: AuthStore,
           useValue: { has: (name: string) => held().includes(name), user: () => ({ id: 'u1' }) },
@@ -760,6 +764,84 @@ describe('BoardPage', () => {
       await visit();
 
       expect(await items('De făcut')).not.toContain('Șterge');
+    });
+  });
+
+  // docs/SPEC.md §9 and docs/UI_UX_SPEC.md §7.4: the card moves with its animation and pulses once.
+  describe('changes of others', () => {
+    function message(taskId: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        taskId,
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+        ...extra,
+      };
+    }
+
+    function columnNamed(id: string): BoardColumn {
+      return harness.fixture.debugElement
+        .queryAll(By.directive(BoardColumn))
+        .map((found) => found.componentInstance as BoardColumn)
+        .find((found) => found.column().id === id)!;
+    }
+
+    it('moves a card someone else moved to its new place, and pulses it once', async () => {
+      await visit();
+
+      realtime.send('TaskMoved', message('id-KAN-1', { columnId: 'c2', position: 1 }));
+      await settle();
+
+      expect(shown()).toBe('B C | D A | E');
+      expect(card('A').classList).toContain('pulse-a');
+      expect(card('B').classList).not.toContain('pulse-a');
+      expect(api['board']).toHaveBeenCalledTimes(1);
+    });
+
+    it('pulses a card again each time someone changes it, reading the board quietly', async () => {
+      await visit();
+
+      realtime.send('TaskUpdated', message('id-KAN-2', { field: 'Title' }));
+      await settle();
+      expect(card('B').classList).toContain('pulse-a');
+      realtime.send('TaskUpdated', message('id-KAN-2', { field: 'Priority' }));
+      await settle();
+
+      expect(card('B').classList).toContain('pulse-b');
+      expect(card('B').classList).not.toContain('pulse-a');
+      expect(api['board']).toHaveBeenCalledTimes(3);
+      expect(page().querySelector('kb-skeleton')).toBeNull();
+    });
+
+    it('keeps the board still while a card is dragged, and reads it once the card is let go', async () => {
+      await visit();
+      columnNamed('c1').dragStarted.emit();
+
+      realtime.send('TaskMoved', message('id-KAN-1', { columnId: 'c2', position: 0 }));
+      await settle();
+      expect(shown()).toBe('A B C | D | E');
+      expect(api['board']).toHaveBeenCalledTimes(1);
+
+      columnNamed('c1').dragEnded.emit();
+      await settle();
+
+      expect(api['board']).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the board still while a card is picked up from the keyboard', async () => {
+      await visit();
+      card('B').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      await settle();
+
+      realtime.send('TaskMoved', message('id-KAN-1', { columnId: 'c2', position: 0 }));
+      await settle();
+      expect(shown()).toBe('A B C | D | E');
+      expect(api['board']).toHaveBeenCalledTimes(1);
+
+      card('B').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+
+      expect(api['board']).toHaveBeenCalledTimes(2);
     });
   });
 });

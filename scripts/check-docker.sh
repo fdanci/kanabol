@@ -365,6 +365,29 @@ upgrade_control() {
   [ "$(upgrade_status)" != 101 ]
 }
 
+# A hub request carries the access token in its query string (docs/SPEC.md §4.5), which nginx's access
+# log would keep. An /api request goes in the log, so the log works, and the hub one stays out of it.
+hub_token_stays_out_of_the_log() { # hub_token_stays_out_of_the_log <container>
+  secret="not-a-real-token-$$-$1"
+  curl -sS -o /dev/null "$web_url/api/orders?logged=$1" || return 1
+  curl -sS -o /dev/null "$web_url/hubs/board?id=x&access_token=$secret" || return 1
+  sleep 1
+  docker logs "$run_id-$1" >"$scratch/$1-access.log" 2>&1
+  grep -qF "logged=$1" "$scratch/$1-access.log" || {
+    echo "the /api request isn't in the access log either"
+    return 1
+  }
+  if grep -F "$secret" "$scratch/$1-access.log"; then
+    return 1
+  fi
+}
+
+hub_log_control() {
+  sed '/access_log off;/d' frontend/nginx-app.conf >"$scratch/hub-logged.conf"
+  start_web hub-logged "$scratch/hub-logged.conf" || return 1
+  ! hub_token_stays_out_of_the_log hub-logged >/dev/null
+}
+
 upload_status_is() { # upload_status_is <megabytes> <status>
   dd if=/dev/zero of="$scratch/body.bin" bs=1048576 count="$1" 2>/dev/null
   is "$2" "$(curl -sS -o /dev/null -w '%{http_code}' --data-binary @"$(native "$scratch/body.bin")" \
@@ -393,9 +416,11 @@ task_2() {
   check "the API gets the client's address" api_stub_saw '"x-forwarded-for"'
   check "the API gets the host the client asked for" api_stub_saw '"host":"kanabol.example"'
   check "/hubs upgrades to a WebSocket" web_upgrades_hubs
+  check "a hub request's token stays out of nginx's access log" hub_token_stays_out_of_the_log web
   check "a 26 MB upload gets through, for the API to judge" upload_status_is 26 200
   check "a 31 MB upload stops at nginx" upload_status_is 31 413
   check "control: without the upgrade lines /hubs doesn't upgrade" upgrade_control
+  check "control: without access_log off the token is in the log" hub_log_control
 }
 
 # Values compose would otherwise read from .env, so the real .env and its volumes stay out of this.

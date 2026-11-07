@@ -59,6 +59,7 @@
         <kb-board-column
           [column]="column"
           [cards]="cardsOf(column)"
+          [pulses]="store.pulses()"
           [canMove]="store.canMove()"
           [canCreate]="store.canCreate()"
           [canManage]="store.canManage()"
@@ -73,6 +74,8 @@
           [keysHelpId]="keysHelpId"
           (opened)="open($event)"
           (dropped)="dropped($event)"
+          (dragStarted)="store.hold()"
+          (dragEnded)="store.release()"
           (created)="create($event)"
         />
       }

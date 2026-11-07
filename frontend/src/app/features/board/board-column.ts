@@ -145,6 +145,7 @@ export interface NewCard {
             [cdkDragDisabled]="!canMove()"
             [task]="task"
             [done]="column().isDone"
+            [pulse]="pulses().get(task.id) ?? 0"
             [class.lifted]="task.id === liftedId()"
             [attr.data-task-id]="task.id"
             tabindex="0"
@@ -153,6 +154,8 @@ export interface NewCard {
             [attr.aria-describedby]="canMove() ? keysHelpId() : null"
             (click)="opened.emit(task)"
             (keydown.enter)="opened.emit(task)"
+            (cdkDragStarted)="dragStarted.emit()"
+            (cdkDragEnded)="dragEnded.emit()"
           />
         }
       </div>
@@ -288,6 +291,8 @@ export interface NewCard {
 export class BoardColumn {
   readonly column = input.required<BoardColumnDto>();
   readonly cards = input.required<BoardTaskDto[]>();
+  /** How many times others changed each card, for its pulse. */
+  readonly pulses = input<ReadonlyMap<string, number>>(new Map());
   readonly canMove = input(false);
   readonly canCreate = input(false);
   /** The card picked up from the keyboard, if any. */
@@ -297,6 +302,9 @@ export class BoardColumn {
 
   readonly opened = output<BoardTaskDto>();
   readonly dropped = output<CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>>();
+  /** A card was picked up, or let go, by the mouse: the board keeps still meanwhile. */
+  readonly dragStarted = output();
+  readonly dragEnded = output();
   readonly created = output<NewCard>();
   /** An owner, or projects.manage, of an open project. */
   readonly canManage = input(false);
