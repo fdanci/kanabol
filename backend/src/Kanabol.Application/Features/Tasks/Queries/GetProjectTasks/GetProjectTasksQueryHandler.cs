@@ -196,7 +196,7 @@ public sealed class GetProjectTasksQueryHandler(
             ColumnIsDone,
             Priority,
             DueDate,
-            Assignees.FirstOrDefault(),
+            Assignees,
             CompletedAt,
             ArchivedAt,
             UpdatedAt);

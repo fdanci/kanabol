@@ -98,10 +98,25 @@ public sealed class GetProjectTasksQueryHandlerTests(PostgresFixture postgres) :
             ColumnIsDone = false,
             Priority = TaskPriority.High,
             DueDate = Now.AddDays(-1),
-            Assignee = new TaskPersonDto(member.Id, member.DisplayName),
+            Assignees = new[] { new TaskPersonDto(member.Id, member.DisplayName) },
             CompletedAt = (DateTimeOffset?)null,
             ArchivedAt = (DateTimeOffset?)null,
         });
+    }
+
+    // UI spec section 7.3: the row lists every assignee, by name, whatever the case.
+    [Fact]
+    public async Task List_OfATaskWithSeveralAssignees_GivesThemAllByName()
+    {
+        var owner = await CreateUserNamed("mihai Radu", "mihai@example.com");
+        var ana = await CreateUserNamed("Ana Pop", "ana.pop@example.com");
+        var zoe = await CreateUserNamed("Zoe Ene", "zoe@example.com");
+        var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(owner).WithMember(ana).WithMember(zoe));
+        await CreateTaskAs(owner, project, assigneeIds: [zoe.Id, owner.Id, ana.Id]);
+
+        var row = (await List(project.Id)).Value.Items.Single();
+
+        row.Assignees.Select(assignee => assignee.DisplayName).Should().Equal("Ana Pop", "mihai Radu", "Zoe Ene");
     }
 
     [Fact]
@@ -137,6 +152,23 @@ public sealed class GetProjectTasksQueryHandlerTests(PostgresFixture postgres) :
         await Archive(project, owner);
 
         (await List(project.Id)).Value.TotalCount.Should().Be(4);
+    }
+
+    // SPEC section 4.4: the filter matches a task that has them among its assignees.
+    [Fact]
+    public async Task List_OfAnAssignee_FindsTheTasksTheyShareWithOthers()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        var other = await CreateUser("eva@example.com");
+        var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(owner).WithMember(member).WithMember(other));
+        await CreateTaskAs(owner, project, "Ale amândurora", assigneeIds: [owner.Id, member.Id]);
+        await CreateTaskAs(owner, project, "Al lui Dan", assigneeIds: [member.Id]);
+        await CreateTaskAs(owner, project, "Al Evei", assigneeIds: [other.Id]);
+        await CreateTaskAs(owner, project, "Al nimănui");
+
+        KeysOf(await List(project.Id, query => query with { AssigneeId = member.Id })).Should().Equal("KAN-2", "KAN-1");
+        KeysOf(await List(project.Id, query => query with { AssigneeId = owner.Id })).Should().Equal("KAN-1");
     }
 
     [Fact]
@@ -197,6 +229,24 @@ public sealed class GetProjectTasksQueryHandlerTests(PostgresFixture postgres) :
     public async Task List_SortedBy_GivesThemInThatOrder(string sort, string keys)
     {
         var (_, _, project) = await AProjectWithTasks();
+
+        string.Join(' ', KeysOf(await List(project.Id, query => query with { Sort = sort }))).Should().Be(keys);
+    }
+
+    // SPEC section 4.4: by the first name in alphabetical order, whatever the case, the unassigned last.
+    [Theory]
+    [InlineData("assignee:asc", "KAN-2 KAN-3 KAN-1 KAN-4")]
+    [InlineData("assignee:desc", "KAN-1 KAN-3 KAN-2 KAN-4")]
+    public async Task List_SortedByAssignee_GoesByTheFirstNameAlphabetically(string sort, string keys)
+    {
+        var owner = await CreateUserNamed("Zoe Ene", "zoe@example.com");
+        var ana = await CreateUserNamed("ana Pop", "ana.pop@example.com");
+        var mihai = await CreateUserNamed("Mihai Radu", "mihai@example.com");
+        var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(owner).WithMember(ana).WithMember(mihai));
+        await CreateTaskAs(owner, project, "Zoe", assigneeIds: [owner.Id]);
+        await CreateTaskAs(owner, project, "Zoe și Ana", assigneeIds: [owner.Id, ana.Id]);
+        await CreateTaskAs(owner, project, "Mihai și Zoe", assigneeIds: [mihai.Id, owner.Id]);
+        await CreateTaskAs(owner, project, "Nimeni");
 
         string.Join(' ', KeysOf(await List(project.Id, query => query with { Sort = sort }))).Should().Be(keys);
     }

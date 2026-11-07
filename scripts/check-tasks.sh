@@ -520,8 +520,8 @@ each_change_is_saved_and_written_down() {
   status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/description" '{"description":"Cu **Azure AD**"}')" || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/priority" '{"priority":"Critical"}')" || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/due-date" '{"dueDate":"2027-01-10T09:00:00+02:00"}')" || return 1
-  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
-  in_file "\"assignee\":{\"userId\":\"$dan_id\",\"displayName\":\"Dan Ionescu\"}" "$scratch/body" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignees" "{\"assigneeIds\":[\"$dan_id\"]}")" || return 1
+  in_file "\"assignees\":[{\"userId\":\"$dan_id\",\"displayName\":\"Dan Ionescu\"}]" "$scratch/body" || return 1
   is "Title|Login SSO|Login cu SSO
 Description||Cu **Azure AD**
 Priority|Medium|Critical
@@ -538,15 +538,15 @@ the_same_value_writes_nothing() {
 only_a_member_is_assigned() {
   status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"out@example.com\",\"displayName\":\"Din afara\",\"roleId\":\"$plain_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
   outsider=$(body_field id)
-  code_is 400 Validation "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignee" "{\"assigneeId\":\"$outsider\"}")" || return 1
+  code_is 400 Validation "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignees" "{\"assigneeIds\":[\"$outsider\"]}")" || return 1
   in_file '"assigneeIds":' "$scratch/body" || return 1
   is "$dan_id" "$(in_db "SELECT user_id FROM task_assignees WHERE task_id = '$edt_task'")"
 }
 
 a_member_without_permissions_changes_it() {
   status_is 200 "$(as "$dan_token" PUT "/api/tasks/$edt_task/priority" '{"priority":"Low"}')" || return 1
-  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$edt_task/assignee" '{"assigneeId":null}')" || return 1
-  in_file '"assignee":null' "$scratch/body"
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$edt_task/assignees" '{"assigneeIds":[]}')" || return 1
+  in_file '"assignees":[]' "$scratch/body"
 }
 
 an_outsider_neither_reads_nor_changes_it() {
@@ -587,7 +587,7 @@ tasks_archive_restores_it() {
 }
 
 the_list_filters_and_sorts() {
-  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$edt_id")" "{\"title\":\"Raport 100% gata\",\"priority\":\"High\",\"assigneeId\":\"$dan_id\",\"dueDate\":\"2020-01-01T00:00:00Z\"}")" || return 1
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$edt_id")" "{\"title\":\"Raport 100% gata\",\"priority\":\"High\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"2020-01-01T00:00:00Z\"}")" || return 1
   status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?assigneeId=$dan_id")" || return 1
   is EDT-3 "$(keys_listed)" || return 1
   status_is 200 "$(as "$dan_token" GET "$(tasks_of "$edt_id")?priority=High&priority=Low&sort=key:asc")" || return 1
@@ -659,25 +659,25 @@ notifications_of() { # notifications_of <user id>: type, task and message of eac
 }
 
 assigning_someone_notifies_them() {
-  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignees" "{\"assigneeIds\":[\"$dan_id\"]}")" || return 1
   is "TaskAssigned|$not_task|Administrator assigned you NOT-1: Login SSO|True" "$(notifications_of "$dan_id")"
 }
 
 assigning_yourself_notifies_nobody() {
-  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$admin_id\"}")" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$not_task/assignees" "{\"assigneeIds\":[\"$admin_id\"]}")" || return 1
   is '' "$(notifications_of "$admin_id")" || return 1
   is 1 "$(in_db "SELECT count(*) FROM notifications WHERE $(not_notifications)")"
 }
 
 creating_one_for_someone_notifies_them() {
-  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$not_id")" "{\"title\":\"Raport\",\"priority\":\"High\",\"assigneeId\":\"$dan_id\"}")" || return 1
+  status_is 201 "$(as "$admin_token" POST "$(tasks_of "$not_id")" "{\"title\":\"Raport\",\"priority\":\"High\",\"assigneeIds\":[\"$dan_id\"]}")" || return 1
   second=$(body_field id)
   is 2 "$(in_db "SELECT count(*) FROM notifications WHERE $(not_notifications "$dan_id") AND type = 'TaskAssigned'")" || return 1
   is "$second" "$(in_db "SELECT task_id FROM notifications WHERE $(not_notifications "$dan_id") ORDER BY created_at DESC, id DESC LIMIT 1")"
 }
 
 dan_taking_it_himself_notifies_nobody() {
-  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$not_task/assignee" "{\"assigneeId\":\"$dan_id\"}")" || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$not_task/assignees" "{\"assigneeIds\":[\"$dan_id\"]}")" || return 1
   is 2 "$(in_db "SELECT count(*) FROM notifications WHERE $(not_notifications)")"
 }
 
@@ -857,7 +857,7 @@ assigning_a_non_member_is_an_error() {
     TaskChangeCommandHandlerTests.Assign_ToSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIdsAndChangesNothing \
     TaskChangeCommandHandlerTests.Assign_ToADeactivatedMember_ReturnsAValidationErrorOnAssigneeIds \
     CreateTaskCommandHandlerTests.Create_ForSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIds || return 1
-  named_tests_pass Kanabol.Api.Tests TaskChangesEndpointTests.PutAssignee_ToSomeoneOutsideTheProject_Returns400OnAssigneeId
+  named_tests_pass Kanabol.Api.Tests TaskChangesEndpointTests.PutAssignees_ToSomeoneOutsideTheProject_Returns400OnAssigneeIds
 }
 
 archived_ones_are_hidden_by_default() {

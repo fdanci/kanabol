@@ -71,7 +71,7 @@ public static class TaskQueries
                 row.Description,
                 row.Priority,
                 row.DueDate,
-                row.Assignees.FirstOrDefault(),
+                row.Assignees,
                 row.ColumnId,
                 row.ColumnName,
                 row.Position,

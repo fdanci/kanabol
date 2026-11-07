@@ -378,8 +378,284 @@ task_1() {
   check "every test of a change and a creation passes" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskChangeCommandHandlerTests|FullyQualifiedName~CreateTaskCommandHandlerTests|FullyQualifiedName~TestDataPersistenceTests' 60
 }
 
+# ---- Requests to the real API.
+
+# An address no other request of this run has used, so the limit per address stays out of the way.
+# The count is in a file, because every caller runs in a subshell, where a new value would be lost.
+unused_address() {
+  printf x >>"$scratch/used-addresses"
+  used=$(wc -c <"$scratch/used-addresses")
+  printf '10.82.%s.%s' "$((used / 256))" "$((used % 256))"
+}
+
+send() { # send <method> <path> [curl arguments...]: leaves the answer in the scratch folder, prints the status
+  method=$1
+  path=$2
+  shift 2
+  # An answer that never came leaves no older one behind to be read as this one.
+  rm -f "$scratch/body" "$scratch/headers"
+  curl -sS --max-time 30 -o "$scratch/body" -D "$scratch/headers" -w '%{http_code}' -X "$method" "$@" "$API_URL$path"
+}
+
+as() { # as <token> <method> <path> [JSON body]
+  token=$1
+  method=$2
+  path=$3
+  if [ "$#" -ge 4 ]; then
+    # From a file: Windows hands curl its arguments in the ANSI code page, where ă turns into a.
+    printf '%s' "$4" >"$scratch/request.json"
+    send "$method" "$path" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+      --data-binary "@$(cygpath -m "$scratch/request.json" 2>/dev/null || echo "$scratch/request.json")"
+  else
+    send "$method" "$path" -H "Authorization: Bearer $token"
+  fi
+}
+
+login() { # login <email> <password>
+  send POST /api/auth/login -H 'Content-Type: application/json' -H "X-Forwarded-For: $(unused_address)" \
+    -d "{\"email\":\"$1\",\"password\":\"$2\"}"
+}
+
+body_field() { # body_field <name>: the value of the first text field with that name in the last answer
+  sed -n "s/^[^\"]*\"$1\":\"\([^\"]*\)\".*/\1/p; t; s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$scratch/body" | head -n 1
+}
+
+json() { # json <JavaScript expression on b, the last answer>: prints its value
+  node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
+    "$(cygpath -m "$scratch/body" 2>/dev/null || echo "$scratch/body")" "$1"
+}
+
+status_is() { # status_is <expected status> <actual status>: shows the answer when it differs
+  is "$1" "$2" || {
+    cat "$scratch/body"
+    return 1
+  }
+}
+
+code_is() { # code_is <expected status> <expected code> <actual status>
+  status_is "$1" "$3" || return 1
+  in_file "\"code\":\"$2\"" "$scratch/body" || {
+    echo "no code $2 in the answer:"
+    cat "$scratch/body"
+    return 1
+  }
+}
+
+log_has_entry() { # log_has_entry <message template> <property, as JSON>: one entry with both
+  grep -F -- "\"@mt\":\"$1\"" "$api_log" | grep -qF -- "$2" || {
+    echo "no entry $1 with $2 in the log"
+    return 1
+  }
+}
+
+no_errors_in_the_log() {
+  if grep -E 'Unhandled exception' "$api_log"; then
+    return 1
+  fi
+}
+
+# The first admin past the forced password change. The API may have stopped for a build since the
+# token was taken: it comes back first, and the token, signed with the same secret, still holds.
+admin_is_ready() {
+  api_is_up || return 1
+  [ -n "${admin_token:-}" ] && return 0
+  status_is 200 "$(login "$admin_email" "$admin_password")" || return 1
+  first_token=$(body_field accessToken)
+  status_is 200 "$(as "$first_token" POST /api/auth/change-password "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"$new_admin_password\"}")" || return 1
+  admin_token=$(body_field accessToken)
+  admin_id=$(in_db "SELECT id FROM users WHERE email = '$admin_email'")
+  [ -n "$admin_token" ] && [ -n "$admin_id" ]
+}
+
+# A colleague without permissions, past their forced password change: their id goes in <name>_id and
+# their token in <name>_token.
+colleague_is_ready() { # colleague_is_ready <name> <email> <display name>
+  admin_is_ready || return 1
+  eval "[ -n \"\${$1_token:-}\" ]" && return 0
+  if [ -z "${plain_role:-}" ]; then
+    status_is 201 "$(as "$admin_token" POST /api/roles '{"name":"Fara permisiuni","permissions":[]}')" || return 1
+    plain_role=$(body_field id)
+  fi
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"$2\",\"displayName\":\"$3\",\"roleId\":\"$plain_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
+  eval "$1_id=$(body_field id)"
+  status_is 200 "$(login "$2" "$initial_password")" || return 1
+  forced=$(body_field accessToken)
+  status_is 200 "$(as "$forced" POST /api/auth/change-password "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$member_password\"}")" || return 1
+  eval "$1_token=$(body_field accessToken)"
+}
+
+# Dan and Ioana, members of ASG; Radu, a member deactivated later; Eva, from outside.
+team_is_ready() {
+  colleague_is_ready dan dan@example.com 'Dan Ionescu' || return 1
+  colleague_is_ready ioana ioana@example.com 'ioana Pop' || return 1
+  colleague_is_ready radu radu@example.com 'Radu Ene' || return 1
+  colleague_is_ready eva eva@example.com 'Eva Din Afara' || return 1
+  [ -n "${asg_id:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Asignati","key":"ASG"}')" || return 1
+  asg_id=$(body_field id)
+  for member in "$dan_id" "$ioana_id" "$radu_id"; do
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$asg_id/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
+  done
+}
+
+names_of_assignees() { # in the last answer, a task: the names, in the order the API gives them
+  json "b.assignees.map(a => a.displayName).join(',')"
+}
+
+keys_listed() { # in the last answer, a page: the keys, in order
+  json "b.items.map(t => t.key).join(' ')"
+}
+
+# ---- 13b.2: the API, with assigneeIds in, assignees out, the filter and the sort.
+
+a_task_is_created_for_two() {
+  team_is_ready || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$asg_id/tasks" "{\"title\":\"Pentru doi\",\"priority\":\"High\",\"assigneeIds\":[\"$ioana_id\",\"$dan_id\"]}")" || return 1
+  shared_task=$(body_field id)
+  is 'Dan Ionescu,ioana Pop' "$(names_of_assignees)" || return 1
+  is false "$(json "'assignee' in b")" || return 1
+  is "$dan_id|True
+$ioana_id|True" "$(in_db "SELECT user_id, assigned_by_id = '$admin_id' FROM task_assignees WHERE task_id = '$shared_task' ORDER BY user_id = '$ioana_id', user_id")"
+}
+
+every_view_lists_them() {
+  status_is 200 "$(as "$dan_token" GET "/api/tasks/$shared_task")" || return 1
+  is 'Dan Ionescu,ioana Pop' "$(names_of_assignees)" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$asg_id/board")" || return 1
+  is 'Dan Ionescu,ioana Pop' "$(json "b.tasks.find(t => t.id === '$shared_task').assignees.map(a => a.displayName).join(',')")" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$asg_id/tasks")" || return 1
+  is 'Dan Ionescu,ioana Pop' "$(json "b.items.find(t => t.id === '$shared_task').assignees.map(a => a.displayName).join(',')")"
+}
+
+the_whole_list_replaces_the_old_one() {
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignees" "{\"assigneeIds\":[\"$ioana_id\",\"$radu_id\"]}")" || return 1
+  is 'ioana Pop,Radu Ene' "$(names_of_assignees)" || return 1
+  old_ids=$(printf '%s\n%s\n' "$dan_id" "$ioana_id" | LC_ALL=C sort | paste -sd, -)
+  new_ids=$(printf '%s\n%s\n' "$ioana_id" "$radu_id" | LC_ALL=C sort | paste -sd, -)
+  is "Assignees|$old_ids|$new_ids|$dan_id" "$(in_db "SELECT field, old_value, new_value, changed_by_id FROM task_history_entries WHERE task_id = '$shared_task'")"
+}
+
+nobody_is_an_empty_list() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$asg_id/tasks" "{\"title\":\"Al nimanui\",\"priority\":\"Low\",\"assigneeIds\":[\"$dan_id\"]}")" || return 1
+  lonely_task=$(body_field id)
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$lonely_task/assignees" '{"assigneeIds":[]}')" || return 1
+  is 0 "$(json "b.assignees.length")" || return 1
+  is "Assignees|$dan_id|" "$(in_db "SELECT field, old_value, new_value FROM task_history_entries WHERE task_id = '$lonely_task'")"
+}
+
+only_active_members_each_once() {
+  code_is 400 Validation "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignees" "{\"assigneeIds\":[\"$dan_id\",\"$eva_id\"]}")" || return 1
+  in_file '"assigneeIds":' "$scratch/body" || return 1
+  code_is 400 Validation "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignees" "{\"assigneeIds\":[\"$dan_id\",\"$dan_id\"]}")" || return 1
+  in_file '"assigneeIds":' "$scratch/body" || return 1
+  code_is 400 Validation "$(as "$admin_token" POST "/api/projects/$asg_id/tasks" "{\"title\":\"Cu cineva din afara\",\"priority\":\"Low\",\"assigneeIds\":[\"$eva_id\"]}")" || return 1
+  in_file '"assigneeIds":' "$scratch/body" || return 1
+  is 'ioana Pop,Radu Ene' "$(in_db "SELECT string_agg(u.display_name, ',' ORDER BY upper(u.display_name)) FROM task_assignees a JOIN users u ON u.id = a.user_id WHERE a.task_id = '$shared_task'")"
+}
+
+a_deactivated_assignee_stays_until_taken_off() {
+  status_is 200 "$(as "$admin_token" POST "/api/users/$radu_id/deactivate")" || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignees" "{\"assigneeIds\":[\"$radu_id\",\"$ioana_id\",\"$dan_id\"]}")" || return 1
+  is 'Dan Ionescu,ioana Pop,Radu Ene' "$(names_of_assignees)" || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignees" "{\"assigneeIds\":[\"$ioana_id\",\"$dan_id\"]}")" || return 1
+  code_is 400 Validation "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignees" "{\"assigneeIds\":[\"$radu_id\",\"$dan_id\"]}")"
+}
+
+the_filter_finds_a_shared_task() {
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$asg_id/tasks?assigneeId=$ioana_id")" || return 1
+  is 'ASG-1' "$(keys_listed)" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$asg_id/tasks?assigneeId=$dan_id")" || return 1
+  is 'ASG-1' "$(keys_listed)"
+}
+
+the_sort_goes_by_the_first_name() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$asg_id/tasks" "{\"title\":\"A Ioanei\",\"priority\":\"Low\",\"assigneeIds\":[\"$ioana_id\"]}")" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$asg_id/tasks?sort=assignee:asc")" || return 1
+  is 'ASG-1 ASG-3 ASG-2' "$(keys_listed)" || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/projects/$asg_id/tasks?sort=assignee:desc")" || return 1
+  is 'ASG-3 ASG-1 ASG-2' "$(keys_listed)"
+}
+
+the_old_endpoint_is_gone() {
+  status_is 404 "$(as "$dan_token" PUT "/api/tasks/$shared_task/assignee" "{\"assigneeId\":\"$dan_id\"}")"
+}
+
+two_changes_at_once_give_one_409() {
+  printf '{"assigneeIds":["%s"]}' "$dan_id" >"$scratch/first.json"
+  printf '{"assigneeIds":["%s"]}' "$ioana_id" >"$scratch/second.json"
+  first=$(cygpath -m "$scratch/first.json" 2>/dev/null || echo "$scratch/first.json")
+  second=$(cygpath -m "$scratch/second.json" 2>/dev/null || echo "$scratch/second.json")
+  # Both at once, which on Windows needs curl -Z: two curls started with & run one after the other.
+  curl -sS -Z --parallel-immediate --max-time 30 -o /dev/null -w '%{http_code}\n' \
+    -X PUT -H "Authorization: Bearer $dan_token" -H 'Content-Type: application/json' --data-binary "@$first" "$API_URL/api/tasks/$shared_task/assignees" \
+    --next -o /dev/null -w '%{http_code}\n' \
+    -X PUT -H "Authorization: Bearer $ioana_token" -H 'Content-Type: application/json' --data-binary "@$second" "$API_URL/api/tasks/$shared_task/assignees" \
+    >"$scratch/statuses" || return 1
+  statuses=$(tr -d '\r' <"$scratch/statuses" | sort | paste -sd' ' -)
+  case "$statuses" in
+    '200 409' | '200 200') ;;
+    *)
+      echo "got $statuses"
+      return 1
+      ;;
+  esac
+  # Whichever won, the task has exactly its list, and one entry per change that went through.
+  is 1 "$(in_db "SELECT count(*) FROM task_assignees WHERE task_id = '$shared_task'")"
+}
+
+the_endpoints_are_written_down() {
+  for text in 'PUT /api/tasks/{id}/title' '`…/assignees`' '`assigneeIds`' 'task_assignees' 'first name in alphabetical order'; do
+    in_file "$text" backend/CLAUDE.md || {
+      echo "backend/CLAUDE.md doesn't say $text"
+      return 1
+    }
+  done
+  lacks '…/assignee`|optionally `columnId`, `assigneeId`' backend/CLAUDE.md
+}
+
+api_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    TaskChangesEndpointTests.PutAssignees_ToTwoMembersThenNobody_Returns200WithTheWholeListEachTime \
+    TaskChangesEndpointTests.PutAssignees_WithoutAListOrWithAnIdTwice_Returns400OnAssigneeIds \
+    TaskChangesEndpointTests.PutAssignees_ToSomeoneOutsideTheProject_Returns400OnAssigneeIds \
+    TaskChangesEndpointTests.PutAssignee_TheOldEndpoint_IsGone \
+    TaskChangesEndpointTests.GetList_WithFiltersAndSort_ReturnsAPageOfTheMatchingTasks
+}
+
+query_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    GetProjectTasksQueryHandlerTests.List_OfAnAssignee_FindsTheTasksTheyShareWithOthers \
+    GetProjectTasksQueryHandlerTests.List_SortedByAssignee_GoesByTheFirstNameAlphabetically \
+    GetProjectTasksQueryHandlerTests.List_OfATaskWithSeveralAssignees_GivesThemAllByName \
+    GetBoardQueryHandlerTests.Board_OfATaskWithSeveralAssignees_GivesThemAllByName \
+    TaskQueryHandlerTests.ById_OfATask_ReturnsItWithItsAssigneesByNameAndColumn
+}
+
+task_2() {
+  echo "13b.2 The API: assigneeIds in, assignees out, the filter and the sort"
+  check "Docker is running" docker_is_running
+  check "the solution builds without warnings" solution_builds
+  check "the formatting is clean" formatting_is_clean
+  check "the filter, the sort and every view's list of assignees pass" query_tests_pass
+  check "the endpoint's tests pass, and the old one is gone" api_tests_pass
+  check "every test of the tasks' handlers passes" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~Features.Tasks' 145
+  check "backend/CLAUDE.md lists the endpoint, its list and the rules" the_endpoints_are_written_down
+  check "the real API starts in Production, with three members and one from outside" team_is_ready
+  check "a task created for two lists both by name, and no single assignee" a_task_is_created_for_two
+  check "the task, the board and the list all give both" every_view_lists_them
+  check "the whole list replaces the old one, in one history entry" the_whole_list_replaces_the_old_one
+  check "an empty list leaves the task to nobody" nobody_is_an_empty_list
+  check "someone from outside or an id twice is a 400 on assigneeIds, changing nothing" only_active_members_each_once
+  check "a deactivated assignee stays until taken off, and can't come back" a_deactivated_assignee_stays_until_taken_off
+  check "the filter finds the task each of its assignees shares" the_filter_finds_a_shared_task
+  check "the sort goes by each task's first name, the unassigned last" the_sort_goes_by_the_first_name
+  check "the old endpoint with a single assignee is gone" the_old_endpoint_is_gone
+  check "two changes at once leave one list" two_changes_at_once_give_one_409
+  check "the log has no unhandled exception" no_errors_in_the_log
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 
 for task in "$@"; do

@@ -39,6 +39,17 @@ public abstract class TaskHandlerTest(PostgresFixture postgres) : ProjectHandler
         return result.Value;
     }
 
+    /// <summary>The builder names everyone Ana Pop: the order of the assignees needs names of their own.</summary>
+    protected async Task<User> CreateUserNamed(string displayName, string email)
+    {
+        var user = await CreateUser(email);
+        await using var db = Postgres.CreateContext();
+        var stored = await db.Users.SingleAsync(found => found.Id == user.Id);
+        stored.UpdateProfile(stored.Email, displayName);
+        await db.SaveChangesAsync();
+        return stored;
+    }
+
     protected async Task<TaskItem?> Stored(Guid taskId)
     {
         await using var db = Postgres.CreateContext();

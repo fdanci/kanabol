@@ -17,7 +17,7 @@ public sealed record TaskSummaryDto(
     bool ColumnIsDone,
     [property: JsonConverter(typeof(JsonStringEnumConverter<TaskPriority>))] TaskPriority Priority,
     DateTimeOffset? DueDate,
-    TaskPersonDto? Assignee,
+    IReadOnlyList<TaskPersonDto> Assignees,
     DateTimeOffset? CompletedAt,
     DateTimeOffset? ArchivedAt,
     DateTimeOffset UpdatedAt);

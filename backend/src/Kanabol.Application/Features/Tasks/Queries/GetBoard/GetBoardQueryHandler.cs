@@ -86,7 +86,7 @@ public sealed class GetBoardQueryHandler(
                 row.Position,
                 row.Priority,
                 row.DueDate,
-                row.Assignees.FirstOrDefault(),
+                row.Assignees,
                 row.CompletedAt,
                 row.CommentCount,
                 row.AttachmentCount))]);

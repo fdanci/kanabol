@@ -138,8 +138,9 @@ public sealed class TaskChangeCommandHandlerTests(PostgresFixture postgres) : Ta
     {
         var (owner, member, _, task) = await ATaskWithAMember();
 
-        (await Assign(task.Id, member.Id, owner.Id)).IsSuccess.Should().BeTrue();
+        var result = await Assign(task.Id, member.Id, owner.Id);
 
+        result.Value.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([owner.Id, member.Id]);
         var stored = await Stored(task.Id);
         stored!.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([owner.Id, member.Id]);
         var sorted = string.Join(',', new[] { owner.Id, member.Id }.Select(id => id.ToString()).Order(StringComparer.Ordinal));
