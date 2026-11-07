@@ -145,7 +145,10 @@
               />
             </mat-tab>
             <mat-tab i18n-label label="Istoric">
-              <p class="later" i18n>Istoricul vine într-o versiune următoare.</p>
+              <!-- Lazy: the timeline reads the history each time its tab opens. -->
+              <ng-template matTabContent>
+                <kb-task-timeline [taskId]="task.id" [revision]="store.savedChanges()" />
+              </ng-template>
             </mat-tab>
           </mat-tab-group>
         </section>

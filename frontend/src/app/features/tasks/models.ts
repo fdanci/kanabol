@@ -64,6 +64,21 @@ export interface CommentDto {
   canEdit: boolean;
 }
 
+/**
+ * One change of a task (docs/SPEC.md §4.4 "Istoricul unui task"). The values are the entry's text: ids
+ * for Assignees, sorted and separated by commas, and for ColumnId; names gives each of them its name,
+ * null for a column deleted since. Dates are ISO, in UTC.
+ */
+export interface TaskHistoryEntryDto {
+  id: string;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  changedAt: string;
+  changedBy: TaskPersonDto;
+  names: Record<string, string | null>;
+}
+
 /** A row of the project's List view. Assignees come by name; updatedAt is the last change, or the creation. */
 export interface TaskSummaryDto {
   id: string;

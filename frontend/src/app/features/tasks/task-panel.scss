@@ -123,19 +123,13 @@ kb-empty-state {
 }
 
 .empty,
-.later,
 .none {
   color: var(--kb-text-500);
 }
 
-.empty,
-.later {
+.empty {
   margin: 0;
   font-size: 13px;
-}
-
-.later {
-  padding: var(--kb-space-4) 0;
 }
 
 .properties {

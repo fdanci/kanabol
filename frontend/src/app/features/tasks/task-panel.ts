@@ -22,7 +22,7 @@ import { MAT_DIALOG_DATA, MatDialogConfig, MatDialogRef } from '@angular/materia
 import { MatIcon } from '@angular/material/icon';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectTrigger } from '@angular/material/select';
-import { MatTab, MatTabGroup } from '@angular/material/tabs';
+import { MatTab, MatTabContent, MatTabGroup } from '@angular/material/tabs';
 import { MatTooltip } from '@angular/material/tooltip';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { Avatar } from '../../shared/ui/avatar';
@@ -43,6 +43,7 @@ import {
 } from './task-fields';
 import { TaskAttachments } from './task-attachments';
 import { TaskComments } from './task-comments';
+import { TaskTimeline } from './task-timeline';
 import { ChangeOutcome, TaskPanelStore } from './task-panel-store';
 
 export interface TaskPanelData {
@@ -70,7 +71,8 @@ export function taskPanelConfig(data: TaskPanelData): MatDialogConfig<TaskPanelD
 /**
  * A task's details (docs/UI_UX_SPEC.md §7.5). Left, the title, edited in place (Enter saves, Esc
  * goes back), and the description, written in basic markdown and rendered through kb-markdown.
- * Below them, the tabs: its comments (kb-task-comments) and its files (kb-task-attachments). Right, the
+ * Below them, the tabs: its comments (kb-task-comments), its files (kb-task-attachments) and its
+ * history (kb-task-timeline), read when its tab opens and after each change saved here. Right, the
  * properties, each changed where it is. The menu at the bottom right archives it, or restores it for
  * tasks.archive. Whoever can't change it reads the same panel without the controls.
  */
@@ -97,6 +99,7 @@ export function taskPanelConfig(data: TaskPanelData): MatDialogConfig<TaskPanelD
     MatDatepickerToggle,
     MatTabGroup,
     MatTab,
+    MatTabContent,
     MatTooltip,
     RelativeTimePipe,
     Avatar,
@@ -107,6 +110,7 @@ export function taskPanelConfig(data: TaskPanelData): MatDialogConfig<TaskPanelD
     Skeleton,
     TaskAttachments,
     TaskComments,
+    TaskTimeline,
   ],
   templateUrl: './task-panel.html',
   styleUrl: './task-panel.scss',

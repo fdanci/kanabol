@@ -9,6 +9,8 @@
 #   1  GET /api/tasks/{id}/history: the tests, then the real API in Production: a Page from the newest, 50
 #      by default, who changed it, the names of the assignees and the columns, an archived task, an
 #      outsider. Docker, PostgreSQL.
+#   2  the "Istoric" tab of the task's panel: specs, lint, formatting, the production build. Only the
+#      packages that scripts/setup.sh installs.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -504,9 +506,156 @@ task_1() {
   check "a task that doesn't exist is 404 Task.NotFound" a_missing_task_is_404
   check "backend/CLAUDE.md says how the history works" in_file '`GET /api/tasks/{id}/history' backend/CLAUDE.md
 }
+# ---- The frontend.
+
+web=frontend
+app=$web/src/app
+tasks_web=$app/features/tasks
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+lacks() { # lacks <extended regex> <file...>
+  ! grep -nE -- "$@" || return 1
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*{},' '______').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is an it() of that file
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "it('$name'" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+# The production build, made once per run.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
+  built || return 1
+  tr -d ' \n\r' <"$(ls "$scratch"/dist/browser/styles-*.css | head -n 1)" | grep -qF -- "$1" || {
+    echo "not in the built CSS: $1"
+    return 1
+  }
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+
+# ---- 16.2: the "Istoric" tab of the task's panel.
+
+app=$web/src/app
+tasks_web=$app/features/tasks
+
+the_timeline_specs_name_the_rules() {
+  spec_names "$tasks_web/task-timeline.spec.ts" \
+    'shows each change from the newest, as who changed what, and when' \
+    'writes the description, an archiving and a restoring as sentences of their own' \
+    'loads 50 more with "Încarcă mai multe", only while there are more' \
+    'keeps each change once when the next page repeats one, after a change came meanwhile' \
+    'reads the history again, from the newest, after the panel saves a change' \
+    'keeps the changes it shows while it reads them again' \
+    'says when nothing has changed yet' &&
+    spec_names "$tasks_web/task-history.spec.ts" \
+      'writes a title and a priority as old → new, the priority by its label' \
+      'writes a deadline as its day in ro-RO, and "fără deadline" for none' \
+      'writes a move as Stare with the names of the columns, "coloană ștearsă" for one gone' \
+      'names the assignees from the entry, "Neasignat" for nobody' \
+      'says only that the description changed, without its texts' \
+      'tells an archiving from a restoring' &&
+    spec_names "$tasks_web/task-panel.spec.ts" \
+      'reads the history when its tab opens, and again after a change saved in the panel' &&
+    spec_names "$tasks_web/tasks-api.spec.ts" \
+      'reads a page of a task’s history, 50 at a time'
+}
+
+# Lazy content: the tab makes the timeline when it opens, and the panel's saves move its revision.
+the_panel_reads_the_history_when_its_tab_opens() {
+  in_file '<ng-template matTabContent>' "$tasks_web/task-panel.html" &&
+    in_file '<kb-task-timeline [taskId]="task.id" [revision]="store.savedChanges()" />' "$tasks_web/task-panel.html" &&
+    in_file 'this.savedChanges.update((count) => count + 1);' "$tasks_web/task-panel-store.ts" &&
+    lacks 'vine într-o versiune următoare' "$tasks_web/task-panel.html"
+}
+
+# docs/SPEC.md §9: the history isn't heard, only read.
+the_timeline_listens_to_no_hub() {
+  lacks 'Realtime|signalr|core/realtime' "$tasks_web/task-timeline.ts" "$tasks_web/task-timeline-store.ts" "$tasks_web/task-history.ts"
+}
+
+# docs/UI_UX_SPEC.md §7.5, the texts on each field.
+the_timeline_has_the_ui_specs_words() {
+  for words in 'a schimbat <em>' 'a schimbat descrierea' 'a arhivat task-ul' 'l-a restaurat' 'Încarcă mai multe'; do
+    in_file "$words" "$tasks_web/task-timeline.ts" || {
+      echo "no '$words' in task-timeline.ts"
+      return 1
+    }
+  done
+  for words in 'coloană ștearsă' 'fără deadline' 'Neasignat' 'Prioritate' 'Stare' 'Asignați' 'Titlu' 'Deadline'; do
+    in_file "\`$words\`" "$tasks_web/task-history.ts" || {
+      echo "no \$localize\`$words\` in task-history.ts"
+      return 1
+    }
+  done
+}
+
+the_timeline_uses_tokens_only() {
+  lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+    "$tasks_web/task-timeline.ts" "$tasks_web/task-timeline-store.ts" "$tasks_web/task-history.ts" &&
+    in_file 'background: var(--kb-accent-600);' "$tasks_web/task-timeline.ts"
+}
+
+task_2() {
+  echo "16.2 The \"Istoric\" tab: a timeline from the newest, 50 at a time, read when it opens and after each save"
+  for file in task-timeline.ts task-timeline-store.ts task-history.ts tasks-api.spec.ts; do
+    check "features/tasks/$file is tracked" tracked "$tasks_web/$file"
+  done
+  check "the specs name the rules of the timeline" the_timeline_specs_name_the_rules
+  check "the specs of the timeline and its texts pass" specs_pass 'src/app/features/tasks/{task-timeline,task-history,tasks-api}.spec.ts' 20
+  check "every spec of the tasks feature passes" specs_pass 'src/app/features/tasks/*.spec.ts' 109
+  check "the panel reads the history when its tab opens, and after each save" the_panel_reads_the_history_when_its_tab_opens
+  check "the timeline listens to no hub" the_timeline_listens_to_no_hub
+  check "the timeline has the UI spec's words for each field" the_timeline_has_the_ui_specs_words
+  check "the timeline uses the theme's tokens and nothing unsafe" the_timeline_uses_tokens_only
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "frontend/CLAUDE.md says how it works" in_file '`kb-task-timeline`' frontend/CLAUDE.md
+}
 
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 for task in "$@"; do
   "task_$task"
