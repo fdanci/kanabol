@@ -12,9 +12,12 @@
 #      Production, with what it keeps on disk. Docker, PostgreSQL.
 #   3  the comments and the files in the task's panel, and the board that hears of them: specs, lint,
 #      formatting, the production build. Only the packages that scripts/setup.sh installs.
+#   4  the group's flows end to end: the API's tests, then a comment and a file on the real API, heard by
+#      three boards over a real WebSocket and refused to an outsider. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
-# drops it. Docker runs the tests' own PostgreSQL.
+# drops it. Docker runs the tests' own PostgreSQL. A small SignalR client in Node, written by the script,
+# speaks to the hub as a browser does.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -835,8 +838,236 @@ task_3() {
   check "frontend/CLAUDE.md says how it works" in_file '`kb-task-attachments` lists the task' frontend/CLAUDE.md
 }
 
+# ---- A SignalR client as a browser is one: the JSON protocol over a WebSocket, the token only in the
+# query string. Built once, on first use.
+
+hub_client() {
+  [ -f "$scratch/hub.mjs" ] && return 0
+  cat >"$scratch/hub.mjs" <<'JS'
+// node hub.mjs <API address> <script file>: runs the script's steps and writes what happened as JSON.
+// A step connects a name with a token, joins a project's board, sends a request to the API, or uploads a
+// file of zeros as multipart, with the connection id of one of the names in X-Connection-Id when asked;
+// {last} in a path is the id the previous answer gave. What each connection heard comes last.
+import { readFileSync } from 'node:fs';
+
+const RS = '\x1e';
+const [base, scriptFile] = process.argv.slice(2);
+const steps = JSON.parse(readFileSync(scriptFile, 'utf8'));
+
+async function connect(token) {
+  const query = `access_token=${encodeURIComponent(token)}`;
+  const negotiated = await fetch(`${base}/hubs/board/negotiate?negotiateVersion=1&${query}`, { method: 'POST' });
+  if (negotiated.status !== 200) throw new Error(`negotiate answered ${negotiated.status}`);
+  const { connectionId, connectionToken } = await negotiated.json();
+  const socket = new WebSocket(`${base.replace(/^http/, 'ws')}/hubs/board?id=${encodeURIComponent(connectionToken)}&${query}`);
+  const heard = [];
+  const waiting = new Map();
+  let shake;
+  const shaken = new Promise((resolve, reject) => (shake = { resolve, reject }));
+  socket.onmessage = (event) => {
+    for (const frame of String(event.data).split(RS).filter(Boolean)) {
+      const message = JSON.parse(frame);
+      if (!('type' in message)) {
+        if (message.error) shake.reject(new Error(message.error));
+        else shake.resolve();
+      } else if (message.type === 1) {
+        heard.push({ event: message.target, payload: message.arguments[0] });
+      } else if (message.type === 3) {
+        waiting.get(message.invocationId)?.(message);
+      } else if (message.type === 7) {
+        heard.push({ event: '(closed)', payload: message.error ?? null });
+      }
+    }
+  };
+  await new Promise((resolve, reject) => {
+    socket.onopen = resolve;
+    socket.onerror = () => reject(new Error('the WebSocket failed'));
+  });
+  socket.send(JSON.stringify({ protocol: 'json', version: 1 }) + RS);
+  await shaken;
+  let next = 0;
+  return {
+    connectionId,
+    heard,
+    async invoke(target, ...args) {
+      const invocationId = String(++next);
+      const done = new Promise((resolve) => waiting.set(invocationId, resolve));
+      socket.send(JSON.stringify({ type: 1, invocationId, target, arguments: args }) + RS);
+      const completion = await done;
+      if (completion.error) throw new Error(completion.error);
+      return completion.result;
+    },
+    close: () => socket.close(),
+  };
+}
+
+const hubs = {};
+let last = null;
+const result = { connections: {}, steps: [], heard: {} };
+try {
+  for (const step of steps) {
+    if (step.connect) {
+      try {
+        hubs[step.connect] = await connect(step.token);
+        result.connections[step.connect] = hubs[step.connect].connectionId;
+        result.steps.push('connected');
+      } catch (error) {
+        result.steps.push(`refused: ${error.message}`);
+      }
+    } else if (step.join) {
+      // The hub answers null for a join, or the refusal's code (docs/SPEC.md §9).
+      try {
+        const refusal = await hubs[step.join].invoke('JoinProject', step.project);
+        result.steps.push(refusal === null ? 'joined' : `refused: ${refusal}`);
+      } catch (error) {
+        result.steps.push(`failed: ${error.message}`);
+      }
+    } else if (step.leave) {
+      await hubs[step.leave].invoke('LeaveProject', step.project);
+      result.steps.push('left');
+    } else if (step.request) {
+      const headers = { Authorization: `Bearer ${step.token}`, 'Content-Type': 'application/json' };
+      if (step.as) headers['X-Connection-Id'] = hubs[step.as].connectionId;
+      const answer = await fetch(`${base}${step.request.replace('{last}', last)}`, {
+        method: step.method,
+        headers,
+        body: step.body === undefined ? undefined : JSON.stringify(step.body),
+      });
+      result.steps.push(String(answer.status));
+      last = (await answer.json().catch(() => null))?.id ?? last;
+    } else if (step.upload) {
+      const headers = { Authorization: `Bearer ${step.token}` };
+      if (step.as) headers['X-Connection-Id'] = hubs[step.as].connectionId;
+      const form = new FormData();
+      form.append('file', new Blob([new Uint8Array(step.bytes)]), step.file);
+      const answer = await fetch(`${base}${step.upload}`, { method: 'POST', headers, body: form });
+      result.steps.push(String(answer.status));
+      last = (await answer.json().catch(() => null))?.id ?? last;
+    } else if (step.wait) {
+      await new Promise((resolve) => setTimeout(resolve, step.wait));
+    }
+  }
+  // Whatever was sent has reached the sockets by the time the requests answered; this is for the wire.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+} finally {
+  for (const [name, hub] of Object.entries(hubs)) {
+    result.heard[name] = hub.heard;
+    hub.close();
+  }
+}
+console.log(JSON.stringify(result));
+JS
+}
+
+hub() { # hub <steps as JSON>: runs them, and leaves what happened in the scratch folder
+  hub_client || return 1
+  printf '%s' "$1" >"$scratch/hub-steps.json"
+  rm -f "$scratch/hub-result.json"
+  node "$(native "$scratch/hub.mjs")" "$API_URL" "$(native "$scratch/hub-steps.json")" >"$scratch/hub-result.json" 2>"$scratch/hub-error.log" || {
+    cat "$scratch/hub-error.log"
+    return 1
+  }
+}
+
+heard() { # heard <JavaScript expression on r, the last hub run>: prints its value
+  node -e "const r = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
+    "$(native "$scratch/hub-result.json")" "$1"
+}
+
+steps_were() { # steps_were <expected steps, separated by |>
+  is "$1" "$(heard "r.steps.join('|')")" || {
+    cat "$scratch/hub-result.json"
+    return 1
+  }
+}
+
+# ---- 15.4: the group's flows end to end, as Tasks.md lists them, in the tests and on the real API.
+
+flow_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    CommentsAndAttachmentsFlowTests.AnUpload_OverTheLimitOrOfAForbiddenType_Is400OnFile_KeepsNothing_AndTheBoardHearsNothing \
+    CommentsAndAttachmentsFlowTests.ADownload_WithoutAccessToTheTask_Is403 \
+    CommentsAndAttachmentsFlowTests.AnEdit_OfSomeoneElsesComment_Is403AndChangesNothing \
+    CommentsAndAttachmentsFlowTests.AComment_OnAnArchivedTask_Is409AndTheBoardHearsNothingOfIt \
+    CommentsAndAttachmentsFlowTests.AComment_NotifiesEachPersonOnce_OnTheirOwnGroup_AndTheBoardHearsCommentAddedWithItsId \
+    CommentsAndAttachmentsFlowTests.AFileAttachedThenDeleted_TellsTheBoardTaskUpdatedWithAttachmentsEachTime
+}
+
+step() { # step <name of the tab, or nothing> <token> <method> <path> [JSON body]: one request of a hub run
+  printf '{"request":"%s","method":"%s","token":"%s"%s%s}' "$4" "$3" "$2" \
+    "${1:+,\"as\":\"$1\"}" "${5:+,\"body\":$5}"
+}
+
+# One run on the real API: the admin's board and Dan's on CMT, Eva connected but refused. Ioana comments
+# from her tab, then Dan attaches a file from his and deletes it. The admin created task "Pe hub" and has it
+# with Dan, so each of them is notified once.
+the_flows_run_over_the_hub() {
+  team_is_ready || return 1
+  [ -n "${hub_task:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$cmt_id/tasks" "{\"title\":\"Pe hub\",\"priority\":\"Low\",\"assigneeIds\":[\"$admin_id\",\"$dan_id\"]}")" || return 1
+  hub_task=$(body_field id)
+  hub "[
+    {\"connect\":\"admin\",\"token\":\"$admin_token\"},{\"join\":\"admin\",\"project\":\"$cmt_id\"},
+    {\"connect\":\"dan\",\"token\":\"$dan_token\"},{\"join\":\"dan\",\"project\":\"$cmt_id\"},
+    {\"connect\":\"ioana\",\"token\":\"$ioana_token\"},{\"join\":\"ioana\",\"project\":\"$cmt_id\"},
+    {\"connect\":\"eva\",\"token\":\"$eva_token\"},{\"join\":\"eva\",\"project\":\"$cmt_id\"},
+    $(step ioana "$ioana_token" POST "/api/tasks/$hub_task/comments" '{"body":"Pe hub"}'),
+    {\"upload\":\"/api/tasks/$hub_task/attachments\",\"file\":\"brief.pdf\",\"bytes\":27,\"token\":\"$dan_token\",\"as\":\"dan\"},
+    $(step dan "$dan_token" DELETE '/api/attachments/{last}')
+  ]" || return 1
+  steps_were "connected|joined|connected|joined|connected|joined|connected|refused: Project.MemberRequired|201|201|204"
+}
+
+board_heard_by() { # board_heard_by <name>: what a tab heard of the project, as event:field or event, in order
+  heard "r.heard.$1.filter(m => m.event !== 'NotificationCreated').map(m => m.event + (m.payload.field ? ':' + m.payload.field : '')).join(' ')"
+}
+
+every_board_hears_the_comment_and_the_file() {
+  the_flows_run_over_the_hub || return 1
+  for name in admin dan ioana; do
+    is 'CommentAdded TaskUpdated:Attachments TaskUpdated:Attachments' "$(board_heard_by "$name")" || return 1
+  done
+}
+
+the_comment_carries_its_id_and_its_tab() {
+  the_flows_run_over_the_hub || return 1
+  comment=$(in_db "SELECT id FROM comments WHERE task_id = '$hub_task'")
+  is "taskId,projectId,byUserId,originConnectionId,commentId" \
+    "$(heard "Object.keys(r.heard.dan.find(m => m.event === 'CommentAdded').payload).join()")" || return 1
+  is "$comment:$ioana_id" "$(heard "[r.heard.dan.find(m => m.event === 'CommentAdded').payload].map(p => p.commentId + ':' + p.byUserId).join()")" || return 1
+  is "$(heard r.connections.ioana)" "$(heard "r.heard.dan.find(m => m.event === 'CommentAdded').payload.originConnectionId")"
+}
+
+# The admin created the task and has it, Dan has it: one notification each, Ioana none.
+each_one_hears_of_the_comment_once() {
+  the_flows_run_over_the_hub || return 1
+  is 1 "$(heard "r.heard.admin.filter(m => m.event === 'NotificationCreated').length")" || return 1
+  is 1 "$(heard "r.heard.dan.filter(m => m.event === 'NotificationCreated').length")" || return 1
+  is 0 "$(heard "r.heard.ioana.filter(m => m.event === 'NotificationCreated').length")" || return 1
+  is "$(printf '%s|1\n%s|1' "$admin_id" "$dan_id" | sort)" \
+    "$(in_db "SELECT user_id, count(*) FROM notifications WHERE type = 'CommentAdded' AND task_id = '$hub_task' GROUP BY user_id" | sort)"
+}
+
+an_outsider_hears_nothing_of_it() {
+  the_flows_run_over_the_hub || return 1
+  is 0 "$(heard "r.heard.eva.length")"
+}
+
+task_4() {
+  echo "15.4 The group's flows: the limit and the type, a download without access, someone else's comment, an archived task, one notification each"
+  check "Docker is running" docker_is_running
+  check "the flows are tracked" tracked backend/tests/Kanabol.Api.Tests/Comments/CommentsAndAttachmentsFlowTests.cs
+  check "the flows pass: 400 on file, 403 to download, 403 to edit, 409 when archived, a notification each, the hub" flow_tests_pass
+  check "every test of comments and attachments in the API passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~Kanabol.Api.Tests.Comments|FullyQualifiedName~Kanabol.Api.Tests.Attachments' 47
+  check "the real API runs a comment and a file past three boards and an outsider" the_flows_run_over_the_hub
+  check "every board of the project hears CommentAdded, then TaskUpdated with Attachments twice" every_board_hears_the_comment_and_the_file
+  check "CommentAdded carries its id, who wrote it and the tab it came from" the_comment_carries_its_id_and_its_tab
+  check "the creator and the other assignee hear of it once each, the author not at all" each_one_hears_of_the_comment_once
+  check "the outsider hears nothing" an_outsider_hears_nothing_of_it
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 for task in "$@"; do
   "task_$task"
