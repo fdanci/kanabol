@@ -43,7 +43,8 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
             .Should().Equal(("CreateProject", Permissions.ProjectsCreate));
     }
 
-    // The rest of the task endpoints check access to the project in the handler (SPEC sections 4.4 and 5.1).
+    // The rest of the task endpoints, the history among them, check access to the project in the handler
+    // (SPEC sections 4.4 and 5.1).
     [Fact]
     public void Tasks_OnlyCreatingAndRestoringOne_NeedAPermissionOnTheEndpoint()
     {
@@ -51,7 +52,7 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
             .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Tasks")
             .ToList();
 
-        found.Should().HaveCount(13);
+        found.Should().HaveCount(14);
         found.Where(endpoint => endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any())
             .Select(endpoint => (endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ActionName, endpoint.Metadata.GetMetadata<HasPermissionAttribute>()!.Permission))
             .Should().BeEquivalentTo([("CreateTask", Permissions.TasksCreate), ("RestoreTask", Permissions.TasksArchive)]);

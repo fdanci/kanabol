@@ -4,9 +4,12 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
-using Microsoft.AspNetCore.Hosting;
+using Kanabol.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Kanabol.Api.Tests.Tasks;
 
@@ -190,6 +193,12 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
         second.Select(entry => Text(entry, "newValue")).Should().Equal("Titlul 1");
     }
 
+    /// <summary>
+    /// The API's own appsettings.json under compose's override, as the container reads them. A second host
+    /// would end this one's logging (Serilog's static logger), so the settings go through AddInfrastructure,
+    /// and the API that runs here shows the default list at work. scripts/check-history.sh 4 starts the
+    /// real API with compose's value.
+    /// </summary>
     [Fact]
     public async Task TheListOfExtensionsComposeGives_ReplacesTheWholeDefaultList()
     {
@@ -197,24 +206,37 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
         var project = await CreateProject(builder => builder.WithKey("HIS").OwnedBy(owner));
         var taskId = await Created(token, project, "Fisiere");
         var (variable, value) = ComposeOverride();
-        variable.Should().Be("Storage__AllowedExtensions");
-        using var composed = Api.Factory.WithWebHostBuilder(builder => builder.UseSetting(variable.Replace("__", ":", StringComparison.Ordinal), value));
-        using var client = composed.CreateClient();
 
-        var png = await Upload(client, taskId, token, "poza.png");
-        var txt = await Upload(client, taskId, token, "note.txt");
-        var zip = await Upload(client, taskId, token, "arhiva.zip");
-        var txtByDefault = await Upload(Client, taskId, token, "note.txt");
+        var byDefault = ExtensionsWith();
+        var composed = ExtensionsWith((variable, value));
+        var txtOnTheApi = await Upload(Client, taskId, token, "note.txt");
 
-        value.Should().Be("pdf,png");
-        png.StatusCode.Should().Be(HttpStatusCode.Created);
-        txt.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        zip.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        txtByDefault.StatusCode.Should().Be(HttpStatusCode.Created);
+        (variable, value).Should().Be(("Storage__AllowedExtensions", "pdf,png"));
+        byDefault.Should().Equal("pdf", "png", "jpg", "jpeg", "gif", "txt", "md", "csv", "xlsx", "docx", "zip");
+        composed.Should().Equal("pdf", "png");
+        txtOnTheApi.StatusCode.Should().Be(HttpStatusCode.Created);
     }
 
-    /// <summary>The override compose.yaml's comment gives (SPEC section 13.3), as the variable and its value.</summary>
-    private static (string Variable, string Value) ComposeOverride()
+    /// <summary>The extensions the API allows with its appsettings.json and the environment variables given.</summary>
+    private static IReadOnlyCollection<string> ExtensionsWith(params (string Variable, string Value)[] environment)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(RepositoryRoot(), "backend", "src", "Kanabol.Api", "appsettings.json"))
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=unused",
+                ["Jwt:Secret"] = "only-for-these-tests-and-long-enough-to-pass",
+            })
+
+            // The environment variable provider reads __ as the section separator.
+            .AddInMemoryCollection(environment.ToDictionary(pair => pair.Variable.Replace("__", ":", StringComparison.Ordinal), pair => (string?)pair.Value))
+            .Build();
+        var services = new ServiceCollection().AddLogging().AddInfrastructure(configuration);
+        using var provider = services.BuildServiceProvider();
+        return provider.GetRequiredService<IAttachmentRules>().AllowedExtensions;
+    }
+
+    private static string RepositoryRoot()
     {
         var folder = new DirectoryInfo(AppContext.BaseDirectory);
         while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "compose.yaml")))
@@ -223,7 +245,13 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
         }
 
         folder.Should().NotBeNull("the tests run inside the repository, next to compose.yaml");
-        var match = OverrideInCompose().Match(File.ReadAllText(Path.Combine(folder!.FullName, "compose.yaml")));
+        return folder!.FullName;
+    }
+
+    /// <summary>The override compose.yaml's comment gives (SPEC section 13.3), as the variable and its value.</summary>
+    private static (string Variable, string Value) ComposeOverride()
+    {
+        var match = OverrideInCompose().Match(File.ReadAllText(Path.Combine(RepositoryRoot(), "compose.yaml")));
         match.Success.Should().BeTrue("compose.yaml says how to override the list");
         return (match.Groups["variable"].Value, match.Groups["value"].Value);
     }
