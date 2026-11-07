@@ -19,7 +19,10 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
     public RecordingLogSink Logs { get; } = new();
 
     /// <summary>A token like the ones the API will issue, signed with the settings it's running with.</summary>
-    public string CreateToken(Guid userId, params string[] permissions)
+    public string CreateToken(Guid userId, params string[] permissions) => CreateToken(userId, lifetime: null, permissions);
+
+    /// <summary>The same, valid for the time given instead of the API's own, such as a token about to expire.</summary>
+    public string CreateToken(Guid userId, TimeSpan? lifetime, params string[] permissions)
     {
         var jwt = Services.GetRequiredService<IOptions<JwtOptions>>().Value;
         var claims = permissions.Select(permission => new Claim("permission", permission)).Prepend(new Claim("sub", userId.ToString()));
@@ -29,7 +32,7 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
             Issuer = jwt.Issuer,
             Audience = jwt.Audience,
             Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddMinutes(jwt.AccessTokenMinutes),
+            Expires = DateTime.UtcNow.Add(lifetime ?? TimeSpan.FromMinutes(jwt.AccessTokenMinutes)),
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Secret)),
                 SecurityAlgorithms.HmacSha256),

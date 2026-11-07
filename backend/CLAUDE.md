@@ -19,6 +19,7 @@ Run from `backend/`:
 - Run the user and role checks, from the repo root: `scripts/check-users.sh [task-number...]`, under the same conditions.
 - Run the project checks, from the repo root: `scripts/check-projects.sh [task-number...]`, under the same conditions.
 - Run the task checks, from the repo root: `scripts/check-tasks.sh [task-number...]`, under the same conditions, those of the board: `scripts/check-board.sh [task-number...]`, and those of several assignees: `scripts/check-assignees.sh [task-number...]`.
+- Run the real-time checks, from the repo root: `scripts/check-realtime.sh [task-number...]`, under the same conditions. They reach the hub over a real WebSocket, with a small SignalR client in Node.
 
 ## Migrations
 
@@ -153,6 +154,19 @@ In Docker and production, settings come from environment variables:
 - Overdue means open past the deadline, outside a done column, as in the project list. The search finds a part of the title in any case, and `%` or `_` are only characters there.
 - Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
 - `TaskAssignedEvent` carries the ids added and removed, and gives each assignee newly added a `TaskAssigned` notification, the same message for each, saved at once: not those already on the task, nor whoever made the change, also when a task is created for people (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, for SignalR in group 14, and its message is English, cut at 500 characters.
+
+## Real time
+
+| Hub           | Does                                                                                                                                                     | Needs                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `/hubs/board` | Every connection joins `user:{id}` by itself. `JoinProject(projectId)` joins `project:{id}`, and `LeaveProject(projectId)` leaves it. The hub only sends | signed in; joining as for the project's `GET` |
+
+- The token comes from `access_token` in the query string, since a browser can't put a header on a WebSocket, and only on `/hubs`: under `/api` it opens nothing (`JwtAuthenticationExtensions`). The forced password change closes the hub too (403 `Auth.PasswordChangeRequired`).
+- `JoinProject` asks `IProjectAccess.EnsureMemberAsync`, so a member, `projects.view_all` or `projects.manage`, and an active account. A refusal is a `HubException` whose message ends with the code, `Project.MemberRequired`, and a warning in the log. Joins and refusals are logged with `UserId`, `ProjectId` and `ConnectionId`.
+- A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`), so someone who lost access stops hearing a project within 15 minutes; the browser opens another with a fresh token.
+- Tokens never reach a log: `AccessTokenRedaction` hides the value of `access_token` in every log entry, such as ASP.NET's "Request starting", which Development shows with the whole address, and nginx keeps no access log for `/hubs/`.
+- `IRequestContext` (Application, next to `ICurrentUser`) gives the connection id the browser sends in `X-Connection-Id`, read by `HttpRequestContext`: only an id SignalR could make, letters, digits, `-` and `_`, at most 64, sent once; otherwise null.
+- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address.
 
 ## Browser logs
 
