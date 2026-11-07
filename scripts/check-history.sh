@@ -16,6 +16,9 @@
 #   4  Storage:AllowedExtensions as one value with commas: the tests, then the real API in Production on
 #      the default list, on compose's Storage__AllowedExtensions=pdf,png, which replaces the whole list,
 #      and refusing to start on a list by index. Docker, PostgreSQL.
+#   5  the group's flows end to end: the API's tests (every change writes its entry and nothing else does,
+#      an archived task, the names, the pages, compose's list), then every change on the real API, with
+#      the dates to the microsecond. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -830,8 +833,73 @@ task_4() {
   check "backend/CLAUDE.md says how the list is set" in_file '| `Storage__AllowedExtensions` ' backend/CLAUDE.md
 }
 
+# ---- 16.5: the group's flows end to end.
+
+flow_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    TaskHistoryFlowTests.EveryChange_ThroughItsEndpoint_WritesItsEntry_AndTheHistoryGivesThemFromTheNewest \
+    TaskHistoryFlowTests.AValueThatStays_AReorderInTheColumn_AComment_AndAFile_WriteNothing \
+    TaskHistoryFlowTests.AnArchivedTasksHistory_Is404WithoutTasksArchive_EvenToWhoeverSeesEveryProject \
+    TaskHistoryFlowTests.AnAssigneeTakenOutOfTheProject_AndADeletedColumn_KeepTheirPlaceInIt \
+    TaskHistoryFlowTests.FiftyOneChanges_ComeFiftyToTheFirstPage_FromTheNewest_AndTheFirstChangeOnTheSecond \
+    TaskHistoryFlowTests.TheListOfExtensionsComposeGives_ReplacesTheWholeDefaultList
+}
+
+microsecond_tests_pass() {
+  named_tests_pass Kanabol.Domain.Tests \
+    TaskItemTests.Archive_AtAMomentFinerThanAMicrosecond_WritesItToTheMicrosecond \
+    TaskItemTests.SetDueDate_AtAMomentFinerThanAMicrosecond_WritesItToTheMicrosecond
+}
+
+entries_in_db() { # entries_in_db <task id>: how many rows its history has
+  in_db "SELECT count(*) FROM task_history_entries WHERE task_id = '$1'"
+}
+
+# Each method of TaskItem that changes it, through its endpoint on the real API, as the admin, who holds
+# tasks.archive: one entry each, from the newest, and the restore undoes the very moment archived.
+every_change_on_the_real_api_writes_its_entry() {
+  a_new_task 'Fiecare schimbare' || return 1
+  task=$new_task
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$task/title" '{"title":"Fiecare schimbare, redenumit"}')" || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$task/description" '{"description":"Cu **Azure AD**"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$task/priority" '{"priority":"Critical"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$task/due-date" '{"dueDate":"2027-01-10T21:59:59.999Z"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$task/assignees" "{\"assigneeIds\":[\"$dan_id\"]}")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$second_column\"}")" || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$task")" || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/tasks/$task/restore")" || return 1
+  status_is 200 "$(history_as "$admin_token" "$task")" || return 1
+  is 'ArchivedAt|ArchivedAt|ColumnId|Assignees|DueDate|Priority|Description|Title' "$(json "b.items.map(e => e.field).join('|')")" || return 1
+  is "8|8" "$(json "b.totalCount")|$(entries_in_db "$task")" || return 1
+  is "$first_column>$second_column|>$dan_id|>2027-01-10T21:59:59.9990000+00:00|Medium>Critical|>Cu **Azure AD**|Fiecare schimbare>Fiecare schimbare, redenumit" \
+    "$(json "b.items.slice(2).map(e => (e.oldValue ?? '') + '>' + (e.newValue ?? '')).join('|')")" || return 1
+  is "true:true" "$(json "[b.items[0].oldValue === b.items[1].newValue, b.items[0].newValue === null && b.items[1].oldValue === null].join(':')")" || return 1
+  is "Dan Ionescu:Dan Ionescu" "$(json "[b.items[7].changedBy.displayName, b.items[3].names['$dan_id']].join(':')")"
+}
+
+# A title that stays, a comment and a file change nothing in the task, and write nothing.
+nothing_else_writes_an_entry() {
+  a_new_task 'Nimic de scris' || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$new_task/title" '{"title":"Nimic de scris"}')" || return 1
+  status_is 201 "$(as "$dan_token" POST "/api/tasks/$new_task/comments" '{"body":"Un comentariu"}')" || return 1
+  status_is 201 "$(upload "$dan_token" "$new_task" brief.pdf)" || return 1
+  status_is 200 "$(history_as "$dan_token" "$new_task")" || return 1
+  is "0|0" "$(json "b.totalCount")|$(entries_in_db "$new_task")"
+}
+
+task_5() {
+  echo "16.5 The group's flows: every change written, nothing else, archived tasks, the names, the pages, the list of compose"
+  check "Docker is running" docker_is_running
+  check "the flows are tracked" tracked backend/tests/Kanabol.Api.Tests/Tasks/TaskHistoryFlowTests.cs
+  check "the flows pass: every change, nothing else, 404 when archived, the names, 50 a page, compose's list" flow_tests_pass
+  check "every test of the history in the API passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~TaskHistory' 14
+  check "the history writes dates to the microsecond, as PostgreSQL keeps them" microsecond_tests_pass
+  check "every change on the real API writes its entry, the restore the moment archived" every_change_on_the_real_api_writes_its_entry
+  check "a title that stays, a comment and a file write nothing" nothing_else_writes_an_entry
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4
+  set -- 1 2 3 4 5
 fi
 for task in "$@"; do
   "task_$task"

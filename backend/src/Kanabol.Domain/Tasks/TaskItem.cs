@@ -338,7 +338,12 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     private static string? NormalizeDescription(string? description) =>
         string.IsNullOrWhiteSpace(description) ? null : description.TrimEnd();
 
-    private static string? Format(DateTimeOffset? moment) => moment?.ToString("O", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// To the microsecond, as PostgreSQL keeps a timestamptz: a value read back, such as the moment a restore
+    /// undoes, writes the same text as the change that set it.
+    /// </summary>
+    private static string? Format(DateTimeOffset? moment) =>
+        moment is { } value ? value.AddTicks(-(value.Ticks % TimeSpan.TicksPerMicrosecond)).ToString("O", CultureInfo.InvariantCulture) : null;
 
     /// <summary>Sorted as text and separated by commas, and empty for nobody, so a list reads the same however it was given.</summary>
     private static string FormatIds(IEnumerable<Guid> ids) =>
