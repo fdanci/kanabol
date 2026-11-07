@@ -729,6 +729,7 @@ real_suite_ran() { # real_suite_ran <log>
   }
 }
 
+# docs/SPEC.md §14.6: the merge into main, with the full suite, takes under 180 s.
 real_merge_runs_the_suite() {
   real_copy_ready && git -C "$real" checkout -q main || return 1
   started=$(date +%s)
@@ -742,7 +743,7 @@ real_merge_runs_the_suite() {
     echo "main doesn't end in a merge commit"
     return 1
   }
-  [ "$took" -lt 150 ] || {
+  [ "$took" -lt 180 ] || {
     echo "it took $took s"
     return 1
   }
@@ -817,7 +818,7 @@ task_6() {
   check "a commit on both sides takes under 40 s" real_commit_on_both_sides
   show_time
   check "a bad message is refused by commitlint" real_bad_message_is_refused
-  check "a --no-ff merge into main runs the full suite, in under 150 s" real_merge_runs_the_suite
+  check "a --no-ff merge into main runs the full suite, in under 180 s" real_merge_runs_the_suite
   show_time
   check "a branch's fast checks don't run the application tests" real_branch_lets_a_failing_application_test_through
   check "a merge into main refuses what they let through" real_merge_refuses_a_failing_test
