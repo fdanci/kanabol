@@ -16,6 +16,7 @@ using Kanabol.Application.Features.Tasks.Queries.GetBoard;
 using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskById;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskByKey;
+using Kanabol.Application.Features.Tasks.Queries.GetTaskHistory;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -97,6 +98,19 @@ public sealed class TasksController : ControllerBase
         CancellationToken ct,
         [FromQuery] bool includeArchived = false) =>
         (await handler.Handle(new GetTaskByKeyQuery(key, includeArchived), ct)).ToActionResult();
+
+    /// <summary>
+    /// A page of the task's changes, from the newest, each with who made it and the names of the ids in its
+    /// values. Archived tasks only for tasks.archive, as their comments (SPEC section 4.4).
+    /// </summary>
+    [HttpGet("{id:guid}/history")]
+    public async Task<IActionResult> GetTaskHistory(
+        Guid id,
+        [FromServices] IQueryHandler<GetTaskHistoryQuery, Page<TaskHistoryEntryDto>> handler,
+        CancellationToken ct,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = Paging.DefaultPageSize) =>
+        (await handler.Handle(new GetTaskHistoryQuery(id) { Page = page, PageSize = pageSize }, ct)).ToActionResult();
 
     [HttpPut("{id:guid}/title")]
     public async Task<IActionResult> RenameTask(
