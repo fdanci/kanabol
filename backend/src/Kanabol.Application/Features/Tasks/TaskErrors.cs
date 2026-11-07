@@ -16,6 +16,6 @@ public static class TaskErrors
 
     public static readonly Error AssigneeNotAMember = Error.Validation(new Dictionary<string, string[]>
     {
-        ["AssigneeId"] = ["Only an active member of the project can be assigned."],
+        ["AssigneeIds"] = ["Only active members of the project can be assigned."],
     });
 }

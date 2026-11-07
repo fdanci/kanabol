@@ -27,6 +27,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
 
+    public DbSet<TaskAssignee> TaskAssignees => Set<TaskAssignee>();
+
     public DbSet<Comment> Comments => Set<Comment>();
 
     public DbSet<Attachment> Attachments => Set<Attachment>();

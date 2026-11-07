@@ -20,11 +20,14 @@ public sealed class TaskAssignedEventHandler(
 {
     public async Task Handle(TaskAssignedEvent domainEvent, CancellationToken ct)
     {
-        if (domainEvent.AssigneeId is not { } assigneeId || assigneeId == domainEvent.AssignedById)
+        foreach (var assigneeId in domainEvent.AddedIds.Where(addedId => addedId != domainEvent.AssignedById))
         {
-            return;
+            await Notify(assigneeId, domainEvent, ct);
         }
+    }
 
+    private async Task Notify(Guid assigneeId, TaskAssignedEvent domainEvent, CancellationToken ct)
+    {
         var task = await (
                 from found in db.TaskItems.IgnoreQueryFilters()
                 join project in db.Projects.IgnoreQueryFilters() on found.ProjectId equals project.Id

@@ -81,6 +81,12 @@ public sealed class TaskChanges(IAppDbContext db, IProjectAccess projectAccess, 
         {
             return TaskErrors.ChangedMeanwhile;
         }
+        catch (DbUpdateException exception) when (exception.IsUniqueViolation())
+        {
+            // Two changes at once that both add the same person: the second meets the first one's row in
+            // task_assignees before it meets the task's version.
+            return TaskErrors.ChangedMeanwhile;
+        }
     }
 
     public async Task<Result<TaskItemDto>> Read(Guid taskId, CancellationToken ct) =>

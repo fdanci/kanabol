@@ -77,7 +77,7 @@ public sealed class TasksController : ControllerBase
         CancellationToken ct)
     {
         var result = await handler.Handle(
-            new CreateTaskCommand(projectId, request.Title, request.Description, request.Priority, request.ColumnId, request.AssigneeId, request.DueDate),
+            new CreateTaskCommand(projectId, request.Title, request.Description, request.Priority, request.ColumnId, request.AssigneeId is { } assigneeId ? [assigneeId] : [], request.DueDate),
             ct);
         return result.ToCreatedResult(result.IsSuccess ? $"/api/tasks/{result.Value.Id}" : "");
     }
@@ -120,7 +120,7 @@ public sealed class TasksController : ControllerBase
         AssignTaskRequest request,
         [FromServices] ICommandHandler<AssignTaskCommand, TaskItemDto> handler,
         CancellationToken ct) =>
-        (await handler.Handle(new AssignTaskCommand(id, request.AssigneeId), ct)).ToActionResult();
+        (await handler.Handle(new AssignTaskCommand(id, request.AssigneeId is { } assigneeId ? [assigneeId] : []), ct)).ToActionResult();
 
     [HttpPut("{id:guid}/priority")]
     public async Task<IActionResult> SetTaskPriority(

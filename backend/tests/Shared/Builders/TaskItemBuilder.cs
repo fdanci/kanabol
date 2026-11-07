@@ -20,7 +20,7 @@ public sealed class TaskItemBuilder
     private Project? _project;
     private BoardColumn? _column;
     private TaskPriority _priority = TaskPriority.Medium;
-    private Guid? _assigneeId;
+    private Guid[] _assigneeIds = [];
     private DateTimeOffset? _dueDate;
     private string _title = "Task de test";
     private string? _description;
@@ -52,9 +52,10 @@ public sealed class TaskItemBuilder
         return this;
     }
 
-    public TaskItemBuilder AssignedTo(User user)
+    /// <summary>The creator makes the assignment, so a task saved with assignees needs CreatedBy a saved user too.</summary>
+    public TaskItemBuilder AssignedTo(params User[] users)
     {
-        _assigneeId = user.Id;
+        _assigneeIds = [.. users.Select(user => user.Id)];
         return this;
     }
 
@@ -93,7 +94,7 @@ public sealed class TaskItemBuilder
         var project = _project ?? throw new InvalidOperationException("A task needs a project: call InProject first.");
         var number = _number
             ?? Interlocked.Increment(ref _lastNumbers.GetValue(project, unnumbered => new StrongBox<int>(unnumbered.NextTaskNumber - 1)).Value);
-        var task = TaskItem.Create(project, _column!, number, _title, _description, _priority, _position, _assigneeId, _dueDate, _createdById, _createdAt);
+        var task = TaskItem.Create(project, _column!, number, _title, _description, _priority, _position, _assigneeIds, _dueDate, _createdById, _createdAt);
         task.ClearDomainEvents();
         return task;
     }

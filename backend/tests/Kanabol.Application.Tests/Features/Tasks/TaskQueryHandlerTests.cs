@@ -144,7 +144,7 @@ public sealed class TaskQueryHandlerTests(PostgresFixture postgres) : TaskHandle
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com");
         var project = await CreateProject(builder => builder.WithKey("KAN").OwnedBy(owner).WithMember(member));
-        var task = await CreateTaskAs(owner, project, assigneeId: member.Id);
+        var task = await CreateTaskAs(owner, project, assigneeIds: [member.Id]);
 
         var result = await ById(task.Id);
 

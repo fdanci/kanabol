@@ -13,7 +13,7 @@ public sealed class TestDataPersistenceTests(PostgresFixture postgres) : Postgre
         var role = new Role("Member", isSystem: false);
         var owner = new UserBuilder().InRole(role).Build();
         var project = new ProjectBuilder().OwnedBy(owner).Build();
-        var task = new TaskItemBuilder().InProject(project).AssignedTo(owner).Build();
+        var task = new TaskItemBuilder().InProject(project).AssignedTo(owner).CreatedBy(owner).Build();
 
         await using (var db = Postgres.CreateContext())
         {
@@ -25,6 +25,6 @@ public sealed class TestDataPersistenceTests(PostgresFixture postgres) : Postgre
         var stored = await read.Projects.Include(p => p.Columns).Include(p => p.Members).SingleAsync();
         stored.Columns.Should().HaveCount(3);
         stored.Members.Should().ContainSingle(member => member.UserId == owner.Id);
-        (await read.TaskItems.SingleAsync()).AssigneeId.Should().Be(owner.Id);
+        (await read.TaskItems.SingleAsync()).Assignees.Should().ContainSingle(assignee => assignee.UserId == owner.Id);
     }
 }

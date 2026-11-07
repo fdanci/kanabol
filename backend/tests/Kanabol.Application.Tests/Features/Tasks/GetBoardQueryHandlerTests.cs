@@ -24,7 +24,7 @@ public sealed class GetBoardQueryHandlerTests(PostgresFixture postgres) : TaskHa
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com");
         var project = await CreateProject(builder => builder.WithKey("BRD").OwnedBy(owner).WithMember(member));
-        var first = await CreateTaskAs(owner, project, "Primul", assigneeId: member.Id);
+        var first = await CreateTaskAs(owner, project, "Primul", assigneeIds: [member.Id]);
         await CreateTaskAs(owner, project, "Al doilea");
         var archived = await CreateTaskAs(owner, project, "Arhivat");
         (await Handle<ArchiveTaskCommand, Unit>(new ArchiveTaskCommand(archived.Id))).IsSuccess.Should().BeTrue();

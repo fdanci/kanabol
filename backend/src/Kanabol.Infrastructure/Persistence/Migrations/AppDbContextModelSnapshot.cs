@@ -414,6 +414,36 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                     b.ToTable("comments", (string)null);
                 });
 
+            modelBuilder.Entity("Kanabol.Domain.Tasks.TaskAssignee", b =>
+                {
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("AssignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assigned_at");
+
+                    b.Property<Guid?>("AssignedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_by_id");
+
+                    b.HasKey("TaskId", "UserId")
+                        .HasName("pk_task_assignees");
+
+                    b.HasIndex("AssignedById")
+                        .HasDatabaseName("ix_task_assignees_assigned_by_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_task_assignees_user_id");
+
+                    b.ToTable("task_assignees", (string)null);
+                });
+
             modelBuilder.Entity("Kanabol.Domain.Tasks.TaskHistoryEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -471,10 +501,6 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ArchivedById")
                         .HasColumnType("uuid")
                         .HasColumnName("archived_by_id");
-
-                    b.Property<Guid?>("AssigneeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("assignee_id");
 
                     b.Property<Guid>("ColumnId")
                         .HasColumnType("uuid")
@@ -542,9 +568,6 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ArchivedById")
                         .HasDatabaseName("ix_task_items_archived_by_id");
-
-                    b.HasIndex("AssigneeId")
-                        .HasDatabaseName("ix_task_items_assignee_id");
 
                     b.HasIndex("ColumnId")
                         .HasDatabaseName("ix_task_items_column_id");
@@ -786,6 +809,29 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_comments_task_items_task_id");
                 });
 
+            modelBuilder.Entity("Kanabol.Domain.Tasks.TaskAssignee", b =>
+                {
+                    b.HasOne("Kanabol.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_assignees_users_assigned_by_id");
+
+                    b.HasOne("Kanabol.Domain.Tasks.TaskItem", null)
+                        .WithMany("Assignees")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_assignees_task_items_task_id");
+
+                    b.HasOne("Kanabol.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_assignees_users_user_id");
+                });
+
             modelBuilder.Entity("Kanabol.Domain.Tasks.TaskHistoryEntry", b =>
                 {
                     b.HasOne("Kanabol.Domain.Users.User", null)
@@ -810,12 +856,6 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ArchivedById")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_users_archived_by_id");
-
-                    b.HasOne("Kanabol.Domain.Users.User", null)
-                        .WithMany()
-                        .HasForeignKey("AssigneeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_task_items_users_assignee_id");
 
                     b.HasOne("Kanabol.Domain.Projects.BoardColumn", null)
                         .WithMany()
@@ -868,6 +908,8 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Kanabol.Domain.Tasks.TaskItem", b =>
                 {
+                    b.Navigation("Assignees");
+
                     b.Navigation("Attachments");
 
                     b.Navigation("Comments");

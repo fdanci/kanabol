@@ -35,8 +35,8 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
         return (owner, member, project);
     }
 
-    private Task<Common.Result<TaskItemDto>> Assign(Guid taskId, Guid? assigneeId) =>
-        Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(taskId, assigneeId));
+    private Task<Common.Result<TaskItemDto>> Assign(Guid taskId, params Guid[] assigneeIds) =>
+        Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(taskId, assigneeIds));
 
     [Fact]
     public async Task Assign_ToSomeoneElse_NotifiesTheNewAssignee()
@@ -73,7 +73,7 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     {
         var (owner, member, project) = await AProject();
 
-        var task = await CreateTaskAs(owner, project, "Login SSO", assigneeId: member.Id);
+        var task = await CreateTaskAs(owner, project, "Login SSO", assigneeIds: [member.Id]);
 
         (await NotificationsOf(member)).Should().ContainSingle(notification => notification.TaskId == task.Id && notification.Type == NotificationType.TaskAssigned);
     }
@@ -83,7 +83,7 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     {
         var (owner, _, project) = await AProject();
 
-        await CreateTaskAs(owner, project, assigneeId: owner.Id);
+        await CreateTaskAs(owner, project, assigneeIds: [owner.Id]);
 
         (await AllNotifications()).Should().Be(0);
     }
@@ -92,7 +92,7 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     public async Task Reassign_FromOneToAnother_NotifiesOnlyTheNewOne()
     {
         var (owner, member, project) = await AProject();
-        var task = await CreateTaskAs(owner, project, assigneeId: owner.Id);
+        var task = await CreateTaskAs(owner, project, assigneeIds: [owner.Id]);
         SignIn(member);
 
         (await Assign(task.Id, member.Id)).IsSuccess.Should().BeTrue();
@@ -106,9 +106,9 @@ public sealed class TaskAssignedNotificationTests(PostgresFixture postgres) : Ta
     public async Task Unassign_NotifiesNobody()
     {
         var (owner, member, project) = await AProject();
-        var task = await CreateTaskAs(owner, project, assigneeId: member.Id);
+        var task = await CreateTaskAs(owner, project, assigneeIds: [member.Id]);
 
-        (await Assign(task.Id, null)).IsSuccess.Should().BeTrue();
+        (await Assign(task.Id)).IsSuccess.Should().BeTrue();
 
         (await NotificationsOf(member)).Should().ContainSingle();
         (await AllNotifications()).Should().Be(1);

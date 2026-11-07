@@ -526,7 +526,7 @@ each_change_is_saved_and_written_down() {
 Description||Cu **Azure AD**
 Priority|Medium|Critical
 DueDate||2027-01-10T07:00:00.0000000+00:00
-AssigneeId||$dan_id" "$(in_db "SELECT field, coalesce(old_value, ''), coalesce(new_value, '') FROM task_history_entries WHERE task_id = '$edt_task' ORDER BY changed_at, CASE field WHEN 'Title' THEN 1 WHEN 'Description' THEN 2 WHEN 'Priority' THEN 3 WHEN 'DueDate' THEN 4 ELSE 5 END")" || return 1
+Assignees||$dan_id" "$(in_db "SELECT field, coalesce(old_value, ''), coalesce(new_value, '') FROM task_history_entries WHERE task_id = '$edt_task' ORDER BY changed_at, CASE field WHEN 'Title' THEN 1 WHEN 'Description' THEN 2 WHEN 'Priority' THEN 3 WHEN 'DueDate' THEN 4 ELSE 5 END")" || return 1
   is "$admin_id" "$(in_db "SELECT DISTINCT changed_by_id FROM task_history_entries WHERE task_id = '$edt_task'")"
 }
 
@@ -539,8 +539,8 @@ only_a_member_is_assigned() {
   status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"out@example.com\",\"displayName\":\"Din afara\",\"roleId\":\"$plain_role\",\"initialPassword\":\"$initial_password\"}")" || return 1
   outsider=$(body_field id)
   code_is 400 Validation "$(as "$admin_token" PUT "/api/tasks/$edt_task/assignee" "{\"assigneeId\":\"$outsider\"}")" || return 1
-  in_file '"assigneeId":' "$scratch/body" || return 1
-  is "$dan_id" "$(in_db "SELECT assignee_id FROM task_items WHERE id = '$edt_task'")"
+  in_file '"assigneeIds":' "$scratch/body" || return 1
+  is "$dan_id" "$(in_db "SELECT user_id FROM task_assignees WHERE task_id = '$edt_task'")"
 }
 
 a_member_without_permissions_changes_it() {
@@ -854,9 +854,9 @@ every_change_writes_its_history() {
 
 assigning_a_non_member_is_an_error() {
   named_tests_pass Kanabol.Application.Tests \
-    TaskChangeCommandHandlerTests.Assign_ToSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIdAndChangesNothing \
-    TaskChangeCommandHandlerTests.Assign_ToADeactivatedMember_ReturnsAValidationErrorOnAssigneeId \
-    CreateTaskCommandHandlerTests.Create_ForSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeId || return 1
+    TaskChangeCommandHandlerTests.Assign_ToSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIdsAndChangesNothing \
+    TaskChangeCommandHandlerTests.Assign_ToADeactivatedMember_ReturnsAValidationErrorOnAssigneeIds \
+    CreateTaskCommandHandlerTests.Create_ForSomeoneOutsideTheProject_ReturnsAValidationErrorOnAssigneeIds || return 1
   named_tests_pass Kanabol.Api.Tests TaskChangesEndpointTests.PutAssignee_ToSomeoneOutsideTheProject_Returns400OnAssigneeId
 }
 

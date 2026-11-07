@@ -21,20 +21,20 @@ public abstract class TaskHandlerTest(PostgresFixture postgres) : ProjectHandler
         Project project,
         string title = "Login SSO",
         Guid? columnId = null,
-        Guid? assigneeId = null,
+        IReadOnlyList<Guid>? assigneeIds = null,
         TaskPriority priority = TaskPriority.Medium,
         string? description = null,
         DateTimeOffset? dueDate = null) =>
-        new(project.Id, title, description, priority, columnId, assigneeId, dueDate);
+        new(project.Id, title, description, priority, columnId, assigneeIds ?? [], dueDate);
 
     protected Task<Common.Result<TaskItemDto>> Create(CreateTaskCommand command) =>
         Handle<CreateTaskCommand, TaskItemDto>(command);
 
     /// <summary>A task made by the handler, as the user given, who has to be a member of the project.</summary>
-    protected async Task<TaskItemDto> CreateTaskAs(User user, Project project, string title = "Login SSO", Guid? assigneeId = null)
+    protected async Task<TaskItemDto> CreateTaskAs(User user, Project project, string title = "Login SSO", IReadOnlyList<Guid>? assigneeIds = null)
     {
         SignIn(user);
-        var result = await Create(NewTask(project, title, assigneeId: assigneeId));
+        var result = await Create(NewTask(project, title, assigneeIds: assigneeIds));
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.ToString() : "");
         return result.Value;
     }

@@ -120,39 +120,104 @@ public sealed class TaskItemTests
     {
         var task = NewTask();
 
-        task.Assign(_assignee, _by, _now);
+        task.Assign([_assignee], _by, _now);
 
-        task.AssigneeId.Should().Be(_assignee);
+        task.Assignees.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { TaskId = task.Id, UserId = _assignee, AssignedAt = _now, AssignedById = (Guid?)_by });
         task.History.Should().ContainSingle().Which.Should().BeEquivalentTo(
-            new { Field = "AssigneeId", OldValue = (string?)null, NewValue = _assignee.ToString(), ChangedById = _by });
-        task.DomainEvents.Should().ContainSingle().Which.Should().Be(new TaskAssignedEvent(task.Id, _project.Id, _assignee, null, _by));
+            new { Field = "Assignees", OldValue = "", NewValue = _assignee.ToString(), ChangedById = _by });
+        task.DomainEvents.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new TaskAssignedEvent(task.Id, _project.Id, [_assignee], [], _by));
     }
 
+    // SPEC section 5.1: one entry per change, the old list and the new one, sorted and separated by commas.
     [Fact]
-    public void Assign_ToNobody_WritesTheHistoryAndRaisesTaskAssignedWithNoAssignee()
-    {
-        var task = new TaskItemBuilder().InProject(_project).Build();
-        task.Assign(_assignee, _by, _now);
-        task.ClearDomainEvents();
-
-        task.Assign(null, _by, _now);
-
-        task.AssigneeId.Should().BeNull();
-        task.History.Last().Should().BeEquivalentTo(new { Field = "AssigneeId", OldValue = _assignee.ToString(), NewValue = (string?)null });
-        task.DomainEvents.Should().ContainSingle().Which.Should().Be(new TaskAssignedEvent(task.Id, _project.Id, null, _assignee, _by));
-    }
-
-    [Fact]
-    public void Assign_WhenTheSamePerson_ChangesNothing()
+    public void Assign_TwoPeople_WritesOneEntryWithBothSortedAndRaisesOneEventWithBoth()
     {
         var task = NewTask();
-        task.Assign(_assignee, _by, _now);
+        var (first, second) = Sorted(Guid.NewGuid(), Guid.NewGuid());
+
+        task.Assign([second, first], _by, _now);
+
+        task.Assignees.Select(assignee => assignee.UserId).Should().BeEquivalentTo([first, second]);
+        task.History.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { Field = "Assignees", OldValue = "", NewValue = $"{first},{second}" });
+        task.DomainEvents.Should().ContainSingle().Which.Should().BeOfType<TaskAssignedEvent>()
+            .Which.AddedIds.Should().BeEquivalentTo([first, second]);
+    }
+
+    [Fact]
+    public void Assign_OneOutAndOneIn_KeepsWhenTheOneWhoStaysWasAssignedAndTellsWhoCameAndWhoLeft()
+    {
+        var task = NewTask();
+        var (leaving, staying, coming) = Sorted(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var earlier = _now.AddDays(-2);
+        task.Assign([leaving, staying], Guid.NewGuid(), earlier);
         task.ClearDomainEvents();
 
-        task.Assign(_assignee, _by, _now);
+        task.Assign([staying, coming], _by, _now);
+
+        task.Assignees.Should().BeEquivalentTo([
+            new { UserId = staying, AssignedAt = earlier },
+            new { UserId = coming, AssignedAt = _now },
+        ]);
+        task.History.Last().Should().BeEquivalentTo(
+            new { Field = "Assignees", OldValue = $"{leaving},{staying}", NewValue = $"{staying},{coming}", ChangedAt = _now });
+        task.DomainEvents.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new TaskAssignedEvent(task.Id, _project.Id, [coming], [leaving], _by));
+    }
+
+    [Fact]
+    public void Assign_ToNobody_WritesAnEmptyListAndRaisesTaskAssignedWithNobodyAdded()
+    {
+        var task = new TaskItemBuilder().InProject(_project).Build();
+        task.Assign([_assignee], _by, _now);
+        task.ClearDomainEvents();
+
+        task.Assign([], _by, _now);
+
+        task.Assignees.Should().BeEmpty();
+        task.History.Last().Should().BeEquivalentTo(new { Field = "Assignees", OldValue = _assignee.ToString(), NewValue = "" });
+        task.DomainEvents.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new TaskAssignedEvent(task.Id, _project.Id, [], [_assignee], _by));
+    }
+
+    [Fact]
+    public void Assign_TheSamePeopleInAnotherOrder_ChangesNothing()
+    {
+        var task = NewTask();
+        var other = Guid.NewGuid();
+        task.Assign([_assignee, other], _by, _now);
+        task.ClearDomainEvents();
+
+        task.Assign([other, _assignee], _by, _now.AddHours(1));
 
         task.History.Should().ContainSingle();
+        task.Assignees.Should().OnlyContain(assignee => assignee.AssignedAt == _now);
         task.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Assign_NobodyWhenNobodyIs_ChangesNothing()
+    {
+        var task = NewTask();
+
+        task.Assign([], _by, _now);
+
+        task.History.Should().BeEmpty();
+        task.DomainEvents.Should().BeEmpty();
+    }
+
+    // The validators refuse it first, with a 400 on assigneeIds (SPEC section 4.4).
+    [Fact]
+    public void Assign_TheSamePersonTwice_Throws()
+    {
+        var task = NewTask();
+
+        var assign = () => task.Assign([_assignee, _assignee], _by, _now);
+
+        assign.Should().Throw<ArgumentException>();
+        task.Assignees.Should().BeEmpty();
     }
 
     [Fact]
@@ -384,7 +449,7 @@ public sealed class TaskItemTests
 
         task.Rename("Login cu SSO", _by, _now);
         task.SetPriority(TaskPriority.High, _by, _now);
-        task.Assign(_assignee, _by, _now);
+        task.Assign([_assignee], _by, _now);
         task.SetDueDate(_now.AddDays(7), _by, _now);
         task.ChangeDescription("Detalii", _by, _now);
         task.MoveTo(InProgress, 0, _by, _now);
@@ -392,8 +457,21 @@ public sealed class TaskItemTests
         task.Restore(_by, _now);
 
         task.History.Select(entry => entry.Field).Should().Equal(
-            "Title", "Priority", "AssigneeId", "DueDate", "Description", "ColumnId", "ArchivedAt", "ArchivedAt");
+            "Title", "Priority", "Assignees", "DueDate", "Description", "ColumnId", "ArchivedAt", "ArchivedAt");
         task.History.Should().OnlyContain(entry => entry.TaskId == task.Id);
         task.DomainEvents.Should().HaveCount(8);
+    }
+
+    // The history sorts the ids as text, so the tests name them in that order.
+    private static (Guid First, Guid Second) Sorted(Guid one, Guid two)
+    {
+        var sorted = new[] { one, two }.OrderBy(id => id.ToString(), StringComparer.Ordinal).ToArray();
+        return (sorted[0], sorted[1]);
+    }
+
+    private static (Guid First, Guid Second, Guid Third) Sorted(Guid one, Guid two, Guid three)
+    {
+        var sorted = new[] { one, two, three }.OrderBy(id => id.ToString(), StringComparer.Ordinal).ToArray();
+        return (sorted[0], sorted[1], sorted[2]);
     }
 }

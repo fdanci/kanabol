@@ -49,7 +49,7 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
 
         await using var db = Api.Postgres.CreateContext();
         (await db.TaskHistoryEntries.Where(entry => entry.TaskId == taskId).Select(entry => entry.Field).ToListAsync())
-            .Should().BeEquivalentTo("Description", "Priority", "DueDate", "AssigneeId");
+            .Should().BeEquivalentTo("Description", "Priority", "DueDate", "Assignees");
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         using var body = await JsonFrom(response);
-        body.RootElement.GetProperty("errors").TryGetProperty("assigneeId", out _).Should().BeTrue();
+        body.RootElement.GetProperty("errors").TryGetProperty("assigneeIds", out _).Should().BeTrue();
     }
 
     [Fact]
