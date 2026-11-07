@@ -88,9 +88,7 @@ public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api
         var (eva, evaToken) = await SignedIn();
         var evasTab = await Connect(evaToken, _taskEvents);
 
-        var joining = () => evasTab.Connection.InvokeAsync("JoinProject", project.Id);
-
-        (await joining.Should().ThrowAsync<HubException>()).Which.Message.Should().EndWith("Project.MemberRequired");
+        (await evasTab.Connection.InvokeAsync<string?>("JoinProject", project.Id)).Should().Be("Project.MemberRequired");
         (await SendFrom(null, HttpMethod.Put, $"/api/tasks/{taskId}/title", anaToken, new { title = "Redenumit" })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await SendFrom(null, HttpMethod.Delete, $"/api/tasks/{taskId}", anaToken)).StatusCode.Should().Be(HttpStatusCode.NoContent);
         await Probe(eva.Id);

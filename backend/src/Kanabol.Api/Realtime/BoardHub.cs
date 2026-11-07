@@ -28,10 +28,11 @@ public sealed class BoardHub(IProjectAccess projectAccess, ILogger<BoardHub> log
 
     /// <summary>
     /// The project's changes, for a member, projects.view_all or projects.manage, as the project's GET asks.
-    /// A refusal throws a HubException whose message ends with the error's code. A project that doesn't
+    /// Answers null for a join, and the error's code for a refusal, such as Project.MemberRequired: a refusal
+    /// is an ordinary answer, and SignalR would log a method that throws as an Error. A project that doesn't
     /// exist has nobody sending to its group, so it isn't looked for.
     /// </summary>
-    public async Task JoinProject(Guid projectId)
+    public async Task<string?> JoinProject(Guid projectId)
     {
         var access = await projectAccess.EnsureMemberAsync(projectId, UserId, Context.ConnectionAborted);
         if (access.IsFailure)
@@ -42,7 +43,7 @@ public sealed class BoardHub(IProjectAccess projectAccess, ILogger<BoardHub> log
                 projectId,
                 Context.ConnectionId,
                 access.Error.Code);
-            throw new HubException(access.Error.Code);
+            return access.Error.Code;
         }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, BoardGroups.Project(projectId), Context.ConnectionAborted);
@@ -51,6 +52,7 @@ public sealed class BoardHub(IProjectAccess projectAccess, ILogger<BoardHub> log
             UserId,
             projectId,
             Context.ConnectionId);
+        return null;
     }
 
     /// <summary>When the board closes, or another project's opens on the same connection.</summary>

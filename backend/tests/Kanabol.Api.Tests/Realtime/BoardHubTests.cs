@@ -177,7 +177,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(dan));
         var heard = await Connect(Api.Factory.CreateToken(dan.Id), Probe);
 
-        await heard.Connection.InvokeAsync("JoinProject", project.Id);
+        (await heard.Connection.InvokeAsync<string?>("JoinProject", project.Id)).Should().BeNull("a join answers no code");
         await SendToProject(project.Id, "moved");
 
         (await MarkerOf(heard)).Should().Be("moved");
@@ -198,23 +198,23 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
     }
 
     [Fact]
-    public async Task JoinProject_OfAProjectTheyDontSee_IsRefusedWithMemberRequiredAndHearsNothing()
+    public async Task JoinProject_OfAProjectTheyDontSee_AnswersMemberRequiredAndHearsNothing()
     {
         var owner = await CreateUser(UnusedEmail());
         var outsider = await CreateUser(UnusedEmail());
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         var heard = await Connect(Api.Factory.CreateToken(outsider.Id), Probe);
 
-        var joining = () => heard.Connection.InvokeAsync("JoinProject", project.Id);
+        var refusal = await heard.Connection.InvokeAsync<string?>("JoinProject", project.Id);
 
-        (await joining.Should().ThrowAsync<HubException>()).Which.Message.Should().EndWith("Project.MemberRequired");
+        refusal.Should().Be("Project.MemberRequired");
         await SendToProject(project.Id, "moved");
         await SendToUser(outsider.Id, "the end");
         (await MarkerOf(heard)).Should().Be("the end", "nothing of the project came before it");
     }
 
     [Fact]
-    public async Task JoinProject_AsAMemberDeactivatedSinceTheirToken_IsRefused()
+    public async Task JoinProject_AsAMemberDeactivatedSinceTheirToken_AnswersMemberRequired()
     {
         var owner = await CreateUser(UnusedEmail());
         var dan = await CreateUser(UnusedEmail());
@@ -225,9 +225,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
             await db.Users.Where(stored => stored.Id == dan.Id).ExecuteUpdateAsync(set => set.SetProperty(stored => stored.IsActive, false));
         }
 
-        var joining = () => heard.Connection.InvokeAsync("JoinProject", project.Id);
-
-        (await joining.Should().ThrowAsync<HubException>()).Which.Message.Should().EndWith("Project.MemberRequired");
+        (await heard.Connection.InvokeAsync<string?>("JoinProject", project.Id)).Should().Be("Project.MemberRequired");
     }
 
     [Fact]
@@ -271,13 +269,29 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var joined = await Connect(Api.Factory.CreateToken(owner.Id));
         var refused = await Connect(Api.Factory.CreateToken(outsider.Id));
 
-        await joined.Connection.InvokeAsync("JoinProject", project.Id);
-        await FluentActions.Awaiting(() => refused.Connection.InvokeAsync("JoinProject", project.Id)).Should().ThrowAsync<HubException>();
+        await joined.Connection.InvokeAsync<string?>("JoinProject", project.Id);
+        await refused.Connection.InvokeAsync<string?>("JoinProject", project.Id);
 
         LogEventOf(joined.Connection.ConnectionId!, project.Id).Level.Should().Be(LogEventLevel.Information);
         var refusal = LogEventOf(refused.Connection.ConnectionId!, project.Id);
         refusal.Level.Should().Be(LogEventLevel.Warning);
         refusal.Properties["UserId"].ToString().Should().Contain(outsider.Id.ToString());
+    }
+
+    // A refusal is an ordinary answer, not a failure: SignalR logs a method that throws as an Error.
+    [Fact]
+    public async Task JoinProject_Refused_LogsNoError()
+    {
+        var owner = await CreateUser(UnusedEmail());
+        var outsider = await CreateUser(UnusedEmail());
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        var refused = await Connect(Api.Factory.CreateToken(outsider.Id));
+
+        (await refused.Connection.InvokeAsync<string?>("JoinProject", project.Id)).Should().Be("Project.MemberRequired");
+
+        Api.Factory.Logs.Events.Should().NotContain(
+            logged => logged.Level >= LogEventLevel.Error && logged.RenderMessage(null).Contains("JoinProject", StringComparison.Ordinal),
+            "a refused join is a warning of the hub's own");
     }
 
     private LogEvent LogEventOf(string connectionId, Guid projectId) =>

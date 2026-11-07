@@ -14,6 +14,8 @@ class FakeHubLink implements HubLink {
     return Promise.resolve();
   });
   failNextStart = false;
+  /** The hub's answer to JoinProject for a project, null for a join (docs/SPEC.md §9). */
+  readonly refusals = new Map<string, string>();
   private readonly handlers = new Map<string, ((payload: unknown) => void)[]>();
   private closed?: (error?: Error) => void;
   private reconnecting?: (error?: Error) => void;
@@ -33,7 +35,9 @@ class FakeHubLink implements HubLink {
 
   invoke(method: string, ...args: unknown[]): Promise<unknown> {
     this.invoked.push([method, ...args]);
-    return Promise.resolve();
+    return Promise.resolve(
+      method === 'JoinProject' ? (this.refusals.get(String(args[0])) ?? null) : null,
+    );
   }
 
   on(event: string, handler: (payload: unknown) => void): void {
@@ -134,6 +138,32 @@ describe('Realtime', () => {
     expect(freshToken).toHaveBeenCalled();
     expect(link().invoked).toEqual([['JoinProject', 'p1']]);
     expect(realtime.connectionId()).toBe('conn-1');
+  });
+
+  it('logs nothing when the hub lets the board join', async () => {
+    await realtime.join('p1');
+
+    expect(link().invoked).toEqual([['JoinProject', 'p1']]);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('logs a refused join as a warning with its code, and joins the other projects all the same', async () => {
+    await realtime.join('p1');
+    link().refusals.set('p2', 'Project.MemberRequired');
+
+    await realtime.join('p2');
+    await realtime.join('p3');
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'The board could not join its project on the hub',
+      'Project.MemberRequired',
+    );
+    expect(link().invoked).toEqual([
+      ['JoinProject', 'p1'],
+      ['JoinProject', 'p2'],
+      ['JoinProject', 'p3'],
+    ]);
   });
 
   it('joins the next project on the same connection', async () => {

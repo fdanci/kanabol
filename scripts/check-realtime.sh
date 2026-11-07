@@ -420,11 +420,12 @@ try {
         result.steps.push(`refused: ${error.message}`);
       }
     } else if (step.join) {
+      // The hub answers null for a join, or the refusal's code (docs/SPEC.md §9).
       try {
-        await hubs[step.join].invoke('JoinProject', step.project);
-        result.steps.push('joined');
+        const refusal = await hubs[step.join].invoke('JoinProject', step.project);
+        result.steps.push(refusal === null ? 'joined' : `refused: ${refusal}`);
       } catch (error) {
-        result.steps.push(`refused: ${error.message}`);
+        result.steps.push(`failed: ${error.message}`);
       }
     } else if (step.leave) {
       await hubs[step.leave].invoke('LeaveProject', step.project);
@@ -491,11 +492,15 @@ hub_tests_pass() {
     BoardHubTests.Connect_PutsTheConnectionInItsUsersOwnGroupOnly \
     BoardHubTests.JoinProject_AsAMember_HearsTheProjectsGroup \
     BoardHubTests.JoinProject_WithProjectsViewAll_HearsTheProjectsGroup \
-    BoardHubTests.JoinProject_OfAProjectTheyDontSee_IsRefusedWithMemberRequiredAndHearsNothing \
-    BoardHubTests.JoinProject_AsAMemberDeactivatedSinceTheirToken_IsRefused \
+    BoardHubTests.JoinProject_OfAProjectTheyDontSee_AnswersMemberRequiredAndHearsNothing \
+    BoardHubTests.JoinProject_AsAMemberDeactivatedSinceTheirToken_AnswersMemberRequired \
     BoardHubTests.LeaveProject_AfterJoining_StopsTheProjectsMessages \
     BoardHubTests.Connection_WhenItsTokenExpires_IsClosedByTheServer \
-    BoardHubTests.JoinProject_IsLoggedWithTheUserTheProjectAndTheConnection     BoardHubTests.Negotiate_OffersWebSocketsOnly     BoardHubTests.Connect_OverAnotherTransport_IsRefused     BoardHubTests.Negotiate_WithTheTokenUnderAnEncodedName_Returns401
+    BoardHubTests.JoinProject_IsLoggedWithTheUserTheProjectAndTheConnection \
+    BoardHubTests.JoinProject_Refused_LogsNoError \
+    BoardHubTests.Negotiate_OffersWebSocketsOnly \
+    BoardHubTests.Connect_OverAnotherTransport_IsRefused \
+    BoardHubTests.Negotiate_WithTheTokenUnderAnEncodedName_Returns401
 }
 
 request_context_tests_pass() {
@@ -546,7 +551,7 @@ a_member_joins_and_an_outsider_is_refused() {
   team_is_ready || return 1
   hub "[{\"connect\":\"dan\",\"token\":\"$dan_token\"},{\"join\":\"dan\",\"project\":\"$rt_id\"},
         {\"connect\":\"eva\",\"token\":\"$eva_token\"},{\"join\":\"eva\",\"project\":\"$rt_id\"}]" || return 1
-  steps_were "connected|joined|connected|refused: An unexpected error occurred invoking 'JoinProject' on the server. HubException: Project.MemberRequired"
+  steps_were "connected|joined|connected|refused: Project.MemberRequired"
 }
 
 # One entry per join and per refusal, each with the user, the project and the connection (SPEC §8.2).
@@ -561,6 +566,19 @@ the_joins_are_logged_with_the_connection() {
   }
   grep -F '"@mt":"User {UserId} refused the board of project {ProjectId} on {ConnectionId}: {ErrorCode}"' "$api_log" |
     grep -F "\"ConnectionId\":\"$eva_connection\"" | grep -F "\"UserId\":\"$eva_id\"" | grep -qF '"@l":"Warning"'
+}
+
+# A refusal is an answer of the hub's own, not a method that failed: SignalR logs one of those as an Error.
+a_refusal_is_no_error_in_the_log() {
+  [ -f "$scratch/hub-result.json" ] || a_member_joins_and_an_outsider_is_refused >/dev/null || return 1
+  grep -qF '"@mt":"User {UserId} refused the board of project {ProjectId} on {ConnectionId}: {ErrorCode}"' "$api_log" || {
+    echo "no refusal in the log to look at"
+    return 1
+  }
+  if grep -F '"@l":"Error"' "$api_log" | grep -qF 'JoinProject'; then
+    grep -F '"@l":"Error"' "$api_log" | grep -F 'JoinProject' | cut -c1-200 | head -n 3
+    return 1
+  fi
 }
 
 no_token_in_the_log() { # no_token_in_the_log <token...>: none of their signatures is in the API's log
@@ -629,6 +647,7 @@ task_1() {
   check "a WebSocket with the token only in its address connects" a_websocket_connects_with_the_token_in_the_address
   check "a member joins the project's board, and an outsider is refused Project.MemberRequired" a_member_joins_and_an_outsider_is_refused
   check "the joins and refusals are logged with the user, the project and the connection" the_joins_are_logged_with_the_connection
+  check "a refusal is a warning of the hub's own, with no Error from SignalR" a_refusal_is_no_error_in_the_log
   check "the Production log holds no token" the_production_log_holds_no_token
   check "a token in a logged address is hidden" redaction_tests_pass
   check "the Development log holds none either" the_development_log_holds_no_token
@@ -682,7 +701,7 @@ changes_are_heard() {
     $(step admin POST "/api/tasks/$first_task/restore"),
     $(step '' PUT "/api/tasks/$first_task/description" '{"description":"Fara tab"}')
   ]" || return 1
-  steps_were "connected|joined|connected|joined|connected|refused: An unexpected error occurred invoking 'JoinProject' on the server. HubException: Project.MemberRequired|201|200|200|200|200|204|200|200" || return 1
+  steps_were "connected|joined|connected|joined|connected|refused: Project.MemberRequired|201|200|200|200|200|204|200|200" || return 1
   second_column=$column
 }
 
@@ -870,6 +889,7 @@ the_motion_follows_the_ui_spec() {
 realtime_specs_name_the_rules() {
   spec_names "$realtime_web/realtime.spec.ts" \
     'connects only once a board joins, with a fresh token, and joins its project' \
+    'logs a refused join as a warning with its code, and joins the other projects all the same' \
     'leaves a project, and joins only the others after reconnecting, under the new id' \
     'has no connection id while it reconnects, so requests go without one' \
     'starts again after the connection closed for good, joins again and says so' \
@@ -949,7 +969,7 @@ task_3() {
   check "SignalR's log reaches Logger without the token" no_token_goes_to_the_log
   check "the specs name the connection's rules" realtime_specs_name_the_rules
   check "the specs name the board's" board_specs_name_the_rules
-  check "the connection's specs pass" specs_pass 'src/app/core/realtime/*.spec.ts' 18
+  check "the connection's specs pass" specs_pass 'src/app/core/realtime/*.spec.ts' 20
   check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 27
   check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 85
   check "the project page shows the board with a fake connection" specs_pass src/app/features/projects/project-page.spec.ts 10
