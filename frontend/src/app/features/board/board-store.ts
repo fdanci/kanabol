@@ -314,13 +314,17 @@ export class BoardStore {
     }
   }
 
-  /** Of this project, and not what this tab did, which it shows already. */
+  /**
+   * Of this project, and not what this tab did, which it shows already. Every event tells the project
+   * which connection made it, so anyone could send this tab's id: only the signed-in user's own change
+   * from this tab is ignored, byUserId coming from the API's token, not from a header.
+   */
   private concerns(message: TaskMessage): boolean {
-    return (
-      message.projectId === untracked(this.projectId) &&
-      (message.originConnectionId === null ||
-        message.originConnectionId !== this.realtime.connectionId())
-    );
+    const fromThisTab =
+      message.originConnectionId !== null &&
+      message.originConnectionId === this.realtime.connectionId() &&
+      message.byUserId === this.auth.user()?.id;
+    return message.projectId === untracked(this.projectId) && !fromThisTab;
   }
 
   private heardMove(message: TaskMovedMessage): void {

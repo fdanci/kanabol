@@ -888,6 +888,7 @@ board_specs_name_the_rules() {
     'joins the project it opens, and leaves it for the next one' \
     'moves a card someone else moved, without reading the board again, and pulses it' \
     'ignores what its own tab did, which it shows already' \
+    'hears a change of someone else that claims to come from this tab' \
     'ignores the changes of other projects' \
     'reads itself again quietly and pulses the card on TaskCreated, TaskUpdated and TaskRestored' \
     'reads itself again when the connection comes back, for what it missed' \
@@ -947,7 +948,7 @@ task_3() {
   check "the specs name the board's" board_specs_name_the_rules
   check "the connection's specs pass" specs_pass 'src/app/core/realtime/*.spec.ts' 18
   check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 24
-  check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 84
+  check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 85
   check "the project page shows the board with a fake connection" specs_pass src/app/features/projects/project-page.spec.ts 10
   check "the lint is clean" frontend_lint_is_clean
   check "the formatting is clean" frontend_formatting_is_clean
@@ -971,8 +972,9 @@ task_4() {
   check "the flows are tracked" tracked backend/tests/Kanabol.Api.Tests/Realtime/BoardRealtimeFlowTests.cs
   check "the flows pass: an authenticated handshake hears a TaskMoved, an outsider hears nothing, a tab is the origin of its changes, assignees send TaskUpdated" flow_tests_pass
   check "every test of real time in the API passes" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~Kanabol.Api.Tests.Realtime' 34
-  check "the board ignores its own tab" spec_names "$board_web/board-store.spec.ts" 'ignores what its own tab did, which it shows already'
-  check "and its spec passes" specs_pass src/app/features/board/board-store.spec.ts 32
+  check "the board ignores its own tab, and only its own user's change from it" spec_names "$board_web/board-store.spec.ts" \
+    'ignores what its own tab did, which it shows already' 'hears a change of someone else that claims to come from this tab'
+  check "and its spec passes" specs_pass src/app/features/board/board-store.spec.ts 33
 }
 
 if [ "$#" -eq 0 ]; then

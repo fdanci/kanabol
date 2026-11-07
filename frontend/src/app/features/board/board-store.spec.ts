@@ -388,17 +388,33 @@ describe('BoardStore', () => {
 
     it('ignores what its own tab did, which it shows already', async () => {
       await opened();
+      const mine = { originConnectionId: 'my-tab', byUserId: 'u1' };
 
-      realtime.send(
-        'TaskMoved',
-        about('A', { columnId: 'c2', position: 0, originConnectionId: 'my-tab' }),
-      );
-      realtime.send('TaskUpdated', about('B', { field: 'Title', originConnectionId: 'my-tab' }));
+      realtime.send('TaskMoved', about('A', { columnId: 'c2', position: 0, ...mine }));
+      realtime.send('TaskUpdated', about('B', { field: 'Title', ...mine }));
       await settle();
 
       expect(shown()).toBe('A B C | D | E');
       expect(reads()).toBe(1);
       expect(store.pulses().size).toBe(0);
+    });
+
+    // Every event tells the whole project which connection made it, so anyone could send this tab's id
+    // in X-Connection-Id: only the signed-in user's own change from this tab is ignored.
+    it('hears a change of someone else that claims to come from this tab', async () => {
+      await opened();
+
+      realtime.send(
+        'TaskMoved',
+        about('A', { columnId: 'c2', position: 0, originConnectionId: 'my-tab' }),
+      );
+      await settle();
+      expect(shown()).toBe('B C | A D | E');
+      realtime.send('TaskUpdated', about('B', { field: 'Title', originConnectionId: 'my-tab' }));
+      await settle();
+
+      expect(reads()).toBe(2);
+      expect(store.pulses().get(id('B'))).toBe(1);
     });
 
     it('ignores the changes of other projects', async () => {
