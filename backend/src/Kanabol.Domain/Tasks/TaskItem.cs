@@ -265,6 +265,42 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         return comment;
     }
 
+    /// <summary>
+    /// A file on an open task, already in IFileStorage under its key (SPEC section 10). The board hears of
+    /// it, for the count on the card; it isn't in the history.
+    /// </summary>
+    public Attachment AddAttachment(string fileName, string contentType, long size, string storageKey, Guid uploadedById)
+    {
+        if (ArchivedAt is not null)
+        {
+            throw new InvalidOperationException("An archived task takes no attachments.");
+        }
+
+        var attachment = new Attachment(Id, fileName, contentType, size, storageKey, uploadedById);
+        _attachments.Add(attachment);
+        Raise(new AttachmentsChangedEvent(Id, ProjectId, uploadedById));
+        return attachment;
+    }
+
+    /// <summary>
+    /// Takes a file off an open task, whose row then goes; the file on disk is the handler's to delete. The
+    /// attachment has to be loaded with the task, or nothing would be removed.
+    /// </summary>
+    public void RemoveAttachment(Attachment attachment, Guid removedById)
+    {
+        if (ArchivedAt is not null)
+        {
+            throw new InvalidOperationException("An archived task keeps its attachments.");
+        }
+
+        if (attachment.TaskId != Id || !_attachments.Remove(attachment))
+        {
+            throw new ArgumentException("Only an attachment of this task, loaded with it, can be removed.", nameof(attachment));
+        }
+
+        Raise(new AttachmentsChangedEvent(Id, ProjectId, removedById));
+    }
+
     /// <summary>Archiving twice keeps the first time, and who did it.</summary>
     public void Archive(Guid archivedById, DateTimeOffset now)
     {

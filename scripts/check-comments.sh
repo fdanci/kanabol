@@ -8,6 +8,8 @@
 # Exits non-zero if any check fails. What each task does, and needs:
 #   1  comments on a task, their notification and CommentAdded on the hub: the tests, then the real API in
 #      Production. Docker, PostgreSQL.
+#   2  files on a task, LocalFileStorage and TaskUpdated with Attachments: the tests, then the real API in
+#      Production, with what it keeps on disk. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -477,8 +479,223 @@ task_1() {
   check "backend/CLAUDE.md says how comments work" in_file '`GET /api/tasks/{id}/comments`' backend/CLAUDE.md
 }
 
+# ---- 15.2: files on a task, LocalFileStorage, and TaskUpdated with Attachments on the hub.
+
+attachments_app=backend/src/Kanabol.Application/Features/Attachments
+megabyte=1048576
+
+attachment_domain_tests_pass() {
+  tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~TaskAttachmentTests' 5
+}
+
+attachment_handler_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AttachmentHandlerTests' 33
+}
+
+storage_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~LocalFileStorageTests' 9
+}
+
+attachment_hub_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    AttachmentHandlerTests.Add_TellsTheBoardTheAttachmentsChanged \
+    AttachmentHandlerTests.Delete_ByWhoeverUploadedIt_TakesTheRowAndTheFile
+}
+
+attachment_endpoint_tests_pass() {
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~AttachmentsEndpointTests' 31
+}
+
+# docs/SPEC.md §10: the default list, written out here, so a change to appsettings.json shows.
+the_default_extensions_are_the_specs() {
+  is 'pdf,png,jpg,jpeg,gif,txt,md,csv,xlsx,docx,zip' "$(node -e "
+    const settings = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+    console.log(settings.Storage.AllowedExtensions.join());" "$(native backend/src/Kanabol.Api/appsettings.json)")"
+}
+
+a_file_of() { # a_file_of <name> <bytes>: a file of zeros in the scratch folder, its path printed
+  head -c "$2" /dev/zero >"$scratch/$1"
+  printf '%s' "$scratch/$1"
+}
+
+upload() { # upload <token> <task id> <file> [name it goes as]: prints the status
+  send POST "/api/tasks/$2/attachments" -D "$scratch/headers" -H "Authorization: Bearer $1" \
+    -F "file=@$(native "$3");filename=${4:-$(basename "$3")}"
+}
+
+download() { # download <token> <attachment id>: the file in the scratch folder, its headers apart; prints the status
+  rm -f "$scratch/downloaded"
+  curl -sS --max-time 60 -o "$scratch/downloaded" -D "$scratch/headers" -w '%{http_code}' \
+    -H "Authorization: Bearer $1" "$API_URL/api/attachments/$2"
+}
+
+header_of() { # header_of <name>: its value in the last answer's headers
+  tr -d '\r' <"$scratch/headers" | grep -i "^$1:" | head -n 1 | sed 's/^[^:]*: //'
+}
+
+stored_file() { # stored_file <attachment id>: where the API keeps it
+  printf '%s/attachments/%s' "$scratch" "$(in_db "SELECT storage_key FROM attachments WHERE id = '$1'")"
+}
+
+# CMT gets task "Fisiere", by the admin, for the files.
+files_task_is_ready() {
+  team_is_ready || return 1
+  [ -n "${files_task:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$cmt_id/tasks" '{"title":"Fisiere","priority":"Low"}')" || return 1
+  files_task=$(body_field id)
+  printf '%%PDF-1.7 un brief de proba\n' >"$scratch/brief.pdf"
+}
+
+a_member_attaches_a_file() {
+  files_task_is_ready || return 1
+  [ -n "${dan_file:-}" ] && return 0
+  status_is 201 "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" 'Brief Final.pdf')" || return 1
+  dan_file=$(body_field id)
+  is 'Brief Final.pdf' "$(json b.fileName)" || return 1
+  is application/pdf "$(json b.contentType)" || return 1
+  is "$(wc -c <"$scratch/brief.pdf" | tr -d ' ')" "$(json b.size)" || return 1
+  is "/api/attachments/$dan_file" "$(header_of location)"
+}
+
+# docs/SPEC.md §10: {yyyy}/{MM}/{guid}{ext} under the root, the same bytes, and nothing of the name.
+the_file_is_on_disk_under_a_key_of_its_own() {
+  a_member_attaches_a_file || return 1
+  key=$(in_db "SELECT storage_key FROM attachments WHERE id = '$dan_file'")
+  printf '%s' "$key" | grep -qE "^$(date -u +%Y)/$(date -u +%m)/[0-9a-f]{32}\.pdf$" || {
+    echo "the key is $key"
+    return 1
+  }
+  cmp -s "$scratch/brief.pdf" "$(stored_file "$dan_file")" || return 1
+  if find "$scratch/attachments" -name '*Brief*' | grep -q .; then
+    echo "the original name reached the disk"
+    return 1
+  fi
+}
+
+the_task_lists_its_files() {
+  a_member_attaches_a_file || return 1
+  status_is 200 "$(as "$dan_token" GET "/api/tasks/$files_task")" || return 1
+  is "$dan_file:Brief Final.pdf:true" "$(json "b.attachments.map(a => a.id + ':' + a.fileName + ':' + a.canDelete).join()")"
+}
+
+another_member_downloads_it_as_an_attachment() {
+  a_member_attaches_a_file || return 1
+  status_is 200 "$(download "$ioana_token" "$dan_file")" || return 1
+  cmp -s "$scratch/brief.pdf" "$scratch/downloaded" || return 1
+  header_of content-disposition | grep -q '^attachment;' || {
+    echo "Content-Disposition: $(header_of content-disposition)"
+    return 1
+  }
+  is nosniff "$(header_of x-content-type-options)" || return 1
+  header_of content-type | grep -q '^application/pdf'
+}
+
+an_outsider_downloads_nothing() {
+  a_member_attaches_a_file || return 1
+  code_is 403 Project.MemberRequired "$(as "$eva_token" GET "/api/attachments/$dan_file")"
+}
+
+refused_on_file() { # refused_on_file <status>: a 400 whose only error is on file
+  status_is 400 "$1" || return 1
+  is file "$(json "Object.keys(b.errors).join()")"
+}
+
+# 25 MB is 25 × 1,048,576 bytes; the request may hold a little more, and above that Kestrel stops it.
+twenty_five_megabytes_go_in_and_one_byte_more_does_not() {
+  files_task_is_ready || return 1
+  status_is 201 "$(upload "$dan_token" "$files_task" "$(a_file_of exact.zip $((25 * megabyte)))")" || return 1
+  refused_on_file "$(upload "$dan_token" "$files_task" "$(a_file_of over.zip $((25 * megabyte + 1)))")"
+}
+
+a_file_far_over_the_limit_is_refused_on_file_too() {
+  files_task_is_ready || return 1
+  refused_on_file "$(upload "$dan_token" "$files_task" "$(a_file_of far-over.zip $((28 * megabyte)))")"
+}
+
+an_extension_outside_the_list_is_refused() {
+  files_task_is_ready || return 1
+  for name in program.exe pagina.html arhiva.tar.gz fara-extensie; do
+    refused_on_file "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" "$name")" || return 1
+  done
+  is 1 "$(in_db "SELECT count(*) FROM attachments WHERE task_id = '$files_task' AND file_name = 'Brief Final.pdf'")"
+}
+
+two_files_in_one_request_are_refused() {
+  files_task_is_ready || return 1
+  refused_on_file "$(send POST "/api/tasks/$files_task/attachments" -H "Authorization: Bearer $dan_token" \
+    -F "file=@$(native "$scratch/brief.pdf");filename=unu.pdf" -F "file=@$(native "$scratch/brief.pdf");filename=doi.pdf")"
+}
+
+# docs/SPEC.md §13.3: compose overrides the list as Storage__AllowedExtensions__0, __1 and so on.
+the_list_comes_from_the_settings() {
+  files_task_is_ready || return 1
+  start_api Production Storage__AllowedExtensions__0=exe || return 1
+  status_is 201 "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" unealta.exe)" || return 1
+  refused_on_file "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" brief.pdf)" || return 1
+  start_api Production
+}
+
+someone_else_deletes_nothing() {
+  a_member_attaches_a_file || return 1
+  code_is 403 Attachment.NotYours "$(as "$ioana_token" DELETE "/api/attachments/$dan_file")" || return 1
+  [ -f "$(stored_file "$dan_file")" ]
+}
+
+its_uploader_deletes_it_file_and_all() {
+  a_member_attaches_a_file || return 1
+  file=$(stored_file "$dan_file")
+  status_is 204 "$(as "$dan_token" DELETE "/api/attachments/$dan_file")" || return 1
+  is 0 "$(in_db "SELECT count(*) FROM attachments WHERE id = '$dan_file'")" || return 1
+  [ ! -e "$file" ] || {
+    echo "$file is still there"
+    return 1
+  }
+  code_is 404 Attachment.NotFound "$(as "$dan_token" GET "/api/attachments/$dan_file")"
+}
+
+an_archived_task_takes_no_file() {
+  files_task_is_ready || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$cmt_id/tasks" '{"title":"Arhivat cu fisiere","priority":"Low"}')" || return 1
+  closed_task=$(body_field id)
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$closed_task")" || return 1
+  code_is 409 Task.Archived "$(upload "$dan_token" "$closed_task" "$scratch/brief.pdf")"
+}
+
+task_2() {
+  echo "15.2 Files on a task: LocalFileStorage, upload, download, delete, and TaskUpdated with Attachments"
+  check "Docker is running" docker_is_running
+  check "the attachment is tracked" tracked backend/src/Kanabol.Domain/Tasks/Attachment.cs
+  check "its event is tracked" tracked backend/src/Kanabol.Domain/Tasks/Events/AttachmentsChangedEvent.cs
+  check "LocalFileStorage is tracked" tracked backend/src/Kanabol.Infrastructure/Storage/LocalFileStorage.cs
+  check "the rules of the extensions are tracked" tracked backend/src/Kanabol.Infrastructure/Storage/StorageAttachmentRules.cs
+  check "its handlers are tracked" tracked "$attachments_app/Commands/AddAttachment/AddAttachmentCommandHandler.cs"
+  check "its controller is tracked" tracked backend/src/Kanabol.Api/Controllers/AttachmentsController.cs
+  check "the solution builds without warnings" solution_builds
+  check "the formatting is clean" formatting_is_clean
+  check "the domain's tests pass: an open task only, no history" attachment_domain_tests_pass
+  check "the handlers' tests pass: the limit, the extensions, the name, who uploads, reads and deletes" attachment_handler_tests_pass
+  check "LocalFileStorage's tests pass: the key, the bytes, the root" storage_tests_pass
+  check "a file attached or taken off sends TaskUpdated with Attachments" attachment_hub_tests_pass
+  check "the endpoints' tests pass" attachment_endpoint_tests_pass
+  check "appsettings.json allows the spec's extensions" the_default_extensions_are_the_specs
+  check "the real API takes a member's file, with where it is" a_member_attaches_a_file
+  check "it keeps the bytes under {yyyy}/{MM}/{guid}{ext}, without the name" the_file_is_on_disk_under_a_key_of_its_own
+  check "the task lists its files" the_task_lists_its_files
+  check "another member downloads it as an attachment, the same bytes" another_member_downloads_it_as_an_attachment
+  check "an outsider downloads nothing, 403 Project.MemberRequired" an_outsider_downloads_nothing
+  check "25 MB go in, and one byte more is 400 on file" twenty_five_megabytes_go_in_and_one_byte_more_does_not
+  check "a file of 28 MB is 400 on file too" a_file_far_over_the_limit_is_refused_on_file_too
+  check "an extension outside the list is 400 on file" an_extension_outside_the_list_is_refused
+  check "two files in one request are 400 on file" two_files_in_one_request_are_refused
+  check "the list comes from Storage__AllowedExtensions" the_list_comes_from_the_settings
+  check "another member deletes nothing, 403 Attachment.NotYours" someone_else_deletes_nothing
+  check "its uploader deletes it, row and file" its_uploader_deletes_it_file_and_all
+  check "an archived task takes no file, 409 Task.Archived" an_archived_task_takes_no_file
+  check "backend/CLAUDE.md says how attachments work" in_file '`POST /api/tasks/{id}/attachments`' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 for task in "$@"; do
   "task_$task"

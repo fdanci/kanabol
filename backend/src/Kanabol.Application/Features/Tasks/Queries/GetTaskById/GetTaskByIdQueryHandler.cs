@@ -35,6 +35,6 @@ public sealed class GetTaskByIdQueryHandler(
             return access.Error;
         }
 
-        return (await db.ReadTask(query.Id, currentUser.Id, query.IncludeArchived, ct))!;
+        return (await db.ReadTask(query.Id, currentUser, query.IncludeArchived, ct))!;
     }
 }

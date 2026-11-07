@@ -111,7 +111,7 @@ public sealed class TaskChanges(IAppDbContext db, IProjectAccess projectAccess, 
     }
 
     public async Task<Result<TaskItemDto>> Read(Guid taskId, CancellationToken ct) =>
-        (await db.ReadTask(taskId, currentUser.Id, includeArchived: true, ct))!;
+        (await db.ReadTask(taskId, currentUser, includeArchived: true, ct))!;
 
     private async Task<Result> Allowed(TaskItem task, Func<Guid, Guid, CancellationToken, Task<Result>> ensure, CancellationToken ct)
     {

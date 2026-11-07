@@ -3,6 +3,7 @@ using Kanabol.Infrastructure.Authentication;
 using Kanabol.Infrastructure.Configuration;
 using Kanabol.Infrastructure.Persistence;
 using Kanabol.Infrastructure.Persistence.Interceptors;
+using Kanabol.Infrastructure.Storage;
 using Kanabol.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -29,6 +30,8 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<ITokenService, JwtTokenService>();
+        services.AddSingleton<IFileStorage, LocalFileStorage>();
+        services.AddSingleton<IAttachmentRules, StorageAttachmentRules>();
         services.AddScoped<AuditingInterceptor>();
         services.AddScoped<DomainEventsInterceptor>();
 

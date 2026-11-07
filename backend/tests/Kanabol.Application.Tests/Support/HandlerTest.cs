@@ -27,6 +27,9 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
 
     protected ListLoggerProvider Logs { get; } = new();
 
+    /// <summary>Where LocalFileStorage keeps this test's files: a folder of its own, which goes with the test.</summary>
+    protected string StorageRoot { get; } = Path.Combine(Path.GetTempPath(), "kanabol-tests", "handler-attachments", Guid.NewGuid().ToString("N"));
+
     public override async Task InitializeAsync()
     {
         await base.InitializeAsync();
@@ -38,6 +41,10 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
                 ["Jwt:Secret"] = "only-for-these-tests-and-long-enough-to-pass",
                 ["Jwt:Issuer"] = "kanabol-tests",
                 ["Jwt:Audience"] = "kanabol-tests",
+                ["Storage:Root"] = StorageRoot,
+                ["Storage:AllowedExtensions:0"] = "pdf",
+                ["Storage:AllowedExtensions:1"] = ".PNG",
+                ["Storage:AllowedExtensions:2"] = "txt",
             })
             .Build();
 
@@ -60,6 +67,11 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
     {
         await _scope.DisposeAsync();
         await (_services?.DisposeAsync() ?? ValueTask.CompletedTask);
+        if (Directory.Exists(StorageRoot))
+        {
+            Directory.Delete(StorageRoot, recursive: true);
+        }
+
         await base.DisposeAsync();
     }
 
