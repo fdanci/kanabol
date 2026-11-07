@@ -25,6 +25,7 @@ import { authInterceptor } from './core/auth/auth-interceptor';
 import { AuthStore } from './core/auth/auth-store';
 import { ThemeStore } from './core/layout/theme-store';
 import { GlobalErrorHandler } from './core/logging/global-error-handler';
+import { connectionInterceptor } from './core/realtime/connection-interceptor';
 import { PaginatorLabels } from './shared/ui/paginator-labels';
 
 // Dates as 04.11.2026 and numbers as 1.234,5 (docs/UI_UX_SPEC.md §11).
@@ -67,7 +68,12 @@ export const appConfig: ApplicationConfig = {
     // The first one sees a request first and its answer last, so errorInterceptor only hears what's
     // left once the interceptors after it are done.
     provideHttpClient(
-      withInterceptors([correlationInterceptor, errorInterceptor, authInterceptor]),
+      withInterceptors([
+        correlationInterceptor,
+        connectionInterceptor,
+        errorInterceptor,
+        authInterceptor,
+      ]),
     ),
     provideAppInitializer(() => {
       // Creating the store applies the saved theme, before anything renders.

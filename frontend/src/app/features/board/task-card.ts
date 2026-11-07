@@ -15,6 +15,11 @@ import { BoardTaskDto } from './models';
   selector: 'kb-task-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [AvatarStack, Chip, DeadlineChip],
+  // Two names for one pulse, so the next change starts it again (docs/UI_UX_SPEC.md §7.4).
+  host: {
+    '[class.pulse-a]': 'pulse() % 2 === 1',
+    '[class.pulse-b]': 'pulse() > 0 && pulse() % 2 === 0',
+  },
   template: `
     <div class="card">
       <div class="top">
@@ -105,6 +110,27 @@ import { BoardTaskDto } from './models';
       transition: transform 200ms var(--kb-ease);
     }
 
+    /* Changed by someone else: the card pulses once with tint-100, in 600 ms (UI spec §7.4, §8). */
+    :host(.pulse-a) .card {
+      animation: kb-pulse-a 600ms var(--kb-ease);
+    }
+
+    :host(.pulse-b) .card {
+      animation: kb-pulse-b 600ms var(--kb-ease);
+    }
+
+    @keyframes kb-pulse-a {
+      35% {
+        background: var(--kb-tint-100);
+      }
+    }
+
+    @keyframes kb-pulse-b {
+      35% {
+        background: var(--kb-tint-100);
+      }
+    }
+
     .top,
     .bottom {
       display: flex;
@@ -165,6 +191,11 @@ import { BoardTaskDto } from './models';
       :host(.cdk-drag-animating) {
         transition: none;
       }
+
+      :host(.pulse-a) .card,
+      :host(.pulse-b) .card {
+        animation: none;
+      }
     }
   `,
 })
@@ -172,6 +203,8 @@ export class TaskCard {
   readonly task = input.required<BoardTaskDto>();
   /** In a done column the deadline no longer warns. */
   readonly done = input(false);
+  /** How many times someone else changed it: each change pulses it once. */
+  readonly pulse = input(0);
 
   protected readonly priority = computed(() => priorityLabel(this.task().priority));
   protected readonly priorityKind = computed(() => this.task().priority.toLowerCase() as ChipKind);

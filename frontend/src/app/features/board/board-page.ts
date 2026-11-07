@@ -47,6 +47,9 @@ interface Lifted {
   index: number;
 }
 
+/** docs/UI_UX_SPEC.md §8: a card someone else moved slides to its place in the reordering's time. */
+const MOVE_MS = 200;
+
 const MOVES: Record<string, [columns: number, places: number] | undefined> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
@@ -58,7 +61,8 @@ const MOVES: Record<string, [columns: number, places: number] | undefined> = {
  * The kanban board of a project (docs/UI_UX_SPEC.md §7.4, docs/SPEC.md §6.3): its columns side by
  * side, scrolling sideways, and cards that move by drag and drop, or from the keyboard, between and
  * within them. The filters above it live in the address and work on the cards it has. A card opens
- * its panel over the board; what the panel saves reads the board again.
+ * its panel over the board; what the panel saves reads the board again. What others change arrives
+ * through the store: a card they moved slides to its new place, and every card they changed pulses.
  */
 @Component({
   selector: 'kb-board-page',
@@ -141,6 +145,9 @@ export class BoardPage {
   );
 
   constructor() {
+    this.store.animateMovesWith((taskId, change) => {
+      this.slide(taskId, change);
+    });
     effect(() => {
       const projectId = this.projectId();
       if (projectId !== '') {
@@ -233,6 +240,7 @@ export class BoardPage {
       event.preventDefault();
       event.stopPropagation();
       this.lifted.set(null);
+      this.store.release();
       void this.announcer.announce($localize`Mutarea a fost anulată.`);
       this.focus(lifted.taskId);
     }
@@ -299,6 +307,7 @@ export class BoardPage {
     }
     const index = this.cardsOfId(task.columnId).findIndex((found) => found.id === taskId);
     this.lifted.set({ taskId, key: task.key, columnId: task.columnId, index: Math.max(0, index) });
+    this.store.hold();
     void this.announcer.announce(
       $localize`Ai ridicat «${task.key}:key:». Mută-l cu săgețile, lasă-l cu Space, renunță cu Esc.`,
     );
@@ -325,7 +334,9 @@ export class BoardPage {
     const count = this.othersIn(column.id, lifted.taskId).length + 1;
     const position = this.placeFor(lifted.taskId, column.id, lifted.index);
     this.lifted.set(null);
-    const moved = await this.store.moveTask(lifted.taskId, column.id, position);
+    const moving = this.store.moveTask(lifted.taskId, column.id, position);
+    this.store.release();
+    const moved = await moving;
     void this.announcer.announce(
       moved
         ? $localize`Mutat în «${column.name}:column:», poziția ${lifted.index + 1}:place: din ${count}:count:`
@@ -346,6 +357,72 @@ export class BoardPage {
 
   private cardsOfId(columnId: string): BoardTaskDto[] {
     return this.shown().get(columnId) ?? [];
+  }
+
+  /**
+   * A card someone else moved: where it was, the change, then from there to where it is now, in 200 ms
+   * (docs/UI_UX_SPEC.md §7.4, §8). A copy of its box slides above the board, fixed to the window, since
+   * a column would clip the card on its way from another and scroll sideways meanwhile; the card waits
+   * under it, out of sight, and the copy goes when the slide ends, or a little after in a tab the browser
+   * doesn't draw. Nothing moves for whoever asks for less motion, nor for a card the filters hide.
+   */
+  private slide(taskId: string, change: () => void): void {
+    const before = this.cardBox(taskId)?.getBoundingClientRect();
+    change();
+    const lessMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!before || lessMotion) {
+      return;
+    }
+    afterNextRender(
+      () => {
+        const box = this.cardBox(taskId);
+        if (!box || !('animate' in box)) {
+          return;
+        }
+        const after = box.getBoundingClientRect();
+        const dx = before.left - after.left;
+        const dy = before.top - after.top;
+        if (dx === 0 && dy === 0) {
+          return;
+        }
+        const copy = box.cloneNode(true) as HTMLElement;
+        copy.setAttribute('aria-hidden', 'true');
+        Object.assign(copy.style, {
+          position: 'fixed',
+          left: `${String(after.left)}px`,
+          top: `${String(after.top)}px`,
+          width: `${String(after.width)}px`,
+          height: `${String(after.height)}px`,
+          margin: '0',
+          boxSizing: 'border-box',
+          pointerEvents: 'none',
+          zIndex: '1000',
+        });
+        document.body.append(copy);
+        box.style.visibility = 'hidden';
+        const done = (): void => {
+          copy.remove();
+          box.style.visibility = '';
+        };
+        const ease = getComputedStyle(box).getPropertyValue('--kb-ease').trim() || 'ease';
+        copy
+          .animate(
+            [{ transform: `translate(${String(dx)}px, ${String(dy)}px)` }, { transform: 'none' }],
+            { duration: MOVE_MS, easing: ease },
+          )
+          .finished.then(done, done);
+        setTimeout(done, MOVE_MS + 100);
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private cardBox(taskId: string): HTMLElement | null {
+    return this.host.nativeElement.querySelector<HTMLElement>(
+      `kb-task-card[data-task-id="${CSS.escape(taskId)}"] .card`,
+    );
   }
 
   /** The card is drawn anew in its new column, so the focus follows it there once it is. */

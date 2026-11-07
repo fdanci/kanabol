@@ -312,4 +312,52 @@ describe('AuthStore', () => {
       expect(store.mustChangePassword()).toBe(true);
     });
   });
+
+  // docs/SPEC.md §4.5 and §9: a hub connection carries the token in its address, and can't wait for a 401.
+  describe('a fresh token for the hub', () => {
+    /** A token shaped like the API's, which expires so many seconds from now. */
+    function expiringIn(seconds: number): string {
+      const payload = btoa(
+        JSON.stringify({ sub: ANA.id, exp: Math.floor(Date.now() / 1000) + seconds }),
+      )
+        .replace(/=+$/, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+      return `eyJhbGciOiJIUzI1NiJ9.${payload}.c2lnbmF0dXJl`;
+    }
+
+    it('is the token it has while that has more than 30 seconds left', async () => {
+      const held = expiringIn(600);
+      api.login.mockReturnValue(of(session(held)));
+      const store = tab(api);
+      await store.login('ana@example.com', 'parola');
+
+      expect(await store.freshToken()).toBe(held);
+      expect(api.refresh).not.toHaveBeenCalled();
+    });
+
+    it('is a refreshed one when the token is about to expire', async () => {
+      api.login.mockReturnValue(of(session(expiringIn(20))));
+      const store = tab(api);
+      await store.login('ana@example.com', 'parola');
+
+      expect(await store.freshToken()).toBe('refreshed-token');
+      expect(api.refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a refreshed one when the token cannot be read', async () => {
+      api.login.mockReturnValue(of(session('not-a-jwt')));
+      const store = tab(api);
+      await store.login('ana@example.com', 'parola');
+
+      expect(await store.freshToken()).toBe('refreshed-token');
+    });
+
+    it('is none when signed out, without asking for one', async () => {
+      const store = tab(api);
+
+      expect(await store.freshToken()).toBeNull();
+      expect(api.refresh).not.toHaveBeenCalled();
+    });
+  });
 });

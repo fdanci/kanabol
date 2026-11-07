@@ -1,7 +1,18 @@
-import { Injectable, computed, inject, resource, signal } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  computed,
+  effect,
+  inject,
+  resource,
+  signal,
+  untracked,
+} from '@angular/core';
 import { Observable, firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
+import { TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
+import { Realtime } from '../../core/realtime/realtime';
 import { BoardApi } from './board-api';
 import { cardsIn, moveCard } from './board-moves';
 import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto } from './models';
@@ -13,12 +24,27 @@ export type BoardState = 'loading' | 'ready' | 'error';
  * project's id; a move changes the cards at once and asks the API after, putting the card back
  * where it was when the API refuses, and reading the board again then, since someone else may have
  * moved things. errorInterceptor has said why by then. One per board page, which provides it.
+ *
+ * What others change comes from the hub (docs/SPEC.md §9): a move of theirs moves the card here, which
+ * the page animates, and the rest makes the board read itself again, quietly; either way the card pulses
+ * once (docs/UI_UX_SPEC.md §7.4). What this tab did comes back with its own connection id, and is ignored.
+ * While a card is in hand, a move of this tab's waits for the API, or the first read is on its way, what
+ * others did waits too, and the board reads itself once after, so nothing moves under the cursor and no
+ * read from before a move puts a card back.
  */
 @Injectable()
 export class BoardStore {
   private readonly api = inject(BoardApi);
   private readonly auth = inject(AuthStore);
+  private readonly realtime = inject(Realtime);
   private readonly projectId = signal<string | undefined>(undefined);
+  private readonly pulsed = signal<ReadonlyMap<string, number>>(new Map());
+  private held = false;
+  private moving = 0;
+  private stale = false;
+  private animate: (taskId: string, change: () => void) => void = (_, change) => {
+    change();
+  };
 
   private readonly loaded = resource({
     params: () => this.projectId(),
@@ -54,13 +80,82 @@ export class BoardStore {
   readonly members = computed<BoardMemberDto[]>(() =>
     this.people.hasValue() ? this.people.value() : [],
   );
+  /** How many times others changed each card, so it pulses once for each (docs/UI_UX_SPEC.md §7.4). */
+  readonly pulses = this.pulsed.asReadonly();
+
+  constructor() {
+    const stopListening = [
+      this.realtime.on('TaskMoved', (message) => {
+        this.heardMove(message);
+      }),
+      this.realtime.on('TaskCreated', (message) => {
+        this.heardChange(message, true);
+      }),
+      this.realtime.on('TaskUpdated', (message) => {
+        this.heardChange(message, true);
+      }),
+      this.realtime.on('TaskRestored', (message) => {
+        this.heardChange(message, true);
+      }),
+      this.realtime.on('TaskArchived', (message) => {
+        this.heardChange(message, false);
+      }),
+      // Whatever happened while the connection was away went unheard.
+      this.realtime.onReconnected(() => {
+        this.readAgain();
+      }),
+    ];
+    // A read that answered: what was heard while it was on its way gets read now.
+    effect(() => {
+      if (this.loaded.status() === 'resolved') {
+        untracked(() => {
+          this.settle();
+        });
+      }
+    });
+    inject(DestroyRef).onDestroy(() => {
+      for (const stop of stopListening) {
+        stop();
+      }
+      const projectId = untracked(this.projectId);
+      if (projectId !== undefined) {
+        void this.realtime.leave(projectId);
+      }
+    });
+  }
 
   open(projectId: string): void {
+    const before = untracked(this.projectId);
+    if (before === projectId) {
+      return;
+    }
+    if (before !== undefined) {
+      void this.realtime.leave(before);
+    }
     this.projectId.set(projectId);
+    void this.realtime.join(projectId);
   }
 
   reload(): void {
-    this.loaded.reload();
+    this.readAgain();
+  }
+
+  /** The page draws a move of others: it measures the card, lets the change happen, then animates it. */
+  animateMovesWith(animate: (taskId: string, change: () => void) => void): void {
+    this.animate = animate;
+  }
+
+  /** A card picked up, by the mouse or the keyboard: the cards stay still under it. */
+  hold(): void {
+    this.held = true;
+  }
+
+  /** Let go. A drop asks for its move in the same turn, so the board reads itself only after that. */
+  release(): void {
+    queueMicrotask(() => {
+      this.held = false;
+      this.settle();
+    });
   }
 
   cardsIn(columnId: string): BoardTaskDto[] {
@@ -78,6 +173,11 @@ export class BoardStore {
       return true;
     }
 
+    this.moving++;
+    // A read on its way may answer from before this move: the board reads itself once more after it.
+    if (untracked(this.loaded.isLoading)) {
+      this.stale = true;
+    }
     this.change((board) =>
       moveCard(board.tasks, board.columns, taskId, columnId, position, new Date()),
     );
@@ -102,6 +202,9 @@ export class BoardStore {
       );
       this.reload();
       return false;
+    } finally {
+      this.moving--;
+      this.settle();
     }
   }
 
@@ -189,6 +292,73 @@ export class BoardStore {
     if (board) {
       this.loaded.value.set({ ...board, columns: columns(board.columns) });
     }
+  }
+
+  /** Now, or once nothing is in the way: a card in hand, a move of this tab's, the first read. */
+  private readAgain(): void {
+    const status = untracked(this.loaded.status);
+    if (status === 'idle') {
+      return;
+    }
+    if (this.held || this.moving > 0 || status === 'loading') {
+      this.stale = true;
+      return;
+    }
+    this.stale = false;
+    this.loaded.reload();
+  }
+
+  private settle(): void {
+    if (this.stale) {
+      this.readAgain();
+    }
+  }
+
+  /** Of this project, and not what this tab did, which it shows already. */
+  private concerns(message: TaskMessage): boolean {
+    return (
+      message.projectId === untracked(this.projectId) &&
+      (message.originConnectionId === null ||
+        message.originConnectionId !== this.realtime.connectionId())
+    );
+  }
+
+  private heardMove(message: TaskMovedMessage): void {
+    if (!this.concerns(message)) {
+      return;
+    }
+    this.pulse(message.taskId);
+    const known = this.board()?.tasks.some((task) => task.id === message.taskId) ?? false;
+    if (!known || this.held || this.moving > 0 || untracked(this.loaded.isLoading)) {
+      this.readAgain();
+      return;
+    }
+    this.animate(message.taskId, () => {
+      this.change((board) =>
+        moveCard(
+          board.tasks,
+          board.columns,
+          message.taskId,
+          message.columnId,
+          message.position,
+          new Date(),
+        ),
+      );
+    });
+  }
+
+  private heardChange(message: TaskMessage, pulses: boolean): void {
+    if (!this.concerns(message)) {
+      return;
+    }
+    if (pulses) {
+      this.pulse(message.taskId);
+    }
+    this.readAgain();
+  }
+
+  private pulse(taskId: string): void {
+    this.pulsed.update((pulses) => new Map(pulses).set(taskId, (pulses.get(taskId) ?? 0) + 1));
   }
 
   private change(tasks: (board: BoardDto) => BoardTaskDto[]): void {

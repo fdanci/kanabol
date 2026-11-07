@@ -751,8 +751,193 @@ task_2() {
   check "no handler failed" no_handler_failed
 }
 
+# ---- 14.3: the Realtime service, X-Connection-Id on every request, and the board that listens.
+
+web=frontend
+app=$web/src/app
+realtime_web=$app/core/realtime
+board_web=$app/features/board
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+lacks() { # lacks <extended regex> <file...>
+  ! grep -nE -- "$@" || return 1
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*' '__').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is an it() of that file
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "it('$name'" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+# The production build, made once per run: the first bundle, and every lazy chunk apart.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+signalr_is_a_dependency() {
+  node -e "const p = require('./frontend/package.json'); process.exit(p.dependencies['@microsoft/signalr'] ? 0 : 1)" || {
+    echo "@microsoft/signalr isn't among the dependencies"
+    return 1
+  }
+}
+
+every_request_carries_the_connection() {
+  in_file "export const CONNECTION_HEADER = 'X-Connection-Id';" "$realtime_web/connection-interceptor.ts" &&
+    in_file 'connectionInterceptor,' "$app/app.config.ts"
+}
+
+the_service_connects_as_the_spec_says() {
+  in_file 'withAutomaticReconnect(RECONNECT_DELAYS)' "$realtime_web/realtime.ts" &&
+    in_file "\`\${environment.hubsBaseUrl}/board\`" "$realtime_web/realtime.ts" &&
+    in_file 'accessTokenFactory' "$realtime_web/realtime.ts" &&
+    in_file "invoke('JoinProject', projectId)" "$realtime_web/realtime.ts" &&
+    in_file "invoke('LeaveProject', projectId)" "$realtime_web/realtime.ts" &&
+    in_file 'this.auth.freshToken()' "$realtime_web/realtime.ts"
+}
+
+# UI spec §7.4 and §8: one pulse of tint-100 in 600 ms, a slide of 200 ms, neither for less motion.
+the_motion_follows_the_ui_spec() {
+  card=$board_web/task-card.ts
+  in_file 'animation: kb-pulse-a 600ms var(--kb-ease);' "$card" &&
+    in_file 'animation: kb-pulse-b 600ms var(--kb-ease);' "$card" &&
+    in_file 'background: var(--kb-tint-100);' "$card" &&
+    node -e "
+      const s = require('fs').readFileSync(process.argv[1], 'utf8');
+      const reduced = s.slice(s.indexOf('@media (prefers-reduced-motion: reduce)'));
+      process.exit(/pulse-a\) \.card,\s*:host\(\.pulse-b\) \.card \{\s*animation: none;/.test(reduced) ? 0 : 1);
+    " "$(native "$card")" &&
+    in_file 'const MOVE_MS = 200;' "$board_web/board-page.ts" &&
+    in_file "'(prefers-reduced-motion: reduce)'" "$board_web/board-page.ts" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-' "$card" "$board_web/board-page.ts"
+}
+
+realtime_specs_name_the_rules() {
+  spec_names "$realtime_web/realtime.spec.ts" \
+    'connects only once a board joins, with a fresh token, and joins its project' \
+    'leaves a project, and joins only the others after reconnecting, under the new id' \
+    'has no connection id while it reconnects, so requests go without one' \
+    'starts again after the connection closed for good, joins again and says so' \
+    'tries again later when it cannot connect, and says why only in the log' \
+    'stops when the session ends, and does not start again by itself' &&
+    spec_names "$realtime_web/connection-interceptor.spec.ts" \
+      'sends the connection id with an API request' \
+      'sends none without a connection' &&
+    spec_names "$realtime_web/hub-log.spec.ts" 'hides the token in an address' &&
+    spec_names "$app/core/auth/auth-store.spec.ts" \
+      'is a refreshed one when the token is about to expire'
+}
+
+board_specs_name_the_rules() {
+  spec_names "$board_web/board-store.spec.ts" \
+    'joins the project it opens, and leaves it for the next one' \
+    'moves a card someone else moved, without reading the board again, and pulses it' \
+    'ignores what its own tab did, which it shows already' \
+    'ignores the changes of other projects' \
+    'reads itself again quietly and pulses the card on TaskCreated, TaskUpdated and TaskRestored' \
+    'reads itself again when the connection comes back, for what it missed' \
+    'waits for its own move to be answered before reading again' \
+    'waits while a card is in hand, and reads itself once it is let go' &&
+    spec_names "$board_web/board-page.spec.ts" \
+      'moves a card someone else moved to its new place, and pulses it once' \
+      'pulses a card again each time someone changes it, reading the board quietly' \
+      'keeps the board still while a card is dragged, and reads it once the card is let go' \
+      'keeps the board still while a card is picked up from the keyboard'
+}
+
+# The first bundle sends X-Connection-Id, and SignalR's code comes only with the board.
+signalr_comes_with_the_board() {
+  built || return 1
+  main=$(ls "$scratch"/dist/browser/main-*.js)
+  in_file 'X-Connection-Id' "$main" || {
+    echo "the first bundle doesn't send X-Connection-Id"
+    return 1
+  }
+  if grep -l 'withAutomaticReconnect' "$main"; then
+    echo "SignalR is in the first bundle"
+    return 1
+  fi
+  grep -l '/board' "$scratch"/dist/browser/chunk-*.js | xargs grep -l 'withAutomaticReconnect' >/dev/null || {
+    echo "no chunk holds SignalR"
+    return 1
+  }
+}
+
+no_token_goes_to_the_log() {
+  in_file 'access_token=[hidden]' "$realtime_web/hub-log.ts" &&
+    in_file 'configureLogging(log)' "$realtime_web/realtime.ts" &&
+    lacks 'console\.' "$realtime_web/realtime.ts" "$realtime_web/hub-log.ts"
+}
+
+the_frontend_notes_say_it() {
+  in_file '## Real time' "$web/CLAUDE.md" &&
+    in_file 'X-Connection-Id' "$web/CLAUDE.md" &&
+    in_file 'provideFakeRealtime()' "$web/CLAUDE.md"
+}
+
+task_3() {
+  echo "14.3 Realtime with reconnection and joins again, X-Connection-Id, and the board that listens"
+  check "the service is tracked" tracked "$realtime_web/realtime.ts"
+  check "the interceptor is tracked" tracked "$realtime_web/connection-interceptor.ts"
+  check "the tab's connection id is tracked" tracked "$realtime_web/tab-connection.ts"
+  check "SignalR's log is tracked" tracked "$realtime_web/hub-log.ts"
+  check "the messages are tracked" tracked "$realtime_web/models.ts"
+  check "the fake for the specs is tracked" tracked "$realtime_web/realtime-testing.ts"
+  check "@microsoft/signalr is a dependency" signalr_is_a_dependency
+  check "it connects to /hubs/board with a fresh token, reconnects, joins and leaves" the_service_connects_as_the_spec_says
+  check "every API request carries X-Connection-Id" every_request_carries_the_connection
+  check "the pulse and the slide follow the UI spec, and stop for less motion" the_motion_follows_the_ui_spec
+  check "SignalR's log reaches Logger without the token" no_token_goes_to_the_log
+  check "the specs name the connection's rules" realtime_specs_name_the_rules
+  check "the specs name the board's" board_specs_name_the_rules
+  check "the connection's specs pass" specs_pass 'src/app/core/realtime/*.spec.ts' 18
+  check "the session's specs pass" specs_pass src/app/core/auth/auth-store.spec.ts 24
+  check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 84
+  check "the project page shows the board with a fake connection" specs_pass src/app/features/projects/project-page.spec.ts 10
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the first bundle sends X-Connection-Id, and SignalR comes with the board" signalr_comes_with_the_board
+  check "frontend/CLAUDE.md says how it works" the_frontend_notes_say_it
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 for task in "$@"; do
   "task_$task"

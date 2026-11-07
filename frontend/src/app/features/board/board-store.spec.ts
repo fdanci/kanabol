@@ -1,7 +1,13 @@
-import { ApplicationRef, signal } from '@angular/core';
+import {
+  ApplicationRef,
+  EnvironmentInjector,
+  createEnvironmentInjector,
+  signal,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Observable, Subject, of } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
+import { FakeRealtime, provideFakeRealtime } from '../../core/realtime/realtime-testing';
 import { BoardApi } from './board-api';
 import { BoardStore } from './board-store';
 import { aBoard, aBoardMember, refusedWith, titlesByColumn } from './board-testing';
@@ -16,9 +22,11 @@ describe('BoardStore', () => {
   let api: Record<string, ReturnType<typeof vi.fn>>;
   const held = signal<string[]>(['tasks.create']);
   let store: BoardStore;
+  let realtime: FakeRealtime;
 
   beforeEach(() => {
     board = aBoard();
+    realtime = new FakeRealtime();
     held.set(['tasks.create']);
     api = {
       board: vi.fn((): Observable<BoardDto> => of(structuredClone(board))),
@@ -37,6 +45,7 @@ describe('BoardStore', () => {
     TestBed.configureTestingModule({
       providers: [
         BoardStore,
+        provideFakeRealtime(realtime),
         { provide: BoardApi, useValue: api },
         {
           provide: AuthStore,
@@ -308,6 +317,212 @@ describe('BoardStore', () => {
       expect(await store.renameColumn(store.columns()[0], 'X')).toBe(false);
       expect(api['addColumn']).not.toHaveBeenCalled();
       expect(api['updateColumn']).not.toHaveBeenCalled();
+    });
+  });
+
+  // docs/SPEC.md §9 and docs/UI_UX_SPEC.md §7.4: what others change reaches the board as it happens.
+  describe('changes of others', () => {
+    /** A message of the hub about task A of p1, from another tab. */
+    function about(title: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        taskId: id(title),
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+        ...extra,
+      };
+    }
+
+    function reads(): number {
+      return api['board'].mock.calls.length;
+    }
+
+    it('joins the project it opens, and leaves it for the next one', async () => {
+      await opened();
+      expect(realtime.joined).toEqual(['p1']);
+
+      store.open('p2');
+
+      expect(realtime.left).toEqual(['p1']);
+      expect(realtime.joined).toEqual(['p1', 'p2']);
+    });
+
+    it('leaves its project and stops listening when its page goes', () => {
+      const injector = createEnvironmentInjector([BoardStore], TestBed.inject(EnvironmentInjector));
+      const own = injector.get(BoardStore);
+      own.open('p1');
+      expect(realtime.listening('TaskMoved')).toBe(2);
+
+      injector.destroy();
+
+      expect(realtime.left).toEqual(['p1']);
+      expect(realtime.listening('TaskMoved')).toBe(1);
+    });
+
+    it('moves a card someone else moved, without reading the board again, and pulses it', async () => {
+      await opened();
+
+      realtime.send('TaskMoved', about('A', { columnId: 'c2', position: 0 }));
+      await settle();
+
+      expect(shown()).toBe('B C | A D | E');
+      expect(store.cardsIn('c1').map((task) => task.position)).toEqual([0, 1]);
+      expect(reads()).toBe(1);
+      expect(store.pulses().get(id('A'))).toBe(1);
+    });
+
+    it('lets the page draw the move: it measures before, and the cards change when it says', async () => {
+      await opened();
+      let change: (() => void) | undefined;
+      store.animateMovesWith((taskId, apply) => {
+        expect(taskId).toBe(id('A'));
+        change = apply;
+      });
+
+      realtime.send('TaskMoved', about('A', { columnId: 'c2', position: 1 }));
+      expect(shown()).toBe('A B C | D | E');
+      change?.();
+
+      expect(shown()).toBe('B C | D A | E');
+    });
+
+    it('ignores what its own tab did, which it shows already', async () => {
+      await opened();
+
+      realtime.send(
+        'TaskMoved',
+        about('A', { columnId: 'c2', position: 0, originConnectionId: 'my-tab' }),
+      );
+      realtime.send('TaskUpdated', about('B', { field: 'Title', originConnectionId: 'my-tab' }));
+      await settle();
+
+      expect(shown()).toBe('A B C | D | E');
+      expect(reads()).toBe(1);
+      expect(store.pulses().size).toBe(0);
+    });
+
+    it('ignores the changes of other projects', async () => {
+      await opened();
+
+      realtime.send('TaskMoved', about('A', { columnId: 'c2', position: 0, projectId: 'p9' }));
+      realtime.send('TaskCreated', about('A', { projectId: 'p9' }));
+      await settle();
+
+      expect(shown()).toBe('A B C | D | E');
+      expect(reads()).toBe(1);
+    });
+
+    it('reads itself again quietly and pulses the card on TaskCreated, TaskUpdated and TaskRestored', async () => {
+      await opened();
+      const again = new Subject<BoardDto>();
+      api['board'].mockReturnValue(again);
+
+      realtime.send('TaskUpdated', about('B', { field: 'Assignees' }));
+      TestBed.tick();
+
+      expect(reads()).toBe(2);
+      expect(store.state()).toBe('ready');
+      expect(shown()).toBe('A B C | D | E');
+      expect(store.pulses().get(id('B'))).toBe(1);
+      again.next(structuredClone(board));
+      again.complete();
+      await settle();
+
+      api['board'].mockImplementation(() => of(structuredClone(board)));
+      realtime.send('TaskCreated', about('C', { taskId: 'id-KAN-6' }));
+      await settle();
+      realtime.send('TaskRestored', about('C', { taskId: 'id-KAN-7' }));
+      await settle();
+      realtime.send('TaskUpdated', about('B', { field: 'Title' }));
+      await settle();
+
+      expect(reads()).toBe(5);
+      expect(store.pulses().get('id-KAN-6')).toBe(1);
+      expect(store.pulses().get('id-KAN-7')).toBe(1);
+      expect(store.pulses().get(id('B'))).toBe(2);
+    });
+
+    it('reads itself again on TaskArchived, the card having nothing left to pulse', async () => {
+      await opened();
+
+      realtime.send('TaskArchived', about('B'));
+      await settle();
+
+      expect(reads()).toBe(2);
+      expect(store.pulses().size).toBe(0);
+    });
+
+    it('reads itself again for the move of a card it does not have', async () => {
+      await opened();
+
+      realtime.send('TaskMoved', about('A', { taskId: 'id-KAN-9', columnId: 'c2', position: 0 }));
+      await settle();
+
+      expect(reads()).toBe(2);
+    });
+
+    it('reads itself again when the connection comes back, for what it missed', async () => {
+      await opened();
+
+      realtime.reconnect();
+      await settle();
+
+      expect(reads()).toBe(2);
+    });
+
+    it('waits for its own move to be answered before reading again', async () => {
+      await opened();
+      const answer = new Subject<unknown>();
+      api['move'].mockReturnValue(answer);
+      const moving = store.moveTask(id('A'), 'c2', 0);
+
+      realtime.send('TaskUpdated', about('B', { field: 'Title' }));
+      realtime.send('TaskMoved', about('C', { columnId: 'c3', position: 0 }));
+      await settle();
+      expect(reads()).toBe(1);
+      expect(shown()).toBe('B C | A D | E');
+
+      answer.next({});
+      answer.complete();
+      expect(await moving).toBe(true);
+      await settle();
+
+      expect(reads()).toBe(2);
+    });
+
+    it('waits while a card is in hand, and reads itself once it is let go', async () => {
+      await opened();
+      store.hold();
+
+      realtime.send('TaskMoved', about('B', { columnId: 'c2', position: 0 }));
+      await settle();
+      expect(shown()).toBe('A B C | D | E');
+      expect(reads()).toBe(1);
+
+      store.release();
+      await settle();
+
+      expect(reads()).toBe(2);
+    });
+
+    it('reads again a board whose first read was still on its way', async () => {
+      const first = new Subject<BoardDto>();
+      api['board'].mockReturnValueOnce(first);
+      store.open('p1');
+      TestBed.tick();
+
+      realtime.send('TaskUpdated', {
+        taskId: 'id-KAN-2',
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+        field: 'Title',
+      });
+      first.next(structuredClone(board));
+      first.complete();
+      await settle();
+
+      expect(reads()).toBe(2);
     });
   });
 });
