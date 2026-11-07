@@ -41,6 +41,8 @@ import {
   taskDescriptionProblem,
   taskTitleProblem,
 } from './task-fields';
+import { TaskAttachments } from './task-attachments';
+import { TaskComments } from './task-comments';
 import { ChangeOutcome, TaskPanelStore } from './task-panel-store';
 
 export interface TaskPanelData {
@@ -68,8 +70,9 @@ export function taskPanelConfig(data: TaskPanelData): MatDialogConfig<TaskPanelD
 /**
  * A task's details (docs/UI_UX_SPEC.md §7.5). Left, the title, edited in place (Enter saves, Esc
  * goes back), and the description, written in basic markdown and rendered through kb-markdown.
- * Right, the properties, each changed where it is. The menu at the bottom right archives it, or
- * restores it for tasks.archive. Whoever can't change it reads the same panel without the controls.
+ * Below them, the tabs: its comments (kb-task-comments) and its files (kb-task-attachments). Right, the
+ * properties, each changed where it is. The menu at the bottom right archives it, or restores it for
+ * tasks.archive. Whoever can't change it reads the same panel without the controls.
  */
 @Component({
   selector: 'kb-task-panel',
@@ -102,6 +105,8 @@ export function taskPanelConfig(data: TaskPanelData): MatDialogConfig<TaskPanelD
     EmptyState,
     Markdown,
     Skeleton,
+    TaskAttachments,
+    TaskComments,
   ],
   templateUrl: './task-panel.html',
   styleUrl: './task-panel.scss',

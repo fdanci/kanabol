@@ -1,5 +1,5 @@
 import { registerLocaleData } from '@angular/common';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import localeRo from '@angular/common/locales/ro';
 import {
   ApplicationConfig,
@@ -67,7 +67,9 @@ export const appConfig: ApplicationConfig = {
     { provide: MatPaginatorIntl, useClass: PaginatorLabels },
     // The first one sees a request first and its answer last, so errorInterceptor only hears what's
     // left once the interceptors after it are done.
+    // XHR, not fetch: only XHR reports how far an upload went (docs/UI_UX_SPEC.md §6.3).
     provideHttpClient(
+      withXhr(),
       withInterceptors([
         correlationInterceptor,
         connectionInterceptor,

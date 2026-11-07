@@ -135,10 +135,14 @@
 
           <mat-tab-group class="tabs" animationDuration="0ms">
             <mat-tab i18n-label label="Comentarii">
-              <p class="later" i18n>Comentariile vin într-o versiune următoare.</p>
+              <kb-task-comments [taskId]="task.id" [canComment]="task.canChange" />
             </mat-tab>
             <mat-tab i18n-label label="Atașamente">
-              <p class="later" i18n>Atașamentele vin într-o versiune următoare.</p>
+              <kb-task-attachments
+                [task]="task"
+                (attached)="store.attached($event)"
+                (detached)="store.detached($event)"
+              />
             </mat-tab>
             <mat-tab i18n-label label="Istoric">
               <p class="later" i18n>Istoricul vine într-o versiune următoare.</p>

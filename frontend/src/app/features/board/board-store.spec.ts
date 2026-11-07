@@ -458,6 +458,32 @@ describe('BoardStore', () => {
       expect(store.pulses().get(id('B'))).toBe(2);
     });
 
+    // docs/SPEC.md §9 (group 15): a comment and a file change the counts on the card.
+    it('reads itself again quietly and pulses the card on CommentAdded and on TaskUpdated with Attachments', async () => {
+      await opened();
+
+      realtime.send('CommentAdded', about('B', { commentId: 'cm1' }));
+      await settle();
+      realtime.send('TaskUpdated', about('B', { field: 'Attachments' }));
+      await settle();
+
+      expect(reads()).toBe(3);
+      expect(store.pulses().get(id('B'))).toBe(2);
+    });
+
+    it('ignores a comment its own tab wrote', async () => {
+      await opened();
+
+      realtime.send(
+        'CommentAdded',
+        about('B', { commentId: 'cm1', originConnectionId: 'my-tab', byUserId: 'u1' }),
+      );
+      await settle();
+
+      expect(reads()).toBe(1);
+      expect(store.pulses().size).toBe(0);
+    });
+
     it('reads itself again on TaskArchived, the card having nothing left to pulse', async () => {
       await opened();
 

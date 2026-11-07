@@ -4,7 +4,7 @@ import { Observable, firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
 import { problemIn } from '../../shared/models/problem-details';
-import { TaskColumnDto, TaskItemDto, TaskMemberDto, TaskPriority } from './models';
+import { AttachmentDto, TaskColumnDto, TaskItemDto, TaskMemberDto, TaskPriority } from './models';
 import { TaskChanges } from '../../shared/task-changes';
 import { TasksApi } from './tasks-api';
 
@@ -135,6 +135,26 @@ export class TaskPanelStore {
 
   restore(): Promise<ChangeOutcome> {
     return this.change((id) => this.api.restore(id));
+  }
+
+  /**
+   * A file the API now has, at the end of the task's list. It counts on the board's card, so the page
+   * behind reads itself again, as after any change.
+   */
+  attached(attachment: AttachmentDto): void {
+    this.current.update((task) =>
+      task ? { ...task, attachments: [...task.attachments, attachment] } : task,
+    );
+    this.changes.saved();
+  }
+
+  detached(attachmentId: string): void {
+    this.current.update((task) =>
+      task
+        ? { ...task, attachments: task.attachments.filter((found) => found.id !== attachmentId) }
+        : task,
+    );
+    this.changes.saved();
   }
 
   private async change(send: (id: string) => Observable<TaskItemDto>): Promise<ChangeOutcome> {

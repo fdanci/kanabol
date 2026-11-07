@@ -134,8 +134,9 @@ export interface UploadItem {
       border-top: 1px solid var(--kb-border-200);
     }
 
+    /* The name keeps its room next to a long error, which wraps. */
     .name {
-      flex: 1;
+      flex: 1 1 40%;
       min-width: 0;
     }
 
@@ -155,8 +156,11 @@ export interface UploadItem {
     }
 
     .error {
+      flex: 0 1 auto;
+      min-width: 0;
       color: var(--kb-danger-600);
       font-size: 12px;
+      text-align: right;
     }
 
     .remove .material-symbols-outlined {

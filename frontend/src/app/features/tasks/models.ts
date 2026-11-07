@@ -31,7 +31,37 @@ export interface TaskItemDto {
   createdAt: string;
   createdBy: TaskPersonDto | null;
   updatedAt: string | null;
+  /** From the first uploaded (docs/SPEC.md §4.4). */
+  attachments: AttachmentDto[];
   canChange: boolean;
+}
+
+/**
+ * A file on a task. canDelete: whoever uploaded it, still a real member, or tasks.archive, on an open
+ * task of an open project. Its size is in bytes.
+ */
+export interface AttachmentDto {
+  id: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  uploadedBy: TaskPersonDto;
+  uploadedAt: string;
+  canDelete: boolean;
+}
+
+/**
+ * A comment, in basic markdown. updatedAt is null until it's edited; canEdit: its author, still a real
+ * member of an open project, on an open task.
+ */
+export interface CommentDto {
+  id: string;
+  taskId: string;
+  author: TaskPersonDto;
+  body: string;
+  createdAt: string;
+  updatedAt: string | null;
+  canEdit: boolean;
 }
 
 /** A row of the project's List view. Assignees come by name; updatedAt is the last change, or the creation. */

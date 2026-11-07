@@ -10,6 +10,8 @@
 #      Production. Docker, PostgreSQL.
 #   2  files on a task, LocalFileStorage and TaskUpdated with Attachments: the tests, then the real API in
 #      Production, with what it keeps on disk. Docker, PostgreSQL.
+#   3  the comments and the files in the task's panel, and the board that hears of them: specs, lint,
+#      formatting, the production build. Only the packages that scripts/setup.sh installs.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -694,8 +696,147 @@ task_2() {
   check "backend/CLAUDE.md says how attachments work" in_file '`POST /api/tasks/{id}/attachments`' backend/CLAUDE.md
 }
 
+# ---- 15.3: the comments and the files in the task's panel.
+
+web=frontend
+app=$web/src/app
+tasks_web=$app/features/tasks
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+lacks() { # lacks <extended regex> <file...>
+  ! grep -nE -- "$@" || return 1
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*{},' '______').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is an it() of that file
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "it('$name'" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+# The production build, made once per run.
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+css_has() { # css_has <text>: compares without whitespace, which the minifier keeps in places
+  built || return 1
+  tr -d ' \n\r' <"$(ls "$scratch"/dist/browser/styles-*.css | head -n 1)" | grep -qF -- "$1" || {
+    echo "not in the built CSS: $1"
+    return 1
+  }
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+the_specs_name_the_rules() {
+  spec_names "$tasks_web/task-comments.spec.ts" \
+    'shows each comment with its author, when, and its text in markdown, from the oldest' \
+    'offers "Editează" only on the caller’s own comments' \
+    'edits a comment in place: Salvează sends it, Anulează puts it back' \
+    'adds a comment from the form at the end and empties it, the button waiting for some text' \
+    'says a comment is too long without sending it, and keeps a refused one in the form' \
+    'has no form, and no "Editează", for whoever cannot comment' &&
+    spec_names "$tasks_web/task-attachments.spec.ts" \
+      'downloads a file under its name when its name is chosen' \
+      'sends each file chosen in a request of its own, with its progress, then lists it' \
+      'refuses a file over 25 MB in its row, without sending it' \
+      'says in its row that the API refused a file, which can then be taken away' \
+      'deletes a file after asking, and only where it may' \
+      'has no zone for whoever cannot change the task, and says when there are no files' &&
+    spec_names "$tasks_web/attachments-api.spec.ts" \
+      'sends one file in the field file, and reports its progress up to the answer' \
+      'downloads a file as a blob' &&
+    spec_names "$tasks_web/task-panel.spec.ts" \
+      'shows the comments and the files of the task in its tabs' \
+      'has neither a comment form nor an upload zone for someone who can only read the task' &&
+    spec_names "$app/features/board/board-store.spec.ts" \
+      'reads itself again quietly and pulses the card on CommentAdded and on TaskUpdated with Attachments' \
+      'ignores a comment its own tab wrote'
+}
+
+the_panel_holds_both_in_its_tabs() {
+  in_file '<kb-task-comments [taskId]="task.id" [canComment]="task.canChange" />' "$tasks_web/task-panel.html" &&
+    in_file '(attached)="store.attached($event)"' "$tasks_web/task-panel.html" &&
+    lacks 'vin într-o versiune următoare' "$tasks_web/task-panel.html"
+}
+
+the_upload_reports_its_progress() {
+  in_file 'withXhr(),' "$app/app.config.ts" &&
+    in_file 'reportUploadProgress: true,' "$app/core/api/api-client.ts" &&
+    in_file "form.append('file', file, file.name);" "$tasks_web/attachments-api.ts"
+}
+
+# UI spec §6.7: 36px, 13px/500 labels, a 2px indicator in accent-600.
+the_tabs_follow_the_ui_spec() {
+  css_has '--mat-tab-container-height:36px' &&
+    css_has '--mat-tab-label-text-size:13px' &&
+    css_has '--mat-tab-label-text-weight:500' &&
+    css_has '--mat-tab-active-indicator-height:2px' &&
+    css_has '--mat-tab-active-indicator-color:var(--kb-accent-600)'
+}
+
+the_new_files_use_tokens_only() {
+  lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+    "$tasks_web/task-comments.ts" "$tasks_web/task-attachments.ts" "$tasks_web/comments-api.ts" "$tasks_web/attachments-api.ts"
+}
+
+task_3() {
+  echo "15.3 The comments and the files in the task's panel"
+  for file in comments-api.ts attachments-api.ts task-comments-store.ts task-comments.ts task-attachments.ts; do
+    check "features/tasks/$file is tracked" tracked "$tasks_web/$file"
+  done
+  check "the specs name the rules of the comments, the files and the board" the_specs_name_the_rules
+  check "the specs of the comments pass" specs_pass 'src/app/features/tasks/*comments*.spec.ts' 18
+  check "the specs of the files pass" specs_pass 'src/app/features/tasks/*attachments*.spec.ts' 13
+  check "every spec of the tasks feature passes" specs_pass 'src/app/features/tasks/*.spec.ts' 91
+  check "every spec of the board passes" specs_pass 'src/app/features/board/*.spec.ts' 87
+  check "the panel holds both in its tabs, nothing left for later but the history" the_panel_holds_both_in_its_tabs
+  check "an upload goes as one file in the field file, with its progress, over XHR" the_upload_reports_its_progress
+  check "the new files use the theme's tokens and nothing unsafe" the_new_files_use_tokens_only
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "the tabs follow the UI spec" the_tabs_follow_the_ui_spec
+  check "frontend/CLAUDE.md says how it works" in_file '`kb-task-attachments` lists the task' frontend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 for task in "$@"; do
   "task_$task"
