@@ -1,0 +1,261 @@
+:host {
+  display: block;
+}
+
+// A 12-column grid with 16px gaps (UI spec 7.2): the tiles in row 1, the tasks (8) and the notifications
+// (4) in row 2, the projects across row 3.
+.content {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--kb-space-4);
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+.tiles {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--kb-space-4);
+
+  .failed {
+    grid-column: 1 / -1;
+  }
+}
+
+.tasks {
+  grid-column: span 8;
+}
+
+.notifications {
+  grid-column: span 4;
+}
+
+.projects {
+  grid-column: 1 / -1;
+}
+
+// The flat cards of 6.0.10, with a kb-title and 16px under it.
+.card {
+  min-width: 0;
+  overflow: clip;
+  padding: 20px var(--kb-space-6);
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--kb-space-4);
+  margin-bottom: var(--kb-space-4);
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.all {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+// The table runs to the card's edges, as a table card's would.
+.table {
+  margin: 0 calc(-1 * var(--kb-space-6)) -20px;
+}
+
+tr.kb-table-row {
+  cursor: pointer;
+}
+
+td.key {
+  width: 80px;
+  font-family: var(--kb-font-mono);
+  font-size: 12px;
+  color: var(--kb-text-500);
+  white-space: nowrap;
+}
+
+td.title {
+  max-width: 0;
+  width: 45%;
+}
+
+td.project {
+  max-width: 0;
+  width: 25%;
+  color: var(--kb-text-600);
+}
+
+.due,
+.priority {
+  white-space: nowrap;
+}
+
+.open-task {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--kb-text-900);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  vertical-align: middle;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: var(--kb-focus-ring);
+  }
+}
+
+.placeholder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-4);
+  height: 40px;
+}
+
+// The bell's rows, as on the notifications page, to the card's edges.
+.list {
+  margin: 0 calc(-1 * var(--kb-space-6)) -20px;
+  padding: 0;
+  list-style: none;
+}
+
+li:nth-child(even) .row:not(.unread) {
+  background: color-mix(in srgb, var(--kb-navy-900) 3%, var(--kb-surface-0));
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px var(--kb-space-6);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--kb-dur-fast) var(--kb-ease);
+
+  &:hover {
+    background: color-mix(in srgb, var(--kb-navy-900) 5%, var(--kb-surface-0));
+  }
+
+  &.unread {
+    background: var(--kb-tint-100);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset var(--kb-focus-ring);
+  }
+}
+
+// 280px cards that wrap (UI spec 7.2), clickable as 6.0.10 has them.
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kb-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  .project {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: var(--kb-space-2);
+    width: 280px;
+    padding: var(--kb-space-4) 20px;
+    background: var(--kb-surface-0);
+    border: 1px solid var(--kb-border-200);
+    border-radius: var(--kb-radius-md);
+    color: inherit;
+    transition:
+      box-shadow var(--kb-dur-fast) var(--kb-ease),
+      border-color var(--kb-dur-fast) var(--kb-ease);
+  }
+
+  a.project:hover {
+    text-decoration: none;
+    box-shadow: var(--kb-shadow-1);
+    border-color: var(--kb-border-300);
+  }
+
+  .heading {
+    display: flex;
+    align-items: baseline;
+    gap: var(--kb-space-2);
+    min-width: 0;
+  }
+
+  .name {
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 600;
+    color: var(--kb-text-900);
+  }
+
+  .key {
+    font-family: var(--kb-font-mono);
+    font-size: 12px;
+    color: var(--kb-text-500);
+  }
+
+  .owners,
+  .counts {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--kb-text-600);
+  }
+
+  .counts {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--kb-space-2);
+  }
+
+  // The 4px progress bar, sky-300 on the skeleton's tint.
+  .bar {
+    display: block;
+    height: 4px;
+    overflow: hidden;
+    border-radius: var(--kb-radius-pill);
+    background: color-mix(in srgb, var(--kb-navy-900) 8%, var(--kb-surface-0));
+
+    span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--kb-sky-300);
+    }
+  }
+}
+
+@media (max-width: 959px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasks,
+  .notifications {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row,
+  .cards .project {
+    transition: none;
+  }
+}

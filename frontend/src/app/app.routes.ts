@@ -41,7 +41,15 @@ export const routes: Routes = [
     component: Shell,
     canActivate: [authGuard],
     children: [
-      placeholder('', $localize`Panou principal`),
+      {
+        path: '',
+        pathMatch: 'full',
+        title: $localize`Panou principal · Kanabol`,
+        loadChildren: () =>
+          import('./features/dashboard/dashboard.routes').then(
+            (dashboard) => dashboard.DASHBOARD_ROUTES,
+          ),
+      },
       {
         path: 'projects',
         title: $localize`Proiecte · Kanabol`,

@@ -15,6 +15,9 @@
 #      on the same projects: only those the caller is a member of with mine=true, also for projects.view_all,
 #      archived ones only with includeArchived, the finished tasks counted without the archived one, mine
 #      not a boolean answering 400 on it. Docker, PostgreSQL.
+#   3  the main panel and "Task-urile mele": specs, lint, formatting, the production build without warnings
+#      but the budget's, the texts of docs/UI_UX_SPEC.md §7.2, no other feature imported, and none of the
+#      panel in the initial bundle, which index.html loads. Only the packages that scripts/setup.sh installs.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -588,8 +591,204 @@ task_2() {
   check "backend/CLAUDE.md says what mine and completedTaskCount do" in_file '`mine=true`' backend/CLAUDE.md
 }
 
+# ---- 17a.3: the main panel and "Task-urile mele".
+
+web=frontend
+app=$web/src/app
+dashboard_web=$app/features/dashboard
+
+plain() { # plain <file>: without the terminal's colors
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*{},' '______').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is there, so a filter can't run nothing
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "$name" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$(native "$scratch/dist")") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+# The build's own warnings: a // comment in a component's inline CSS breaks the rule after it.
+the_build_warns_only_of_the_budget() {
+  built || return 1
+  warnings=$(plain "$scratch/build.log" | grep -F 'WARNING' | grep -vF 'exceeded maximum budget')
+  [ -z "$warnings" ] || {
+    echo "$warnings"
+    return 1
+  }
+}
+
+the_panel_specs_name_the_rules() {
+  spec_names "$dashboard_web/dashboard-page.spec.ts" \
+    'is titled "Panou principal", without a breadcrumb' \
+    "reads the summary from Monday at midnight in the person's time" \
+    'shows the four tiles with their numbers and fixed captions' \
+    'leads the tiles to /my-tasks, /my-tasks?overdue=1 and /projects, and "Finalizate" nowhere' \
+    'lists the first 8 open tasks by deadline, with key, title, project, deadline and priority' \
+    "opens a task's panel over the main panel from its row" \
+    'says "Niciun task deschis." without open tasks' \
+    'shows the last 5 notifications with their lines' \
+    'marks a notification read, tells the bell and opens its task' \
+    'says "Nicio notificare." without notifications' \
+    'shows my projects as cards: name and key, owners, "3 din 12 gata" and the open tasks' \
+    'says "Nu ești în niciun proiect încă." without projects' \
+    'leads "Vezi toate" to /my-tasks, /notifications and /projects' \
+    'shows a skeleton in each section while it reads' \
+    'says each section could not be read, and tries that one again' \
+    'reads the tiles and the tasks again after a save from the task panel, and nothing else' \
+    'keeps the tasks it shows while it reads them again' &&
+    spec_names "$dashboard_web/dashboard-api.spec.ts" \
+      'reads the summary from the week start it is given' \
+      'reads the first open tasks, as many as asked for' &&
+    spec_names "$dashboard_web/week-start.spec.ts" \
+      'goes back to Monday at midnight, where the person is' \
+      'takes a Sunday back six days' &&
+    spec_names "$app/shared/ui/stat-tile.spec.ts" \
+      'is a link with its query when it leads somewhere, and a plain card when not' \
+      'shows a skeleton in place of the number until it comes'
+}
+
+# docs/UI_UX_SPEC.md §7.2, word for word where it gives the words.
+the_panel_texts_follow_the_ui_spec() {
+  for words in 'label="Task-urile mele deschise"' 'label="Întârziate"' 'label="Finalizate săptămâna asta"' 'label="Proiecte active"' \
+    'caption="asignate mie"' 'caption="după deadline"' 'caption="de luni încoace"' 'caption="în care sunt membru"' \
+    '>Task-urile mele<' '>Notificări recente<' '>Proiectele mele<' 'routerLink="/my-tasks"' 'routerLink="/notifications"' 'routerLink="/projects"' \
+    'din {{ total(project) }} gata' 'Reîncearcă'; do
+    in_file "$words" "$dashboard_web/dashboard-page.html" || {
+      echo "no '$words' in dashboard-page.html"
+      return 1
+    }
+  done
+  for words in 'Panou principal' 'Niciun task deschis.' 'Nicio notificare.' 'Nu ești în niciun proiect încă.' \
+    'Nu am putut încărca sumarul.' 'Nu am putut încărca task-urile.' 'Nu am putut încărca notificările.' 'Nu am putut încărca proiectele.'; do
+    in_file "$words" "$dashboard_web/dashboard-page.ts" || {
+      echo "no '$words' in dashboard-page.ts"
+      return 1
+    }
+  done
+  in_file 'export const DASHBOARD_TASKS = 8;' "$dashboard_web/dashboard-store.ts" &&
+    in_file 'export const DASHBOARD_NOTIFICATIONS = 5;' "$dashboard_web/dashboard-store.ts" &&
+    in_file "set('open', true).set('pageSize', count)" "$dashboard_web/dashboard-api.ts" &&
+    in_file "set('mine', true)" "$dashboard_web/dashboard-api.ts" &&
+    in_file 'width: 280px;' "$dashboard_web/dashboard-page.scss" &&
+    in_file 'height: 4px;' "$dashboard_web/dashboard-page.scss" &&
+    in_file 'background: var(--kb-sky-300);' "$dashboard_web/dashboard-page.scss" &&
+    in_file 'grid-template-columns: repeat(12, minmax(0, 1fr));' "$dashboard_web/dashboard-page.scss" &&
+    in_file 'font-size: 28px;' "$app/shared/ui/stat-tile.ts" &&
+    in_file 'color: var(--kb-navy-900);' "$app/shared/ui/stat-tile.ts" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+      "$dashboard_web"/*.ts "$dashboard_web"/*.scss "$app/shared/ui/stat-tile.ts"
+}
+
+# docs/SPEC.md §6.1: a feature imports no other feature; what they share is in shared/ or core/.
+the_panel_imports_no_other_feature() {
+  lacks "from '\.\./(auth|users|roles|projects|board|tasks|notifications|reports)/" "$dashboard_web"/*.ts
+}
+
+the_panel_is_the_home_route() {
+  in_file "import('./features/dashboard/dashboard.routes')" "$app/app.routes.ts" &&
+    lacks "placeholder\(''" "$app/app.routes.ts"
+}
+
+# The initial bundle is what index.html loads: its scripts and the chunks it preloads.
+initial_files() {
+  grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/dist/browser/index.html" |
+    sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# The panel's own pieces, which the minifier keeps: its selectors and its texts.
+panel_markers='kb-dashboard-page|kb-stat-tile|Nu ești în niciun proiect încă|Nu am putut încărca sumarul'
+
+# Tasks.md group 17a: the initial bundle doesn't take the panel. The route adds a few bytes to main, and
+# the bundler may split the shared chunks another way; none of the panel's code may land there.
+the_panel_stays_out_of_the_initial_bundle() {
+  built || return 1
+  initial=$(initial_files)
+  [ -n "$initial" ] || {
+    echo "index.html loads nothing"
+    return 1
+  }
+  for file in $initial; do
+    if grep -qE "$panel_markers" "$scratch/dist/browser/$file"; then
+      echo "$file, in the initial bundle, holds the panel: $(grep -oE "$panel_markers" "$scratch/dist/browser/$file" | sort -u | tr '\n' ' ')"
+      return 1
+    fi
+  done
+  holder=$(grep -lE 'kb-dashboard-page' "$scratch"/dist/browser/*.js | sed 's|.*/||')
+  [ "$(printf '%s\n' $holder | wc -l)" -eq 1 ] || {
+    echo "the panel is in: ${holder:-no file}"
+    return 1
+  }
+  printf '%s\n' $initial | grep -qxF "$holder" && {
+    echo "$holder is initial"
+    return 1
+  }
+  initial_total=$(plain "$scratch/build.log" | sed -n 's/.*Initial total *| *\([0-9.]* kB\).*/\1/p')
+  echo "initial total $initial_total, the panel in $holder" >&2
+}
+
+task_3() {
+  echo "17a.3 The main panel and \"Task-urile mele\""
+  for file in models.ts dashboard-api.ts dashboard-store.ts dashboard-page.ts dashboard-page.html dashboard-page.scss \
+    dashboard.routes.ts week-start.ts dashboard-testing.ts dashboard-api.spec.ts dashboard-page.spec.ts week-start.spec.ts; do
+    check "features/dashboard/$file is tracked" tracked "$dashboard_web/$file"
+  done
+  check "shared/ui/stat-tile.ts and its spec are tracked" tracked "$app/shared/ui/stat-tile.ts"
+  check "the specs name the rules: tiles, links, sections, empty texts, errors, the reread" the_panel_specs_name_the_rules
+  check "the panel's specs pass" specs_pass 'src/app/features/dashboard/*.spec.ts' 25
+  check "kb-stat-tile's specs pass" specs_pass 'src/app/shared/ui/stat-tile.spec.ts' 3
+  check "the texts, sizes and colors follow docs/UI_UX_SPEC.md §7.2, nothing unsafe" the_panel_texts_follow_the_ui_spec
+  check "the panel imports no other feature" the_panel_imports_no_other_feature
+  check "/ is the panel, not a placeholder" the_panel_is_the_home_route
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "the build warns only of the budget" the_build_warns_only_of_the_budget
+  check "none of the panel is in the initial bundle, it has a chunk of its own" the_panel_stays_out_of_the_initial_bundle
+  [ -f "$scratch/build.log" ] && printf '        %s
+' "$(plain "$scratch/build.log" | grep -F 'Initial total' | tr -s ' ')"
+  check "frontend/CLAUDE.md says how the panel works" in_file '`DashboardStore`' frontend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 for task in "$@"; do
   "task_$task"

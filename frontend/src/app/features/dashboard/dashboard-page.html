@@ -1,0 +1,271 @@
+<kb-page-header [title]="heading" />
+
+<div class="content">
+  <section class="tiles" i18n-aria-label aria-label="Sumar">
+    @if (store.summary.state() === 'error') {
+      <kb-empty-state class="failed" icon="error" [title]="summaryFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.summary.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else {
+      <kb-stat-tile
+        i18n-label
+        label="Task-urile mele deschise"
+        [value]="summary()?.openTasks ?? null"
+        i18n-caption
+        caption="asignate mie"
+        link="/my-tasks"
+      />
+      <kb-stat-tile
+        i18n-label
+        label="Întârziate"
+        [value]="summary()?.overdueTasks ?? null"
+        i18n-caption
+        caption="după deadline"
+        link="/my-tasks"
+        [queryParams]="overdueQuery"
+      />
+      <kb-stat-tile
+        i18n-label
+        label="Finalizate săptămâna asta"
+        [value]="summary()?.completedThisWeek ?? null"
+        i18n-caption
+        caption="de luni încoace"
+      />
+      <kb-stat-tile
+        i18n-label
+        label="Proiecte active"
+        [value]="summary()?.activeProjects ?? null"
+        i18n-caption
+        caption="în care sunt membru"
+        link="/projects"
+      />
+    }
+  </section>
+
+  <section class="card tasks" aria-labelledby="dashboard-tasks">
+    <header>
+      <h2 id="dashboard-tasks" class="kb-title" i18n>Task-urile mele</h2>
+      <a class="all" routerLink="/my-tasks" i18n>Vezi toate</a>
+    </header>
+    @if (store.tasks.state() === 'error') {
+      <kb-empty-state icon="error" [title]="tasksFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.tasks.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else if (store.tasks.value(); as tasks) {
+      @if (tasks.length === 0) {
+        <kb-empty-state icon="task_alt" [title]="noTasks">
+          <p i18n>Task-urile deschise pe care ești asignat apar aici.</p>
+        </kb-empty-state>
+      } @else {
+        <div class="table" [attr.aria-busy]="store.tasks.state() === 'loading'">
+          <table
+            mat-table
+            class="kb-table"
+            [dataSource]="tasks"
+            i18n-aria-label
+            aria-label="Task-urile mele deschise"
+          >
+            <ng-container matColumnDef="key">
+              <th mat-header-cell *matHeaderCellDef class="key" i18n>Cheie</th>
+              <td mat-cell *matCellDef="let task" class="key">{{ task.key }}</td>
+            </ng-container>
+            <ng-container matColumnDef="title">
+              <th mat-header-cell *matHeaderCellDef i18n>Titlu</th>
+              <td mat-cell *matCellDef="let task" class="title">
+                <button
+                  type="button"
+                  class="open-task"
+                  (click)="$event.stopPropagation(); openTask(task)"
+                >
+                  <span class="kb-truncate">{{ task.title }}</span>
+                </button>
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="project">
+              <th mat-header-cell *matHeaderCellDef i18n>Proiect</th>
+              <td mat-cell *matCellDef="let task" class="project">
+                <span class="kb-truncate">{{ task.projectName }}</span>
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="dueDate">
+              <th mat-header-cell *matHeaderCellDef i18n>Deadline</th>
+              <td mat-cell *matCellDef="let task" class="due">
+                @if (task.dueDate) {
+                  <kb-deadline-chip [dueDate]="task.dueDate" [done]="done(task)" />
+                }
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="priority">
+              <th mat-header-cell *matHeaderCellDef i18n>Prioritate</th>
+              <td mat-cell *matCellDef="let task" class="priority">
+                <kb-chip [kind]="priorityKind(task)">{{ priorityLabel(task) }}</kb-chip>
+              </td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="columns"></tr>
+            <tr
+              mat-row
+              *matRowDef="let task; columns: columns"
+              class="kb-table-row"
+              (click)="openTask(task)"
+            ></tr>
+          </table>
+        </div>
+      }
+    } @else {
+      <div class="placeholder" aria-busy="true">
+        @for (row of [1, 2, 3, 4]; track row) {
+          <div class="placeholder-row">
+            <kb-skeleton width="56px" />
+            <kb-skeleton width="40%" />
+            <kb-skeleton width="15%" />
+            <kb-skeleton width="72px" />
+          </div>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="card notifications" aria-labelledby="dashboard-notifications">
+    <header>
+      <h2 id="dashboard-notifications" class="kb-title" i18n>Notificări recente</h2>
+      <a class="all" routerLink="/notifications" i18n>Vezi toate</a>
+    </header>
+    @if (store.notifications.state() === 'error') {
+      <kb-empty-state icon="error" [title]="notificationsFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.notifications.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else if (store.notifications.value(); as notifications) {
+      @if (notifications.length === 0) {
+        <kb-empty-state icon="notifications" [title]="noNotifications">
+          <p i18n>Aici apar deadline-urile depășite, asignările și comentariile noi.</p>
+        </kb-empty-state>
+      } @else {
+        <ul
+          class="list"
+          i18n-aria-label
+          aria-label="Notificările tale recente"
+          [attr.aria-busy]="store.notifications.state() === 'loading'"
+        >
+          @for (notification of notifications; track notification.id) {
+            <li>
+              <button
+                type="button"
+                class="row"
+                [class.unread]="notification.readAt === null"
+                (click)="openNotification(notification)"
+              >
+                <kb-notification-line [notification]="notification" />
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    } @else {
+      <div class="placeholder" aria-busy="true">
+        @for (row of [1, 2, 3]; track row) {
+          <div class="placeholder-row">
+            <kb-skeleton width="20px" />
+            <kb-skeleton width="70%" />
+          </div>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="projects" aria-labelledby="dashboard-projects">
+    <header>
+      <h2 id="dashboard-projects" class="kb-title" i18n>Proiectele mele</h2>
+      <a class="all" routerLink="/projects" i18n>Vezi toate</a>
+    </header>
+    @if (store.projects.state() === 'error') {
+      <kb-empty-state icon="error" [title]="projectsFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.projects.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else if (store.projects.value(); as projects) {
+      @if (projects.length === 0) {
+        <kb-empty-state icon="folder" [title]="noProjects">
+          <p i18n>Proiectele în care ești membru apar aici.</p>
+        </kb-empty-state>
+      } @else {
+        <ul class="cards" [attr.aria-busy]="store.projects.state() === 'loading'">
+          @for (project of projects; track project.id) {
+            <li>
+              <a class="project" [routerLink]="['/projects', project.id, 'board']">
+                <span class="heading">
+                  <span class="name kb-truncate">{{ project.name }}</span>
+                  <span class="key">{{ project.key }}</span>
+                </span>
+                <span class="owners kb-truncate">{{ owners(project) }}</span>
+                <span class="bar" aria-hidden="true"
+                  ><span [style.width.%]="progress(project)"></span
+                ></span>
+                <span class="counts">
+                  <span class="done" i18n
+                    >{{ project.completedTaskCount }} din {{ total(project) }} gata</span
+                  >
+                  <span class="open" i18n>{project.openTaskCount, plural,
+                    =0 {niciun task deschis}
+                    =1 {1 task deschis}
+                    few {{{ project.openTaskCount }} task-uri deschise}
+                    other {{{ project.openTaskCount }} de task-uri deschise}
+                  }</span>
+                </span>
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    } @else {
+      <ul class="cards" aria-busy="true">
+        @for (card of [1, 2, 3]; track card) {
+          <li class="project placeholder-card">
+            <kb-skeleton width="60%" height="18px" />
+            <kb-skeleton width="40%" />
+            <kb-skeleton height="4px" />
+            <kb-skeleton width="50%" />
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</div>
