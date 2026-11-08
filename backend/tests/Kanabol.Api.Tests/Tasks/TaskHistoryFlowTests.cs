@@ -98,7 +98,7 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         Text(scheduled, "oldValue").Should().BeNull();
         DateTimeOffset.Parse(Text(scheduled, "newValue")!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(due);
         (Text(prioritized, "oldValue"), Text(prioritized, "newValue")).Should().Be(("Medium", "High"));
-        (Text(described, "oldValue"), Text(described, "newValue")).Should().Be((null, "Cu **Azure AD**"));
+        (Text(described, "oldValue"), Text(described, "newValue")).Should().Be((null, null));
         (Text(renamed, "oldValue"), Text(renamed, "newValue")).Should().Be(("Login SSO", "Login cu SSO"));
         renamed.GetProperty("changedBy").GetProperty("userId").GetGuid().Should().Be(member.Id);
         entries.Skip(2).Take(4).Should().OnlyContain(entry => entry.GetProperty("changedBy").GetProperty("userId").GetGuid() == owner.Id);

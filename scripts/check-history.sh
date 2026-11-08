@@ -871,7 +871,7 @@ every_change_on_the_real_api_writes_its_entry() {
   status_is 200 "$(history_as "$admin_token" "$task")" || return 1
   is 'ArchivedAt|ArchivedAt|ColumnId|Assignees|DueDate|Priority|Description|Title' "$(json "b.items.map(e => e.field).join('|')")" || return 1
   is "8|8" "$(json "b.totalCount")|$(entries_in_db "$task")" || return 1
-  is "$first_column>$second_column|>$dan_id|>2027-01-10T21:59:59.9990000+00:00|Medium>Critical|>Cu **Azure AD**|Fiecare schimbare>Fiecare schimbare, redenumit" \
+  is "$first_column>$second_column|>$dan_id|>2027-01-10T21:59:59.9990000+00:00|Medium>Critical|>|Fiecare schimbare>Fiecare schimbare, redenumit" \
     "$(json "b.items.slice(2).map(e => (e.oldValue ?? '') + '>' + (e.newValue ?? '')).join('|')")" || return 1
   is "true:true" "$(json "[b.items[0].oldValue === b.items[1].newValue, b.items[0].newValue === null && b.items[1].oldValue === null].join(':')")" || return 1
   is "Dan Ionescu:Dan Ionescu" "$(json "[b.items[7].changedBy.displayName, b.items[3].names['$dan_id']].join(':')")"

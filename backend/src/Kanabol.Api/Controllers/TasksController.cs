@@ -17,6 +17,7 @@ using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskById;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskByKey;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskHistory;
+using Kanabol.Application.Features.Tasks.Queries.GetTaskHistoryEntry;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -111,6 +112,18 @@ public sealed class TasksController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = Paging.DefaultPageSize) =>
         (await handler.Handle(new GetTaskHistoryQuery(id) { Page = page, PageSize = pageSize }, ct)).ToActionResult();
+
+    /// <summary>
+    /// One entry of the task's history, with a description's texts, which the list leaves out: the panel
+    /// asks for it when someone opens the diff. Another task's entry is a 404 History.NotFound (SPEC section 4.4).
+    /// </summary>
+    [HttpGet("{id:guid}/history/{entryId:guid}")]
+    public async Task<IActionResult> GetTaskHistoryEntry(
+        Guid id,
+        Guid entryId,
+        [FromServices] IQueryHandler<GetTaskHistoryEntryQuery, TaskHistoryEntryDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new GetTaskHistoryEntryQuery(id, entryId), ct)).ToActionResult();
 
     [HttpPut("{id:guid}/title")]
     public async Task<IActionResult> RenameTask(

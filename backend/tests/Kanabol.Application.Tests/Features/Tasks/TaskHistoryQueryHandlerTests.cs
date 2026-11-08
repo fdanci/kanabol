@@ -5,11 +5,13 @@ using Kanabol.Application.Features.Projects.Commands.RemoveProjectMember;
 using Kanabol.Application.Features.Tasks;
 using Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
 using Kanabol.Application.Features.Tasks.Commands.AssignTask;
+using Kanabol.Application.Features.Tasks.Commands.ChangeTaskDescription;
 using Kanabol.Application.Features.Tasks.Commands.MoveTask;
 using Kanabol.Application.Features.Tasks.Commands.RenameTask;
 using Kanabol.Application.Features.Tasks.Commands.RestoreTask;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskPriority;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskHistory;
+using Kanabol.Application.Features.Tasks.Queries.GetTaskHistoryEntry;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
@@ -22,7 +24,8 @@ namespace Kanabol.Application.Tests.Features.Tasks;
 /// A task's history (Tasks.md group 16; SPEC section 4.4, "Istoricul unui task"): a Page from the newest,
 /// 50 by default, for whoever sees the project, an archived task only for tasks.archive. Each entry names
 /// who made it, deactivated or not, and the ids in its values: the assignees, even those who left the
-/// project, and the columns, without a name for one deleted since.
+/// project, and the columns, without a name for one deleted since. A description's texts stay out of the
+/// list, and one entry comes whole, with them, under the same rules (group 16b, "Textele descrierii").
 /// </summary>
 public sealed class TaskHistoryQueryHandlerTests(PostgresFixture postgres) : TaskHandlerTest(postgres)
 {
@@ -31,6 +34,17 @@ public sealed class TaskHistoryQueryHandlerTests(PostgresFixture postgres) : Tas
 
     private Task<Result<Page<TaskHistoryEntryDto>>> HistoryOf(Guid taskId, int page = 1, int pageSize = Paging.DefaultPageSize) =>
         Ask<GetTaskHistoryQuery, Page<TaskHistoryEntryDto>>(new GetTaskHistoryQuery(taskId) { Page = page, PageSize = pageSize });
+
+    private Task<Result<TaskHistoryEntryDto>> EntryOf(Guid taskId, Guid entryId) =>
+        Ask<GetTaskHistoryEntryQuery, TaskHistoryEntryDto>(new GetTaskHistoryEntryQuery(taskId, entryId));
+
+    private async Task<TaskHistoryEntryDto> DescribedAs(User user, Guid taskId, string description)
+    {
+        SignIn(user);
+        NextMinute();
+        await Changed(Handle<ChangeTaskDescriptionCommand, TaskItemDto>(new ChangeTaskDescriptionCommand(taskId, description)));
+        return (await HistoryOf(taskId)).Value.Items[0];
+    }
 
     private DateTimeOffset NextMinute()
     {
@@ -305,6 +319,183 @@ public sealed class TaskHistoryQueryHandlerTests(PostgresFixture postgres) : Tas
         restored.Select(entry => (entry.Field, entry.NewValue)).Should().Equal(
             (TaskHistoryFields.ArchivedAt, null),
             (TaskHistoryFields.ArchivedAt, archivedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public async Task Get_AChangeOfTheDescription_ComesWithoutItsTexts_AndTheOtherFieldsWithTheirs()
+    {
+        var (owner, _, _, task) = await ATaskOfTwo();
+        await DescribedAs(owner, task.Id, "Cu **Azure AD**");
+        await DescribedAs(owner, task.Id, "Cu **Entra ID**");
+        NextMinute();
+        await Changed(Handle<RenameTaskCommand, TaskItemDto>(new RenameTaskCommand(task.Id, "Login cu SSO")));
+
+        var entries = (await HistoryOf(task.Id)).Value.Items;
+
+        entries.Select(entry => (entry.Field, entry.OldValue, entry.NewValue)).Should().Equal(
+            (TaskHistoryFields.Title, "Login SSO", "Login cu SSO"),
+            (TaskHistoryFields.Description, null, null),
+            (TaskHistoryFields.Description, null, null));
+        entries[1].ChangedBy.Should().Be(new TaskPersonDto(owner.Id, "Ana Ionescu"));
+        entries[1].Names.Should().BeEmpty();
+        (await Stored(task.Id))!.History.Where(entry => entry.Field == TaskHistoryFields.Description)
+            .Select(entry => (entry.OldValue, entry.NewValue))
+            .Should().BeEquivalentTo([((string?)null, (string?)"Cu **Azure AD**"), ("Cu **Azure AD**", "Cu **Entra ID**")]);
+    }
+
+    [Fact]
+    public async Task GetEntry_AChangeOfTheDescription_GivesItWhole_WithBothTexts()
+    {
+        var (owner, member, _, task) = await ATaskOfTwo();
+        await DescribedAs(owner, task.Id, "Cu **Azure AD**\n\n- un rând");
+        var listed = await DescribedAs(owner, task.Id, "Cu **Entra ID**\n\n- un rând\n- încă unul");
+        SignIn(member);
+
+        var result = await EntryOf(task.Id, listed.Id);
+
+        result.Value.Should().BeEquivalentTo(new TaskHistoryEntryDto(
+            listed.Id,
+            TaskHistoryFields.Description,
+            "Cu **Azure AD**\n\n- un rând",
+            "Cu **Entra ID**\n\n- un rând\n- încă unul",
+            _moment,
+            new TaskPersonDto(owner.Id, "Ana Ionescu"),
+            new Dictionary<Guid, string?>()));
+    }
+
+    [Fact]
+    public async Task GetEntry_TheFirstDescription_HasNoOldText()
+    {
+        var (owner, _, _, task) = await ATaskOfTwo();
+        var listed = await DescribedAs(owner, task.Id, "Prima descriere");
+
+        var entry = (await EntryOf(task.Id, listed.Id)).Value;
+
+        (entry.OldValue, entry.NewValue).Should().Be(((string?)null, "Prima descriere"));
+    }
+
+    [Fact]
+    public async Task GetEntry_ADescriptionTakenAway_HasNoNewText()
+    {
+        var (owner, _, _, task) = await ATaskOfTwo();
+        await DescribedAs(owner, task.Id, "De șters");
+        NextMinute();
+        await Changed(Handle<ChangeTaskDescriptionCommand, TaskItemDto>(new ChangeTaskDescriptionCommand(task.Id, null)));
+        var listed = (await HistoryOf(task.Id)).Value.Items[0];
+
+        var entry = (await EntryOf(task.Id, listed.Id)).Value;
+
+        (entry.OldValue, entry.NewValue).Should().Be(("De șters", (string?)null));
+    }
+
+    [Fact]
+    public async Task GetEntry_OfAnotherField_GivesItAsTheListDoes_WithTheNames()
+    {
+        var (owner, member, _, task) = await ATaskOfTwo();
+        SignIn(owner);
+        NextMinute();
+        await Changed(Handle<AssignTaskCommand, TaskItemDto>(new AssignTaskCommand(task.Id, [member.Id])));
+        var listed = (await HistoryOf(task.Id)).Value.Items.Single();
+
+        var entry = (await EntryOf(task.Id, listed.Id)).Value;
+
+        entry.Should().BeEquivalentTo(listed);
+        entry.Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [member.Id] = "Dan Pop" });
+    }
+
+    [Fact]
+    public async Task GetEntry_OfAMove_NamesNoneForAColumnDeletedSince()
+    {
+        var (owner, _, project, task) = await ATaskOfTwo();
+        var first = ColumnAt(project, 0);
+        var second = ColumnAt(project, 1);
+        SignIn(owner);
+        NextMinute();
+        await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, second.Id, null)));
+        await Changed(Handle<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, first.Id)));
+        var listed = (await HistoryOf(task.Id)).Value.Items.Single();
+
+        var entry = (await EntryOf(task.Id, listed.Id)).Value;
+
+        entry.Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [first.Id] = null, [second.Id] = second.Name });
+    }
+
+    [Fact]
+    public async Task GetEntry_OfAnotherTask_ReturnsHistoryNotFound()
+    {
+        var (owner, _, project, task) = await ATaskOfTwo();
+        var other = await CreateTaskAs(owner, project, "Alt task");
+        var othersEntry = await DescribedAs(owner, other.Id, "Descrierea altui task");
+
+        (await EntryOf(task.Id, othersEntry.Id)).Error.Should().Be(HistoryErrors.NotFound);
+        (await EntryOf(other.Id, othersEntry.Id)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetEntry_ThatDoesntExist_ReturnsHistoryNotFound()
+    {
+        var (_, _, _, task) = await ATaskOfTwo();
+
+        (await EntryOf(task.Id, Guid.CreateVersion7())).Error.Should().Be(HistoryErrors.NotFound);
+    }
+
+    [Fact]
+    public async Task GetEntry_OfATaskThatDoesntExist_ReturnsTaskNotFound()
+    {
+        var (owner, _, _, task) = await ATaskOfTwo();
+        var listed = await DescribedAs(owner, task.Id, "Cu **Azure AD**");
+
+        (await EntryOf(Guid.CreateVersion7(), listed.Id)).Error.Should().Be(TaskErrors.NotFound);
+    }
+
+    [Fact]
+    public async Task GetEntry_ByAnOutsider_ReturnsMemberRequired()
+    {
+        var (owner, _, _, task) = await ATaskOfTwo();
+        var listed = await DescribedAs(owner, task.Id, "Cu **Azure AD**");
+        SignIn(await CreateUser("eva@example.com"));
+
+        (await EntryOf(task.Id, listed.Id)).Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Fact]
+    public async Task GetEntry_ByADeactivatedMember_ReturnsMemberRequired()
+    {
+        var (owner, member, _, task) = await ATaskOfTwo();
+        var listed = await DescribedAs(owner, task.Id, "Cu **Azure AD**");
+        await Deactivate(member);
+        SignIn(member);
+
+        (await EntryOf(task.Id, listed.Id)).Error.Should().Be(ProjectErrors.MemberRequired);
+    }
+
+    [Theory]
+    [InlineData(Permissions.ProjectsViewAll)]
+    [InlineData(Permissions.ProjectsManage)]
+    public async Task GetEntry_ByOneWhoSeesTheProjectThroughAPermission_GivesIt(string permission)
+    {
+        var (owner, _, _, task) = await ATaskOfTwo();
+        var listed = await DescribedAs(owner, task.Id, "Cu **Azure AD**");
+        await SignInWith(permission);
+
+        (await EntryOf(task.Id, listed.Id)).Value.NewValue.Should().Be("Cu **Azure AD**");
+    }
+
+    [Fact]
+    public async Task GetEntry_OfAnArchivedTask_IsTaskNotFound_ButForTasksArchive()
+    {
+        var (owner, member, _, task) = await ATaskOfTwo();
+        var listed = await DescribedAs(owner, task.Id, "Cu **Azure AD**");
+        NextMinute();
+        await Changed(Handle<ArchiveTaskCommand, Unit>(new ArchiveTaskCommand(task.Id)));
+        SignIn(member);
+
+        var refused = await EntryOf(task.Id, listed.Id);
+        HoldsInToken(Permissions.TasksArchive);
+        var given = await EntryOf(task.Id, listed.Id);
+
+        refused.Error.Should().Be(TaskErrors.NotFound);
+        given.Value.NewValue.Should().Be("Cu **Azure AD**");
     }
 
     private async Task AddEntries(params TaskHistoryEntry[] entries)
