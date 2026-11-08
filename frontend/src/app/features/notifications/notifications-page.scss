@@ -1,0 +1,79 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-2);
+  margin-bottom: var(--kb-space-3);
+}
+
+.type {
+  width: 160px;
+}
+
+// The bell's rows in a flat card (6.0.10), zebra as the tables (6.0.9), unread ones on tint-100.
+.list {
+  overflow: clip;
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li:nth-child(even) .row:not(.unread) {
+  background: color-mix(in srgb, var(--kb-navy-900) 3%, var(--kb-surface-0));
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px var(--kb-space-4);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--kb-dur-fast) var(--kb-ease);
+
+  &:hover {
+    background: color-mix(in srgb, var(--kb-navy-900) 5%, var(--kb-surface-0));
+  }
+
+  &.unread {
+    background: var(--kb-tint-100);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset var(--kb-focus-ring);
+  }
+}
+
+.placeholder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-3);
+  height: 48px;
+  padding: 0 var(--kb-space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}

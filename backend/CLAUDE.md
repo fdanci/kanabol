@@ -22,6 +22,7 @@ Run from `backend/`:
 - Run the real-time checks, from the repo root: `scripts/check-realtime.sh [task-number...]`, under the same conditions. They reach the hub over a real WebSocket, with a small SignalR client in Node.
 - Run the checks of comments and attachments, from the repo root: `scripts/check-comments.sh [task-number...]`, under the same conditions.
 - Run the checks of a task's history, from the repo root: `scripts/check-history.sh [task-number...]`, under the same conditions; 2 and 3 are the frontend's, and need only the packages, and 6, a description's texts and their diff, needs both.
+- Run the checks of the deadline alerts, from the repo root: `scripts/check-alerts.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -54,7 +55,7 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 - Shared values are in `appsettings.json`, and values for one environment in `appsettings.Development.json` and `appsettings.Production.json`.
 - Development secrets go in user secrets, never in a file.
 - Local overrides that aren't secret go in `src/Kanabol.Api/appsettings.Development.local.json`, which git ignores. It's only read in Development, and it wins over everything else.
-- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, or if a new database has no `Admin:InitialPassword` (at least 10 characters).
+- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day.
 
 In Docker and production, settings come from environment variables:
 
@@ -67,6 +68,8 @@ In Docker and production, settings come from environment variables:
 | `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                                                                |
 | `Storage__AllowedExtensions`           | The extensions a file may have, one value separated by commas, `pdf,png`, which replaces the whole default list in `appsettings.json` |
 | `Database__MigrateOnStartup`           | `true` by default                                                                                                                     |
+| `Alerts__OverdueCheckInterval`         | How often the API looks for overdue tasks, `00:15:00` by default, at least `00:01:00` and at most a day                               |
+| `Alerts__OverdueCheckEnabled`          | `true` by default; `false` stops the overdue check, as the API's tests do                                                             |
 | `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                           |
 
 ## Access rules
@@ -160,6 +163,21 @@ In Docker and production, settings come from environment variables:
 - Overdue means open past the deadline, outside a done column, as in the project list. The search finds a part of the title in any case, and `%` or `_` are only characters there.
 - Priorities go over the wire as text, `"Low"`, `"Medium"`, `"High"` or `"Critical"`.
 - `TaskAssignedEvent` carries the ids added and removed, and gives each assignee newly added a `TaskAssigned` notification, the same message for each, saved at once: not those already on the task, nor whoever made the change, also when a task is created for people (`TaskAssignedEventHandler`). Domain event handlers run after the commit, in the same scope, so one that saves calls `SaveChangesAsync` again; a handler that throws is logged and skipped. Every `Notification` raises `NotificationCreatedEvent`, which SignalR sends to its user, and its message is English, cut at 500 characters.
+
+## Notifications
+
+| Endpoint                                                                 | Does                                                                                                                                                                                                                                                                     | Needs     |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| `GET /api/notifications?page=1&pageSize=20&unread=true&type=TaskOverdue` | A `Page` of the caller's own, from the newest, 20 by default and 100 at most, only the unread with `unread=true`, only the types given with `type`, repeated; each with `id`, `type`, `message`, `createdAt`, `readAt` and `task` (`id`, `key`, `title` of now, or null) | signed in |
+| `GET /api/notifications/unread-count`                                    | `{ count }` of the caller's unread                                                                                                                                                                                                                                       | signed in |
+| `POST /api/notifications/{id}/read`                                      | The notification, read; a second time keeps the first `readAt`. Another's, or none, is 404 `Notification.NotFound`                                                                                                                                                       | signed in |
+| `POST /api/notifications/read-all`                                       | Reads every unread one of the caller's in one `UPDATE`, and answers `{ count }`, how many it marked                                                                                                                                                                      | signed in |
+
+- No permission, and nobody reaches another's: each handler reads the caller's own. A notification stays in the list when its user can no longer open its task, which then answers 403 or 404 as it would anyway; its task comes archived or not, in a project archived or not (`NotificationQueries.AsDtos`). Notifications of one moment come by their id, from the last, so none is on two pages.
+- A `type` the API doesn't know, a `page` or `pageSize` out of 1 to 100, or an `unread` that isn't `true` or `false` answer 400 on that field. Reading isn't a change of the task: no history, no `updated_at`.
+- A `Notification` is in-app only: its user, its type (`TaskOverdue`, `TaskAssigned` or `CommentAdded`), its task, an English message cut at 500 characters, and when it was read. Every one raises `NotificationCreatedEvent`, which SignalR sends to its user's group (below).
+- `OverdueTasksWorker` (Infrastructure, a `BackgroundService` with a `PeriodicTimer`) looks for overdue tasks at start, after `DatabaseInitializer` has migrated the database, then every `Alerts:OverdueCheckInterval`. Each run sends `NotifyOverdueTasksCommand` (Application) in a scope of its own, without a user; a run that throws or fails is logged as an error, and the next one still comes. `Alerts:OverdueCheckEnabled` false stops it, which `ApiFactory` does: the API's tests run the command themselves.
+- The command takes every task past its deadline (`due_date < now`), not completed, not archived, in a project that isn't archived, and tells its assignees and the project's owners who are active members, each once: a `TaskOverdue` notification, "KAN-1: Login SSO is overdue", all in one save. Nobody is told twice of the same task, ever: a pair of task and person that already has its `TaskOverdue` gets nothing, so someone assigned later to a task already overdue is told at the next run, and a deadline moved away that passes again tells nobody. A first run after a deploy tells everyone of the tasks already overdue, once. It logs how many notifications it made, for how many tasks.
 
 ## Comments
 

@@ -26,7 +26,7 @@ export interface CommentAddedMessage extends TaskMessage {
   commentId: string;
 }
 
-/** On the user's own group, for the bell (group 17a). */
+/** On the user's own group, for the bell (group 17). */
 export interface NotificationCreatedMessage {
   notificationId: string;
 }

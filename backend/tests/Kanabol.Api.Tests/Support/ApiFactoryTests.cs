@@ -42,6 +42,19 @@ public sealed class ApiFactoryTests(ApiFixture api) : ApiTest(api)
             .Should().Equal("pdf", "png", "jpg", "jpeg", "gif", "txt", "md", "csv", "xlsx", "docx", "zip");
     }
 
+    /// <summary>
+    /// SPEC section 4.3: the overdue check is off in these tests, which run NotifyOverdueTasksCommand
+    /// themselves, so no run of the worker lands in the middle of one; the rest is appsettings.json's.
+    /// </summary>
+    [Fact]
+    public void Alerts_InTheseTests_AreOffWithTheDefaultInterval()
+    {
+        var alerts = Api.Factory.Services.GetRequiredService<IOptions<AlertsOptions>>().Value;
+
+        alerts.OverdueCheckEnabled.Should().BeFalse();
+        alerts.OverdueCheckInterval.Should().Be(TimeSpan.FromMinutes(15));
+    }
+
     [Fact]
     public async Task Reset_BeforeEachTest_KeepsTheSeed()
     {

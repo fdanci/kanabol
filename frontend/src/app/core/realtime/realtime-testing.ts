@@ -10,8 +10,15 @@ export class FakeRealtime {
   readonly connectionId = signal<string | null>('my-tab');
   readonly joined: string[] = [];
   readonly left: string[] = [];
+  /** How many times the bell opened the connection. */
+  opened = 0;
   private readonly listeners = new Map<string, Set<(payload: unknown) => void>>();
   private readonly reconnectionListeners = new Set<() => void>();
+
+  open(): Promise<void> {
+    this.opened++;
+    return Promise.resolve();
+  }
 
   join(projectId: string): Promise<void> {
     this.joined.push(projectId);

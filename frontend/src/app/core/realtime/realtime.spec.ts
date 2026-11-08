@@ -308,4 +308,51 @@ describe('Realtime', () => {
     expect(links).toHaveLength(0);
     expect(realtime.connectionId()).toBeNull();
   });
+  // The bell (group 17): the user's own group, which the API joins by itself, without any board.
+  it('opens the connection for the bell without joining a project, once', async () => {
+    await realtime.open();
+    await realtime.open();
+
+    expect(link().starts).toBe(1);
+    expect(link().invoked).toEqual([]);
+    expect(realtime.connectionId()).toBe('conn-1');
+  });
+
+  it('joins a board on the connection the bell opened', async () => {
+    await realtime.open();
+
+    await realtime.join('p1');
+
+    expect(link().starts).toBe(1);
+    expect(link().invoked).toEqual([['JoinProject', 'p1']]);
+  });
+
+  it('starts once when the bell and a board ask at the same time', async () => {
+    await Promise.all([realtime.open(), realtime.join('p1')]);
+
+    expect(link().starts).toBe(1);
+    expect(link().invoked).toEqual([['JoinProject', 'p1']]);
+  });
+
+  it('leaves to SignalR a connection the bell opened that is reconnecting', async () => {
+    await realtime.open();
+    link().drop();
+
+    await realtime.open();
+
+    expect(link().starts).toBe(1);
+  });
+
+  it('opens nothing while signed out, and again for the next session', async () => {
+    signedIn.set(false);
+    TestBed.tick();
+    await realtime.open();
+    expect(links).toHaveLength(0);
+
+    signedIn.set(true);
+    TestBed.tick();
+    await realtime.open();
+
+    expect(link().starts).toBe(1);
+  });
 });

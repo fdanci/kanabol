@@ -64,7 +64,14 @@ export const routes: Routes = [
           import('./features/tasks/task-panel-route').then((panel) => panel.TaskPanelRoute),
       },
       placeholder('my-tasks', $localize`Task-urile mele`),
-      placeholder('notifications', $localize`Notificări`),
+      {
+        path: 'notifications',
+        title: $localize`Notificări · Kanabol`,
+        loadChildren: () =>
+          import('./features/notifications/notifications.routes').then(
+            (notifications) => notifications.NOTIFICATIONS_ROUTES,
+          ),
+      },
       ...withPermission(PERMISSIONS.usersManage, {
         path: 'users',
         title: $localize`Utilizatori · Kanabol`,

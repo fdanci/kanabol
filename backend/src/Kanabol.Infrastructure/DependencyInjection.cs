@@ -1,4 +1,5 @@
 using Kanabol.Application.Abstractions;
+using Kanabol.Infrastructure.Alerts;
 using Kanabol.Infrastructure.Authentication;
 using Kanabol.Infrastructure.Configuration;
 using Kanabol.Infrastructure.Persistence;
@@ -34,6 +35,13 @@ public static class DependencyInjection
                 $"Admin:InitialPassword must have at least {AdminOptions.MinimumPasswordLength} characters.");
         services.AddValidatedOptions<DatabaseOptions>(configuration, DatabaseOptions.SectionName)
             .Configure(options => options.ConnectionString = configuration.GetConnectionString("Default"));
+        services.AddValidatedOptions<AlertsOptions>(configuration, AlertsOptions.SectionName)
+            .Validate(
+                alerts => alerts.OverdueCheckInterval >= AlertsOptions.MinimumInterval,
+                $"Alerts:OverdueCheckInterval must be at least {AlertsOptions.MinimumInterval}.")
+            .Validate(
+                alerts => alerts.OverdueCheckInterval <= AlertsOptions.MaximumInterval,
+                $"Alerts:OverdueCheckInterval must be at most {AlertsOptions.MaximumInterval}.");
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -58,6 +66,9 @@ public static class DependencyInjection
         services.AddScoped<ITaskNumbers, TaskNumbers>();
         services.AddScoped<DatabaseSeeder>();
         services.AddHostedService<DatabaseInitializer>();
+
+        // After DatabaseInitializer: hosted services start one after another, so the first check finds the database migrated.
+        services.AddHostedService<OverdueTasksWorker>();
 
         return services;
     }
