@@ -16,6 +16,12 @@
 #      project only; the tasks overdue now whatever the interval, none in an archived project, those
 #      finished by their deadline and after it, the rate, null without a deadline, and their periods; 400 on
 #      from, to and granularity, 404 for a project that doesn't exist. Docker, PostgreSQL.
+#   2  who reads them: the tests, then the real API in Production on the same work, each of the three for
+#      reports.view in no project (every project, one, an archived one), an owner without it (their own
+#      project, archived too, any person in it; none without a project, 400 on projectId; another's, 403),
+#      projects.manage (any project), a plain member, projects.view_all and an outsider (403
+#      Project.OwnerRequired), a project that doesn't exist (404), the permission's name only in the log,
+#      and an owner deactivated since, whose token still holds (403). Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -472,7 +478,7 @@ deadlines_tests_pass() {
 }
 
 endpoint_tests_pass() {
-  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsEndpointTests' 32 &&
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsEndpointTests' 42 &&
     named_tests_pass Kanabol.Api.Tests EndpointPermissionsTests.Reports_NeedNoPermissionOnTheEndpoint
 }
 
@@ -648,8 +654,138 @@ task_1() {
   check "backend/CLAUDE.md lists the endpoints" in_file '`GET /api/reports/deadlines' backend/CLAUDE.md
 }
 
+# ---- 18.2: who reads them.
+
+access_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~ReportAccessTests' 37 &&
+    named_tests_pass Kanabol.Api.Tests ReportsEndpointTests.Report_
+}
+
+role_is_ready() { # role_is_ready <variable> <name> <permission>: the role's id in the variable
+  eval "[ -n \"\${$1:-}\" ]" && return 0
+  status_is 201 "$(as "$admin_token" POST /api/roles "{\"name\":\"$2\",\"permissions\":[\"$3\"]}")" || return 1
+  eval "$1=$(body_field id)"
+}
+
+# Radu has reports.view and is in no project; Mara has projects.manage; Vera projects.view_all; Olga owns
+# MEU and ARH, without a permission; Ion is in no project, without one; Dan is a member of PAN.
+readers_are_ready() {
+  work_is_ready || return 1
+  [ -n "${olga_token:-}" ] && return 0
+  role_is_ready reports_role Rapoarte reports.view &&
+    role_is_ready manage_role Administreaza projects.manage &&
+    role_is_ready view_all_role 'Vede tot' projects.view_all || return 1
+  colleague_is_ready radu radu@example.com 'Radu Rapoarte' "$reports_role" &&
+    colleague_is_ready mara mara@example.com 'Mara Manager' "$manage_role" &&
+    colleague_is_ready vera vera@example.com 'Vera Vede' "$view_all_role" &&
+    colleague_is_ready ion ion@example.com 'Ion Strain' &&
+    colleague_is_ready olga olga@example.com 'Olga Owner' || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$meu_id/members" "{\"userId\":\"$olga_id\",\"role\":\"Owner\"}")" &&
+    status_is 200 "$(as "$admin_token" POST "/api/projects/$arh_id/restore")" &&
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$arh_id/members" "{\"userId\":\"$olga_id\",\"role\":\"Owner\"}")" &&
+    status_is 204 "$(as "$admin_token" DELETE "/api/projects/$arh_id")"
+}
+
+reads_all() { # reads_all <token> <query>: each of the three reports answers 200
+  for name in completed cycle-time deadlines; do
+    status_is 200 "$(as "$1" GET "/api/reports/$name?$october$2")" || {
+      echo "on $name"
+      return 1
+    }
+  done
+}
+
+refused_all() { # refused_all <token> <query> <status> <code>: each of the three refuses with it
+  for name in completed cycle-time deadlines; do
+    code_is "$3" "$4" "$(as "$1" GET "/api/reports/$name?$october$2")" || {
+      echo "on $name"
+      return 1
+    }
+  done
+}
+
+reports_view_reads_every_project() {
+  readers_are_ready || return 1
+  reads_all "$radu_token" '' && reads_all "$radu_token" "&projectId=$pan_id" && reads_all "$radu_token" "&projectId=$arh_id" || return 1
+  report "$radu_token" completed "$october" || return 1
+  is 6 "$(json b.total)"
+}
+
+an_owner_reads_their_project() {
+  readers_are_ready || return 1
+  reads_all "$olga_token" "&projectId=$meu_id" && reads_all "$olga_token" "&projectId=$arh_id" &&
+    reads_all "$olga_token" "&projectId=$meu_id&userId=$dan_id" || return 1
+  report "$olga_token" completed "$october&projectId=$meu_id" || return 1
+  is 2 "$(json b.total)"
+}
+
+an_owner_needs_a_project() {
+  readers_are_ready || return 1
+  for name in completed cycle-time deadlines; do
+    field_is_refused projectId "$(as "$olga_token" GET "/api/reports/$name?$october")" || return 1
+  done
+}
+
+an_owner_reads_no_other_project() {
+  readers_are_ready || return 1
+  refused_all "$olga_token" "&projectId=$pan_id" 403 Project.OwnerRequired
+}
+
+projects_manage_reads_any_project() {
+  readers_are_ready || return 1
+  reads_all "$mara_token" "&projectId=$pan_id" && reads_all "$mara_token" "&projectId=$arh_id" &&
+    field_is_refused projectId "$(as "$mara_token" GET "/api/reports/completed?$october")"
+}
+
+members_viewers_and_outsiders_are_refused() {
+  readers_are_ready || return 1
+  refused_all "$dan_token" "&projectId=$pan_id" 403 Project.OwnerRequired &&
+    refused_all "$vera_token" "&projectId=$pan_id" 403 Project.OwnerRequired &&
+    refused_all "$ion_token" "&projectId=$pan_id" 403 Project.OwnerRequired &&
+    field_is_refused projectId "$(as "$dan_token" GET "/api/reports/deadlines?$october")"
+}
+
+an_unknown_project_is_404_for_anyone() {
+  readers_are_ready || return 1
+  refused_all "$ion_token" '&projectId=0199a000-0000-7000-8000-000000000000' 404 Project.NotFound
+}
+
+# docs/SPEC.md §4.4: the permission's name goes only into the log, at Warning.
+the_permission_is_named_only_in_the_log() {
+  readers_are_ready || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" GET "/api/reports/completed?$october&projectId=$pan_id")" || return 1
+  lacks 'reports\.view' "$scratch/body" || return 1
+  grep -F 'asked for a report of project' "$api_log" | grep -qF 'reports.view' || {
+    echo "no warning naming reports.view in the API's log"
+    return 1
+  }
+}
+
+# Last: IProjectAccess reads the account from the database, so the token Olga still holds opens nothing.
+a_deactivated_owner_reads_nothing() {
+  readers_are_ready || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/users/$olga_id/deactivate")" || return 1
+  refused_all "$olga_token" "&projectId=$meu_id" 403 Project.OwnerRequired
+}
+
+task_2() {
+  echo "18.2 Who reads the reports: reports.view, or an owner of the project asked for"
+  check "Docker is running" docker_is_running
+  check "the tests of who reads them pass, for each of the three reports" access_tests_pass
+  check "reports.view, in no project, reads every project, one, and an archived one" reports_view_reads_every_project
+  check "an owner without reports.view reads their project, archived too, for any person in it" an_owner_reads_their_project
+  check "an owner without reports.view and without a project gets 400 on projectId" an_owner_needs_a_project
+  check "an owner reads no other project: 403 Project.OwnerRequired" an_owner_reads_no_other_project
+  check "projects.manage reads any project, and needs one too" projects_manage_reads_any_project
+  check "a plain member, projects.view_all and an outsider get 403 Project.OwnerRequired" members_viewers_and_outsiders_are_refused
+  check "a project that doesn't exist answers 404 Project.NotFound, whoever asks" an_unknown_project_is_404_for_anyone
+  check "the permission's name is in the log's warning, not in the answer" the_permission_is_named_only_in_the_log
+  check "an owner deactivated since reads nothing with the token they still hold" a_deactivated_owner_reads_nothing
+  check "backend/CLAUDE.md says who reads them" in_file '`reports.view`, or an owner or `projects.manage` of `projectId`' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 for task in "$@"; do
   "task_$task"

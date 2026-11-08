@@ -182,15 +182,63 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         (await CodeFrom(response)).Should().Be("Project.NotFound");
     }
 
-    [Fact]
-    public async Task Completed_WithoutReportsView_Returns403()
-    {
-        await OctobersWork();
+    private async Task<string> TokenOf(User user) => await AccessTokenFrom(await Login(user.Email));
 
-        var response = await Send(HttpMethod.Get, $"{Completed}?{October}", await TokenWith());
+    // SPEC section 5.1.1: without reports.view, a report is for a project the caller manages.
+    [Theory]
+    [InlineData(Completed)]
+    [InlineData(CycleTime)]
+    [InlineData(Deadlines)]
+    public async Task Report_OfTheOwnersProjectWithoutReportsView_Returns200(string report)
+    {
+        var (ana, _, kan, _) = await OctobersWork();
+
+        (await Send(HttpMethod.Get, $"{report}?{October}&projectId={kan.Id}", await TokenOf(ana))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData(Completed)]
+    [InlineData(CycleTime)]
+    [InlineData(Deadlines)]
+    public async Task Report_WithoutReportsViewOrAProject_Returns400OnProjectId(string report)
+    {
+        var (ana, _, _, _) = await OctobersWork();
+
+        (await FieldErrorsFrom(await Send(HttpMethod.Get, $"{report}?{October}", await TokenOf(ana)))).Should().Equal("projectId");
+    }
+
+    [Theory]
+    [InlineData(Completed)]
+    [InlineData(CycleTime)]
+    [InlineData(Deadlines)]
+    public async Task Report_ForAPlainMember_Returns403OwnerRequired(string report)
+    {
+        var (_, dan, kan, _) = await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{report}?{October}&projectId={kan.Id}", await TokenOf(dan));
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await CodeFrom(response)).Should().Be("Auth.PermissionRequired");
+        (await CodeFrom(response)).Should().Be("Project.OwnerRequired");
+    }
+
+    [Fact]
+    public async Task Report_WithProjectsManage_Returns200ForAnyProject()
+    {
+        var (_, _, _, web) = await OctobersWork();
+
+        (await Send(HttpMethod.Get, $"{Deadlines}?{October}&projectId={web.Id}", await TokenWith(Permissions.ProjectsManage))).StatusCode
+            .Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Report_ForAnOutsider_Returns403OwnerRequired()
+    {
+        var (_, _, kan, _) = await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{Completed}?{October}&projectId={kan.Id}", await TokenWith(Permissions.ProjectsViewAll));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CodeFrom(response)).Should().Be("Project.OwnerRequired");
     }
 
     [Fact]
