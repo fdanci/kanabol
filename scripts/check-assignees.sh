@@ -835,8 +835,9 @@ stack_follows_the_ui_spec() {
 
 the_card_and_the_list_use_it() {
   in_file '<kb-avatar-stack [people]="task().assignees" />' "$app/features/board/task-card.ts" &&
-    in_file '<kb-avatar-stack [people]="task.assignees" />' "$app/features/tasks/task-list-page.html" &&
-    lacks '\bassignee\??\.' "$app/features/board/"*.ts "$app/features/tasks/task-list-page."* "$app/features/tasks/task-list-store.ts"
+    in_file '<kb-avatar-stack [people]="task.assignees" />' "$app/features/tasks/task-table.html" &&
+    lacks '\bassignee\??\.' "$app/features/board/"*.ts "$app/features/tasks/task-list-page."* "$app/features/tasks/task-table."* \
+      "$app/features/tasks/task-list-store.ts"
 }
 
 the_filter_looks_among_the_assignees() {

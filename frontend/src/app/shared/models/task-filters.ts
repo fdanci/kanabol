@@ -94,17 +94,18 @@ export function hasFilters(filters: TaskFilters): boolean {
   );
 }
 
-export function sortFromQuery(params: ParamMap): TaskSort {
+/** The page's own default when the address says nothing, or nothing it knows. */
+export function sortFromQuery(params: ParamMap, fallback: TaskSort = DEFAULT_TASK_SORT): TaskSort {
   const [field, direction] = (params.get('sort') ?? '').split(':');
   return SORT_FIELDS.includes(field as TaskSortField) &&
     (direction === 'asc' || direction === 'desc')
     ? { field: field as TaskSortField, descending: direction === 'desc' }
-    : DEFAULT_TASK_SORT;
+    : fallback;
 }
 
 /** As the API takes it, field:asc or field:desc, and null for the default, which the address leaves out. */
-export function sortToQuery(sort: TaskSort): string | null {
-  return sort.field === DEFAULT_TASK_SORT.field && sort.descending === DEFAULT_TASK_SORT.descending
+export function sortToQuery(sort: TaskSort, fallback: TaskSort = DEFAULT_TASK_SORT): string | null {
+  return sort.field === fallback.field && sort.descending === fallback.descending
     ? null
     : `${sort.field}:${sort.descending ? 'desc' : 'asc'}`;
 }

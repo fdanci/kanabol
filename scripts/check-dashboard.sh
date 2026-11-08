@@ -16,8 +16,10 @@
 #      archived ones only with includeArchived, the finished tasks counted without the archived one, mine
 #      not a boolean answering 400 on it. Docker, PostgreSQL.
 #   3  the main panel and "Task-urile mele": specs, lint, formatting, the production build without warnings
-#      but the budget's, the texts of docs/UI_UX_SPEC.md §7.2, no other feature imported, and none of the
-#      panel in the initial bundle, which index.html loads. Only the packages that scripts/setup.sh installs.
+#      but the budget's, the texts of docs/UI_UX_SPEC.md §7.2, no other feature imported by the panel, the
+#      List's table and filter bar on /my-tasks with Proiect, no assignee and "Și cele terminate", and none
+#      of either page in the initial bundle, which index.html loads. Only the packages that scripts/setup.sh
+#      installs.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -733,8 +735,8 @@ initial_files() {
     sed 's/.*"\([^"]*\)"$/\1/'
 }
 
-# The panel's own pieces, which the minifier keeps: its selectors and its texts.
-panel_markers='kb-dashboard-page|kb-stat-tile|Nu ești în niciun proiect încă|Nu am putut încărca sumarul'
+# The pages' own pieces, which the minifier keeps: their selectors and their texts.
+panel_markers='kb-dashboard-page|kb-stat-tile|Nu ești în niciun proiect încă|Nu am putut încărca sumarul|kb-my-tasks-page|kb-task-table|Niciun task pentru filtrele alese'
 
 # Tasks.md group 17a: the initial bundle doesn't take the panel. The route adds a few bytes to main, and
 # the bundler may split the shared chunks another way; none of the panel's code may land there.
@@ -764,6 +766,63 @@ the_panel_stays_out_of_the_initial_bundle() {
   echo "initial total $initial_total, the panel in $holder" >&2
 }
 
+tasks_web=$app/features/tasks
+
+the_my_tasks_specs_name_the_rules() {
+  spec_names "$tasks_web/my-tasks-page.spec.ts" \
+    'is titled "Task-urile mele", under Acasă' \
+    'reads the first page of 50 of my open tasks, by deadline from the soonest' \
+    'with a "Proiect" column, and no assignee select' \
+    'takes the filters from the address: q, priority, overdue=1, done=1 and archived=1' \
+    'opens on the overdue ones from /my-tasks?overdue=1' \
+    'puts "Și cele terminate" in the address and back, from the first page' \
+    'offers "Și cele arhivate" only to tasks.archive, and asks for none without it' \
+    'sorts by a column through the address, and leaves the deadline out of it' \
+    'pages through the address, 50 by default' \
+    'opens a task in its panel, keeping the filters' \
+    'reads the page again when the panel saves a change' \
+    'says "Niciun task deschis." without filters' \
+    'says "Niciun task pentru filtrele alese." with them, and clears them, keeping the finished ones' \
+    'says it could not read the tasks, and tries again' &&
+    spec_names "$app/shared/ui/task-filter-bar.spec.ts" \
+      'leaves out Ale mele and the assignee select when the tasks are all the user' \
+      'offers "Și cele terminate" only when given, and says when it is pressed' &&
+    spec_names "$app/shared/models/task-filters.spec.ts" \
+      'reads and writes the sort against another default when given one' &&
+    spec_names "$tasks_web/tasks-api.spec.ts" \
+      'with only the filters asked for' \
+      'sends the sort only when it is not by deadline, and no open for the finished ones too'
+}
+
+# docs/UI_UX_SPEC.md §7.2, word for word where it gives the words.
+the_my_tasks_texts_follow_the_ui_spec() {
+  for words in 'Task-urile mele' 'Niciun task deschis.' 'Niciun task pentru filtrele alese.' 'Nu am putut încărca task-urile.' \
+    "'project'" 'const DEFAULT_PAGE_SIZE = 50;' "params().get('done') === '1'" 'open: !this.finished()' 'assignee: null'; do
+    in_file "$words" "$tasks_web/my-tasks-page.ts" || {
+      echo "no '$words' in my-tasks-page.ts"
+      return 1
+    }
+  done
+  for words in '[withAssignee]="false"' '[finished]="finished()"' '<kb-task-table' 'Șterge filtrele' 'Reîncearcă'; do
+    in_file "$words" "$tasks_web/my-tasks-page.html" || {
+      echo "no '$words' in my-tasks-page.html"
+      return 1
+    }
+  done
+  in_file "export const MY_TASKS_SORT: TaskSort = { field: 'dueDate', descending: false };" "$tasks_web/tasks-api.ts" &&
+    in_file "'/me/tasks'" "$tasks_web/tasks-api.ts" &&
+    in_file '>Proiect<' "$tasks_web/task-table.html" &&
+    in_file 'Și cele terminate' "$app/shared/ui/task-filter-bar.ts" &&
+    in_file '<kb-task-table' "$tasks_web/task-list-page.html" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+      "$tasks_web"/my-tasks-page.ts "$tasks_web"/my-tasks-store.ts "$tasks_web"/my-tasks-page.scss "$tasks_web"/task-table.*
+}
+
+my_tasks_is_its_route() {
+  in_file "import('./features/tasks/my-tasks-page')" "$app/app.routes.ts" &&
+    lacks "placeholder\('my-tasks'" "$app/app.routes.ts"
+}
+
 task_3() {
   echo "17a.3 The main panel and \"Task-urile mele\""
   for file in models.ts dashboard-api.ts dashboard-store.ts dashboard-page.ts dashboard-page.html dashboard-page.scss \
@@ -777,14 +836,23 @@ task_3() {
   check "the texts, sizes and colors follow docs/UI_UX_SPEC.md §7.2, nothing unsafe" the_panel_texts_follow_the_ui_spec
   check "the panel imports no other feature" the_panel_imports_no_other_feature
   check "/ is the panel, not a placeholder" the_panel_is_the_home_route
+  for file in my-tasks-page.ts my-tasks-page.html my-tasks-page.scss my-tasks-store.ts my-tasks-page.spec.ts     task-table.ts task-table.html task-table.scss; do
+    check "features/tasks/$file is tracked" tracked "$tasks_web/$file"
+  done
+  check "the specs of Task-urile mele name the rules: the filters, done=1, the sort, the panel, the texts" the_my_tasks_specs_name_the_rules
+  check "the specs of Task-urile mele, the List on the same table, and TasksApi pass" specs_pass 'src/app/features/tasks/{my-tasks-page,task-list-page,tasks-api}.spec.ts' 36
+  check "the specs of the filter bar and the filters pass" specs_pass 'src/app/shared/{ui/task-filter-bar,models/task-filters}.spec.ts' 15
+  check "Task-urile mele follow docs/UI_UX_SPEC.md §7.2: Proiect, no assignee, Și cele terminate, the texts" the_my_tasks_texts_follow_the_ui_spec
+  check "/my-tasks is the page, not a placeholder" my_tasks_is_its_route
   check "the lint is clean" frontend_lint_is_clean
   check "the formatting is clean" frontend_formatting_is_clean
   check "the production build passes" built
   check "the build warns only of the budget" the_build_warns_only_of_the_budget
-  check "none of the panel is in the initial bundle, it has a chunk of its own" the_panel_stays_out_of_the_initial_bundle
+  check "none of the panel or of Task-urile mele is in the initial bundle, the panel has a chunk of its own" the_panel_stays_out_of_the_initial_bundle
   [ -f "$scratch/build.log" ] && printf '        %s
 ' "$(plain "$scratch/build.log" | grep -F 'Initial total' | tr -s ' ')"
   check "frontend/CLAUDE.md says how the panel works" in_file '`DashboardStore`' frontend/CLAUDE.md
+  check "frontend/CLAUDE.md says how Task-urile mele work" in_file '`MyTasksPage`' frontend/CLAUDE.md
 }
 
 if [ "$#" -eq 0 ]; then

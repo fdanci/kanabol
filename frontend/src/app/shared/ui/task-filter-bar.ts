@@ -32,7 +32,8 @@ export interface FilterPerson {
 /**
  * The filters above the board (docs/UI_UX_SPEC.md §7.4), which the List view shows too: a search in
  * the titles, Ale mele, Întârziate, one assignee and any priorities, and archived tasks for whoever
- * may see them. It only says what changed; the page puts it in the address.
+ * may see them. "Task-urile mele" (§7.2) leave the assignee out and add the finished ones. It only says
+ * what changed; the page puts it in the address.
  */
 @Component({
   selector: 'kb-task-filter-bar',
@@ -65,15 +66,17 @@ export interface FilterPerson {
         }
       </span>
 
-      <button
-        type="button"
-        class="kb-filter-chip"
-        [attr.aria-pressed]="filters().assignee === 'me'"
-        (click)="toggleMine()"
-        i18n
-      >
-        Ale mele
-      </button>
+      @if (withAssignee()) {
+        <button
+          type="button"
+          class="kb-filter-chip"
+          [attr.aria-pressed]="filters().assignee === 'me'"
+          (click)="toggleMine()"
+          i18n
+        >
+          Ale mele
+        </button>
+      }
       <button
         type="button"
         class="kb-filter-chip"
@@ -84,25 +87,27 @@ export interface FilterPerson {
         Întârziate
       </button>
 
-      <mat-select
-        class="kb-field kb-select assignee"
-        panelClass="kb-menu"
-        i18n-aria-label
-        aria-label="Asignat"
-        [value]="filters().assignee ?? anyone"
-        (selectionChange)="chooseAssignee($event.value)"
-      >
-        <mat-option [value]="anyone" i18n>Oricine</mat-option>
-        <mat-option value="me" i18n>Ale mele</mat-option>
-        @for (person of people(); track person.userId) {
-          <mat-option [value]="person.userId">
-            <span class="person">
-              <kb-avatar [name]="person.displayName" />
-              <span>{{ person.displayName }}</span>
-            </span>
-          </mat-option>
-        }
-      </mat-select>
+      @if (withAssignee()) {
+        <mat-select
+          class="kb-field kb-select assignee"
+          panelClass="kb-menu"
+          i18n-aria-label
+          aria-label="Asignat"
+          [value]="filters().assignee ?? anyone"
+          (selectionChange)="chooseAssignee($event.value)"
+        >
+          <mat-option [value]="anyone" i18n>Oricine</mat-option>
+          <mat-option value="me" i18n>Ale mele</mat-option>
+          @for (person of people(); track person.userId) {
+            <mat-option [value]="person.userId">
+              <span class="person">
+                <kb-avatar [name]="person.displayName" />
+                <span>{{ person.displayName }}</span>
+              </span>
+            </mat-option>
+          }
+        </mat-select>
+      }
 
       <mat-select
         class="kb-field kb-select priority"
@@ -119,6 +124,18 @@ export interface FilterPerson {
           <mat-option [value]="priority">{{ priorityLabel(priority) }}</mat-option>
         }
       </mat-select>
+
+      @if (finished() !== null) {
+        <button
+          type="button"
+          class="kb-filter-chip"
+          [attr.aria-pressed]="finished()"
+          (click)="finishedChange.emit(!finished())"
+          i18n
+        >
+          Și cele terminate
+        </button>
+      }
 
       @if (canSeeArchived()) {
         <button
@@ -209,7 +226,12 @@ export class TaskFilterBar {
   readonly filters = input.required<TaskFilters>();
   readonly people = input<FilterPerson[]>([]);
   readonly canSeeArchived = input(false);
+  /** False where every task is the user's own, as on "Task-urile mele". */
+  readonly withAssignee = input(true);
+  /** The finished tasks too, on "Task-urile mele"; null leaves the chip out. */
+  readonly finished = input<boolean | null>(null);
   readonly filtersChange = output<TaskFilters>();
+  readonly finishedChange = output<boolean>();
 
   protected readonly priorities = PRIORITIES;
   protected readonly priorityLabel = priorityLabel;

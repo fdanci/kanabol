@@ -69,4 +69,14 @@ describe('task filters in the address', () => {
     expect(sortToQuery({ field: 'dueDate', descending: true })).toBe('dueDate:desc');
     expect(sortToQuery({ field: 'key', descending: true })).toBeNull();
   });
+
+  // "Task-urile mele" go by deadline from the soonest (docs/UI_UX_SPEC.md §7.2).
+  it('reads and writes the sort against another default when given one', () => {
+    const byDeadline = { field: 'dueDate', descending: false } as const;
+
+    expect(sortFromQuery(convertToParamMap({}), byDeadline)).toEqual(byDeadline);
+    expect(sortFromQuery(convertToParamMap({ sort: 'nope' }), byDeadline)).toEqual(byDeadline);
+    expect(sortToQuery(byDeadline, byDeadline)).toBeNull();
+    expect(sortToQuery({ field: 'key', descending: true }, byDeadline)).toBe('key:desc');
+  });
 });

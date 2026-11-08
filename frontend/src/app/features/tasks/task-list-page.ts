@@ -9,20 +9,7 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButton } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { MatPaginator, PageEvent } from '@angular/material/paginator';
-import {
-  MatCell,
-  MatCellDef,
-  MatColumnDef,
-  MatHeaderCell,
-  MatHeaderCellDef,
-  MatHeaderRow,
-  MatHeaderRowDef,
-  MatRow,
-  MatRowDef,
-  MatTable,
-} from '@angular/material/table';
-import { MatTooltip } from '@angular/material/tooltip';
+import { PageEvent } from '@angular/material/paginator';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { firstValueFrom, map } from 'rxjs';
 import {
@@ -36,20 +23,17 @@ import {
   sortFromQuery,
   sortToQuery,
 } from '../../shared/models/task-filters';
-import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { openTaskPanel } from '../../shared/task-panel';
-import { AvatarStack } from '../../shared/ui/avatar-stack';
-import { Chip } from '../../shared/ui/chip';
-import { DeadlineChip } from '../../shared/ui/deadline-chip';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { SHEET_WIDTH } from '../../shared/ui/sheet';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskFilterBar } from '../../shared/ui/task-filter-bar';
-import { TaskItemDto, TaskSummaryDto, priorityLabel } from './models';
+import { TaskItemDto } from './models';
 import { TaskChanges } from '../../shared/task-changes';
 import { TaskListStore } from './task-list-store';
 import { TaskSheet } from './task-sheet';
+import { TaskRow, TaskTable } from './task-table';
 
 const PAGE_SIZES = [25, 50, 100];
 const DEFAULT_PAGE_SIZE = 50;
@@ -64,28 +48,7 @@ const DEFAULT_PAGE_SIZE = 50;
   selector: 'kb-task-list-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [TaskListStore],
-  imports: [
-    MatButton,
-    MatPaginator,
-    MatTooltip,
-    MatTable,
-    MatColumnDef,
-    MatHeaderCell,
-    MatHeaderCellDef,
-    MatCell,
-    MatCellDef,
-    MatHeaderRow,
-    MatHeaderRowDef,
-    MatRow,
-    MatRowDef,
-    RelativeTimePipe,
-    AvatarStack,
-    Chip,
-    DeadlineChip,
-    EmptyState,
-    Skeleton,
-    TaskFilterBar,
-  ],
+  imports: [MatButton, EmptyState, Skeleton, TaskFilterBar, TaskTable],
   templateUrl: './task-list-page.html',
   styleUrl: './task-list-page.scss',
 })
@@ -107,12 +70,9 @@ export class TaskListPage {
     'updated',
   ];
   protected readonly pageSizes = PAGE_SIZES;
-  protected readonly priorityLabel = priorityLabel;
-  protected readonly fullDate = fullDate;
   protected readonly loadFailed = $localize`Nu am putut încărca task-urile.`;
   protected readonly emptyTitle = $localize`Niciun task încă`;
   protected readonly noMatchTitle = $localize`Niciun task nu se potrivește`;
-  protected readonly unassigned = $localize`Neasignat`;
 
   private readonly projectId = toSignal(
     (this.route.parent ?? this.route).paramMap.pipe(map((params) => params.get('id') ?? '')),
@@ -173,14 +133,6 @@ export class TaskListPage {
     void this.navigate({ sort: sortToQuery(sort), page: null });
   }
 
-  protected ariaSort(field: TaskSortField): 'ascending' | 'descending' | null {
-    const sort = this.sort();
-    if (sort.field !== field) {
-      return null;
-    }
-    return sort.descending ? 'descending' : 'ascending';
-  }
-
   protected paged(event: PageEvent): void {
     void this.navigate({
       page: event.pageIndex === 0 ? null : event.pageIndex + 1,
@@ -188,7 +140,7 @@ export class TaskListPage {
     });
   }
 
-  protected open(task: TaskSummaryDto): void {
+  protected open(task: TaskRow): void {
     void openTaskPanel(this.router, task.key);
   }
 

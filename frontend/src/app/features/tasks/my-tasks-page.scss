@@ -1,0 +1,22 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+.filters {
+  display: block;
+  margin-bottom: var(--kb-space-3);
+}
+
+.placeholder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-4);
+  height: 40px;
+  padding: 0 var(--kb-space-4);
+}
