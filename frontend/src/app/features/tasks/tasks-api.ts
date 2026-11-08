@@ -77,6 +77,17 @@ export class TasksApi {
     });
   }
 
+  /**
+   * One change of the task's history, whole: a description's texts, which the list leaves out, for its
+   * diff (docs/SPEC.md §4.4). Another task's change is 404 History.NotFound, which the diff's block
+   * says itself; the snackbar has the rest.
+   */
+  historyEntry(id: string, entryId: string): Observable<TaskHistoryEntryDto> {
+    return this.api.get<TaskHistoryEntryDto>(`/tasks/${id}/history/${entryId}`, {
+      context: handledHere('History.NotFound'),
+    });
+  }
+
   /** The project's columns and the caller's role in it, for the panel's choices. */
   project(projectId: string): Observable<TaskProjectDto> {
     return this.api.get<TaskProjectDto>(`/projects/${projectId}`);

@@ -11,6 +11,7 @@ import { MatButton } from '@angular/material/button';
 import { MatTooltip } from '@angular/material/tooltip';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { Skeleton } from '../../shared/ui/skeleton';
+import { DescriptionDiff } from './description-diff';
 import { historyLine } from './task-history';
 import { TaskTimelineStore } from './task-timeline-store';
 
@@ -19,13 +20,15 @@ import { TaskTimelineStore } from './task-timeline-store';
  * dot on each change, «**Florin** a schimbat *Prioritate*: Medium → High · acum 2 ore», from the
  * newest, 50 at a time with "Încarcă mai multe" at the end while there are more. The panel creates it
  * when the tab opens, so it reads then, and again each time revision moves: after a change the panel
- * saved. Nothing comes from SignalR (docs/SPEC.md §9).
+ * saved. Nothing comes from SignalR (docs/SPEC.md §9). A change of the description offers "Vezi
+ * diferența", which reads that entry with its texts and opens under the row a block of at most 240px
+ * with the diff of the markdown source, word by word; "Ascunde" closes it.
  */
 @Component({
   selector: 'kb-task-timeline',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [TaskTimelineStore],
-  imports: [MatButton, MatTooltip, RelativeTimePipe, Skeleton],
+  imports: [DescriptionDiff, MatButton, MatTooltip, RelativeTimePipe, Skeleton],
   template: `
     @switch (store.state()) {
       @case ('loading') {
@@ -74,7 +77,53 @@ import { TaskTimelineStore } from './task-timeline-store';
                       >{{ line.changedAt | relativeTime }}</time
                     ></span
                   >
+                  @if (line.kind === 'description') {
+                    &ngsp;<button
+                      type="button"
+                      class="diff-toggle"
+                      [attr.aria-expanded]="line.diff !== null"
+                      [attr.aria-controls]="'diff-' + line.id"
+                      (click)="store.toggleDiff(line.id)"
+                    >
+                      @if (line.diff) {
+                        <ng-container i18n>Ascunde</ng-container>
+                      } @else {
+                        <ng-container i18n>Vezi diferența</ng-container>
+                      }
+                    </button>
+                  }
                 </p>
+                @if (line.diff; as diff) {
+                  <div
+                    class="diff-block"
+                    [id]="'diff-' + line.id"
+                    [attr.aria-busy]="diff.state === 'loading'"
+                  >
+                    @switch (diff.state) {
+                      @case ('loading') {
+                        <div class="loading">
+                          <kb-skeleton width="80%" height="14px" />
+                          <kb-skeleton width="60%" height="14px" />
+                        </div>
+                      }
+                      @case ('error') {
+                        <p class="empty" i18n>Nu am putut încărca diferența.</p>
+                        <button
+                          matButton
+                          class="kb-sm"
+                          type="button"
+                          (click)="store.readDiff(line.id)"
+                          i18n
+                        >
+                          Reîncearcă
+                        </button>
+                      }
+                      @case ('ready') {
+                        <kb-description-diff [before]="diff.before" [after]="diff.after" />
+                      }
+                    }
+                  </div>
+                }
               </li>
             }
           </ol>
@@ -158,6 +207,33 @@ import { TaskTimelineStore } from './task-timeline-store';
       margin-left: var(--kb-space-6);
     }
 
+    /* Looks like the app's links (styles.scss); a button, since it opens the diff in place. */
+    .diff-toggle {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--kb-accent-600);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .diff-toggle:hover {
+      text-decoration: underline;
+    }
+
+    /* At most 240px with its padding and border (UI spec §7.5); a longer diff scrolls inside. */
+    .diff-block {
+      box-sizing: border-box;
+      max-height: 240px;
+      overflow: auto;
+      margin-top: var(--kb-space-2);
+      padding: var(--kb-space-2) var(--kb-space-3);
+      border: 1px solid var(--kb-border-200);
+      border-radius: var(--kb-radius-sm);
+      background: var(--kb-surface-0);
+    }
+
     .empty {
       margin: 0;
       color: var(--kb-text-500);
@@ -178,10 +254,18 @@ export class TaskTimeline {
 
   protected readonly store = inject(TaskTimelineStore);
   protected readonly fullDate = fullDate;
+  /** Each line, with its description's diff while it's open, null otherwise. */
   protected readonly lines = computed(() =>
-    this.store
-      .entries()
-      .map((entry) => ({ ...historyLine(entry), id: entry.id, changedAt: entry.changedAt })),
+    this.store.entries().map((entry) => {
+      const line = historyLine(entry);
+      const open = line.kind === 'description' && this.store.isOpen(entry.id);
+      return {
+        ...line,
+        id: entry.id,
+        changedAt: entry.changedAt,
+        diff: open ? this.store.diff(entry.id) : null,
+      };
+    }),
   );
 
   constructor() {

@@ -17,7 +17,8 @@ namespace Kanabol.Api.Tests.Tasks;
 /// task, made through its endpoint, writes its own entry, and nothing else writes one; an archived task's
 /// history is a 404 without tasks.archive; an assignee taken out of the project and a deleted column keep
 /// their place in it; it comes 50 to a page; and the list of extensions compose gives replaces the whole
-/// default list.
+/// default list. Group 16b: a description's texts stay out of the pages and come whole with their entry,
+/// for whoever sees the task, and only under that task.
 /// </summary>
 public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
 {
@@ -45,6 +46,16 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         var root = json.RootElement.Clone();
         return ([.. root.GetProperty("items").EnumerateArray()], root.GetProperty("totalCount").GetInt32());
     }
+
+    private async Task<JsonElement> EntryOf(Guid taskId, Guid entryId, string token)
+    {
+        var response = await Send(HttpMethod.Get, $"/api/tasks/{taskId}/history/{entryId}", token);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        using var json = await JsonFrom(response);
+        return json.RootElement.Clone();
+    }
+
+    private static Guid IdOf(JsonElement entry) => entry.GetProperty("id").GetGuid();
 
     private static string? Text(JsonElement entry, string property) =>
         entry.GetProperty(property).ValueKind == JsonValueKind.Null ? null : entry.GetProperty(property).GetString();
@@ -98,7 +109,7 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         Text(scheduled, "oldValue").Should().BeNull();
         DateTimeOffset.Parse(Text(scheduled, "newValue")!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(due);
         (Text(prioritized, "oldValue"), Text(prioritized, "newValue")).Should().Be(("Medium", "High"));
-        (Text(described, "oldValue"), Text(described, "newValue")).Should().Be((null, "Cu **Azure AD**"));
+        (Text(described, "oldValue"), Text(described, "newValue")).Should().Be((null, null));
         (Text(renamed, "oldValue"), Text(renamed, "newValue")).Should().Be(("Login SSO", "Login cu SSO"));
         renamed.GetProperty("changedBy").GetProperty("userId").GetGuid().Should().Be(member.Id);
         entries.Skip(2).Take(4).Should().OnlyContain(entry => entry.GetProperty("changedBy").GetProperty("userId").GetGuid() == owner.Id);
@@ -190,6 +201,84 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         first.Should().HaveCount(50);
         (Text(first[0], "newValue"), Text(first[^1], "newValue")).Should().Be(("Titlul 51", "Titlul 2"));
         second.Select(entry => Text(entry, "newValue")).Should().Equal("Titlul 1");
+    }
+
+    [Fact]
+    public async Task ADescriptionsTexts_StayOutOfThePages_AndComeWholeWithTheirEntry()
+    {
+        var (owner, token) = await SignedIn(Permissions.TasksCreate);
+        var (member, memberToken) = await SignedIn();
+        var project = await CreateProject(builder => builder.WithKey("HIS").OwnedBy(owner).WithMember(member));
+        var taskId = await Created(token, project, "Login SSO");
+        var first = "Autentificare prin **Azure AD**.\n\nPași:\n\n- login\n- logout";
+
+        // As long as a description may be, its lines and diacritics kept.
+        var line = "Un rând lung, cu ă, â, î, ș și ț, care se repetă până la capăt.\n";
+        var longest = string.Concat(Enumerable.Repeat(line, (20_000 / line.Length) + 1))[..20_000];
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/description", new { description = first });
+        await Sent(HttpStatusCode.OK, memberToken, HttpMethod.Put, $"/api/tasks/{taskId}/description", new { description = longest });
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/title", new { title = "Login cu SSO" });
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/description", new { description = (string?)null });
+
+        var page = await Send(HttpMethod.Get, $"/api/tasks/{taskId}/history", memberToken);
+        var pageText = await page.Content.ReadAsStringAsync();
+        var (entries, total) = await HistoryOf(taskId, memberToken);
+
+        total.Should().Be(4);
+        entries.Select(entry => (Text(entry, "field"), Text(entry, "oldValue"), Text(entry, "newValue"))).Should().Equal(
+            ("Description", null, null),
+            ("Title", "Login SSO", "Login cu SSO"),
+            ("Description", null, null),
+            ("Description", null, null));
+        pageText.Length.Should().BeLessThan(5_000, "a page carries no description's text");
+        pageText.Should().NotContain("Azure").And.NotContain("Un rând lung");
+
+        var (removed, changed, written) = (
+            await EntryOf(taskId, IdOf(entries[0]), memberToken),
+            await EntryOf(taskId, IdOf(entries[2]), memberToken),
+            await EntryOf(taskId, IdOf(entries[3]), memberToken));
+        (Text(written, "oldValue"), Text(written, "newValue")).Should().Be((null, first));
+        (Text(changed, "oldValue"), Text(changed, "newValue")).Should().Be((first, longest));
+        (Text(removed, "oldValue"), Text(removed, "newValue")).Should().Be((longest, null));
+        changed.GetProperty("changedBy").GetProperty("userId").GetGuid().Should().Be(member.Id);
+        (IdOf(changed), changed.GetProperty("changedAt").GetDateTimeOffset()).Should().Be((IdOf(entries[2]), entries[2].GetProperty("changedAt").GetDateTimeOffset()));
+        changed.GetProperty("names").EnumerateObject().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AnEntry_IsForWhoeverSeesTheTask_AndOnlyUnderItsOwnTask()
+    {
+        var (owner, token) = await SignedIn(Permissions.TasksCreate);
+        var (member, memberToken) = await SignedIn();
+        var project = await CreateProject(builder => builder.WithKey("HIS").OwnedBy(owner).WithMember(member));
+        var taskId = await Created(token, project, "Login SSO");
+        var otherId = await Created(token, project, "Alt task");
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/description", new { description = "Cu **Azure AD**" });
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{otherId}/description", new { description = "Al altui task" });
+        var entryId = IdOf((await HistoryOf(taskId, token)).Items.Single());
+        var othersId = IdOf((await HistoryOf(otherId, token)).Items.Single());
+        var (_, viewerToken) = await SignedIn(Permissions.ProjectsViewAll);
+        var (_, outsiderToken) = await SignedIn();
+        var (_, archiverToken) = await SignedIn(Permissions.ProjectsViewAll, Permissions.TasksArchive);
+
+        Text(await EntryOf(taskId, entryId, memberToken), "newValue").Should().Be("Cu **Azure AD**");
+        Text(await EntryOf(taskId, entryId, viewerToken), "newValue").Should().Be("Cu **Azure AD**");
+        var outsider = await Send(HttpMethod.Get, $"/api/tasks/{taskId}/history/{entryId}", outsiderToken);
+        (outsider.StatusCode, await CodeFrom(outsider)).Should().Be((HttpStatusCode.Forbidden, "Project.MemberRequired"));
+        var others = await Send(HttpMethod.Get, $"/api/tasks/{taskId}/history/{othersId}", memberToken);
+        (others.StatusCode, await CodeFrom(others)).Should().Be((HttpStatusCode.NotFound, "History.NotFound"));
+        Text(await EntryOf(otherId, othersId, memberToken), "newValue").Should().Be("Al altui task");
+
+        await Sent(HttpStatusCode.NoContent, token, HttpMethod.Delete, $"/api/tasks/{taskId}");
+        foreach (var refusedToken in new[] { memberToken, token, viewerToken })
+        {
+            var refused = await Send(HttpMethod.Get, $"/api/tasks/{taskId}/history/{entryId}", refusedToken);
+            (refused.StatusCode, await CodeFrom(refused)).Should().Be((HttpStatusCode.NotFound, "Task.NotFound"));
+        }
+
+        Text(await EntryOf(taskId, entryId, archiverToken), "newValue").Should().Be("Cu **Azure AD**");
+        await Sent(HttpStatusCode.OK, archiverToken, HttpMethod.Post, $"/api/tasks/{taskId}/restore");
+        Text(await EntryOf(taskId, entryId, memberToken), "newValue").Should().Be("Cu **Azure AD**");
     }
 
     /// <summary>

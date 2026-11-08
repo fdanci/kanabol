@@ -6,10 +6,24 @@ import { TasksApi } from './tasks-api';
 export type TaskTimelineState = 'loading' | 'ready' | 'error';
 
 /**
+ * A description's diff, by its entry: the texts once read, which an entry never changes, null until
+ * they're ready.
+ */
+export interface DescriptionDiffState {
+  state: 'loading' | 'error' | 'ready';
+  before: string | null;
+  after: string | null;
+}
+
+const READING: DescriptionDiffState = { state: 'loading', before: null, after: null };
+const FAILED: DescriptionDiffState = { state: 'error', before: null, after: null };
+
+/**
  * A task's history, for the timeline of its panel (docs/UI_UX_SPEC.md §7.5): the first page from the
  * newest, then the next ones at the end. Reading the same task again, after a change the panel saved,
  * keeps what it shows until the answer comes, so the timeline doesn't blink. Nothing comes from the hub
- * (docs/SPEC.md §9).
+ * (docs/SPEC.md §9). A description's diff reads its entry, with the texts the list leaves out, the first
+ * time it opens, and keeps it, open or not, while the timeline shows the same task (docs/SPEC.md §4.4).
  */
 @Injectable()
 export class TaskTimelineStore {
@@ -17,6 +31,8 @@ export class TaskTimelineStore {
   private readonly list = signal<TaskHistoryEntryDto[]>([]);
   private readonly total = signal(0);
   private readonly loadState = signal<TaskTimelineState>('loading');
+  private readonly diffs = signal<ReadonlyMap<string, DescriptionDiffState>>(new Map());
+  private readonly opened = signal<ReadonlySet<string>>(new Set());
   private latest = 0;
   private taskId = '';
   private page = 0;
@@ -29,6 +45,10 @@ export class TaskTimelineStore {
   /** The first page, from the newest. Only the last read asked for lands, however the answers arrive. */
   async load(taskId: string): Promise<void> {
     const request = ++this.latest;
+    if (taskId !== this.taskId) {
+      this.diffs.set(new Map());
+      this.opened.set(new Set());
+    }
     if (taskId !== this.taskId || this.loadState() !== 'ready') {
       this.list.set([]);
       this.total.set(0);
@@ -80,5 +100,47 @@ export class TaskTimelineStore {
         this.loadingMore.set(false);
       }
     }
+  }
+
+  isOpen(entryId: string): boolean {
+    return this.opened().has(entryId);
+  }
+
+  diff(entryId: string): DescriptionDiffState {
+    return this.diffs().get(entryId) ?? READING;
+  }
+
+  /** Opens a description's diff, or closes it ("Ascunde"). Opening reads the entry once. */
+  toggleDiff(entryId: string): void {
+    const opened = new Set(this.opened());
+    if (opened.delete(entryId)) {
+      this.opened.set(opened);
+      return;
+    }
+    this.opened.set(opened.add(entryId));
+    const known = this.diffs().get(entryId);
+    if (!known || known.state === 'error') {
+      void this.readDiff(entryId);
+    }
+  }
+
+  /** Reads the entry with its texts; an answer for a task no longer shown lands nowhere. */
+  async readDiff(entryId: string): Promise<void> {
+    const taskId = this.taskId;
+    this.setDiff(entryId, READING);
+    try {
+      const entry = await firstValueFrom(this.api.historyEntry(taskId, entryId));
+      if (taskId === this.taskId) {
+        this.setDiff(entryId, { state: 'ready', before: entry.oldValue, after: entry.newValue });
+      }
+    } catch {
+      if (taskId === this.taskId) {
+        this.setDiff(entryId, FAILED);
+      }
+    }
+  }
+
+  private setDiff(entryId: string, diff: DescriptionDiffState): void {
+    this.diffs.update((diffs) => new Map(diffs).set(entryId, diff));
   }
 }
