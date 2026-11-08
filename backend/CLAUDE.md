@@ -23,6 +23,7 @@ Run from `backend/`:
 - Run the checks of comments and attachments, from the repo root: `scripts/check-comments.sh [task-number...]`, under the same conditions.
 - Run the checks of a task's history, from the repo root: `scripts/check-history.sh [task-number...]`, under the same conditions; 2 and 3 are the frontend's, and need only the packages, and 6, a description's texts and their diff, needs both.
 - Run the checks of the deadline alerts, from the repo root: `scripts/check-alerts.sh [task-number...]`, under the same conditions.
+- Run the checks of the main panel and "Task-urile mele", from the repo root: `scripts/check-dashboard.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -178,6 +179,18 @@ In Docker and production, settings come from environment variables:
 - A `Notification` is in-app only: its user, its type (`TaskOverdue`, `TaskAssigned` or `CommentAdded`), its task, an English message cut at 500 characters, and when it was read. Every one raises `NotificationCreatedEvent`, which SignalR sends to its user's group (below).
 - `OverdueTasksWorker` (Infrastructure, a `BackgroundService` with a `PeriodicTimer`) looks for overdue tasks at start, after `DatabaseInitializer` has migrated the database, then every `Alerts:OverdueCheckInterval`. Each run sends `NotifyOverdueTasksCommand` (Application) in a scope of its own, without a user; a run that throws or fails is logged as an error, and the next one still comes. `Alerts:OverdueCheckEnabled` false stops it, which `ApiFactory` does: the API's tests run the command themselves.
 - The command takes every task past its deadline (`due_date < now`), not completed, not archived, in a project that isn't archived, and tells its assignees and the project's owners who are active members, each once: a `TaskOverdue` notification, "KAN-1: Login SSO is overdue", all in one save. Nobody is told twice of the same task, ever: a pair of task and person that already has its `TaskOverdue` gets nothing, so someone assigned later to a task already overdue is told at the next run, and a deadline moved away that passes again tells nobody. A first run after a deploy tells everyone of the tasks already overdue, once. It logs how many notifications it made, for how many tasks.
+
+## The main panel and my tasks
+
+| Endpoint                                             | Does                                                                                                                                                                                                                                                                                                                                                    | Needs     |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `GET /api/me/summary?weekStart=2026-11-02T00:00:00Z` | `openTasks`, `overdueTasks` (open ones past their deadline), `completedThisWeek` (completed since `weekStart`) and `activeProjects` (open projects the caller is a member of)                                                                                                                                                                           | signed in |
+| `GET /api/me/tasks?page=1&pageSize=50&open=true`     | A `Page` of the caller's own tasks, by deadline from the soonest, those without one last, then by key from the newest; the project list's `sort`, `priority`, `overdue`, `search` and `includeArchived`, but no `assigneeId`, and `open=true` for those not completed. Each row is the project list's, with `projectId`, `projectKey` and `projectName` | signed in |
+
+- The caller's own tasks (`TaskQueries.MyTasks`) are those they are assigned to, not archived, in projects not archived where they are still a member, and none for a deactivated account: `projects.view_all` and `projects.manage` widen nothing here, and a task of a project they left, where they stay assigned, doesn't count. Both handlers read them, and the summary counts in one query.
+- `weekStart` is the Monday at midnight in the caller's own time, which the browser sends as an instant with its offset; it is required and at most now, or the summary answers 400 on it. The handler turns it into UTC first, since Npgsql writes only UTC to a `timestamptz`.
+- Open means `completed_at` null. `overdue` in the list stays the project list's: open past the deadline, outside a done column.
+- The project's list and this one share `TaskListRows`: the filters, the rows and the sorts. The key is the project's key, then the number. Ties go by key in the same direction in the project's list, and from the newest whichever the direction here, as the default sort's do.
 
 ## Comments
 

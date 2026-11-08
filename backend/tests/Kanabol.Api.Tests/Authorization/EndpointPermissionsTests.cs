@@ -82,6 +82,18 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
         found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
     }
 
+    // Everyone signed in reads their own numbers and tasks, without a permission (SPEC section 4.4).
+    [Fact]
+    public void Me_NeedsNoPermissionOnTheEndpoint()
+    {
+        var found = RealActions
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Me")
+            .ToList();
+
+        found.Should().HaveCount(2);
+        found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
+    }
+
     [Fact]
     public void HasPermission_InTheApiThatShips_NamesOnlyPermissionsThatExist() =>
         RealActions
