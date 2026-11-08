@@ -21,7 +21,7 @@ Run from `backend/`:
 - Run the task checks, from the repo root: `scripts/check-tasks.sh [task-number...]`, under the same conditions, those of the board: `scripts/check-board.sh [task-number...]`, and those of several assignees: `scripts/check-assignees.sh [task-number...]`.
 - Run the real-time checks, from the repo root: `scripts/check-realtime.sh [task-number...]`, under the same conditions. They reach the hub over a real WebSocket, with a small SignalR client in Node.
 - Run the checks of comments and attachments, from the repo root: `scripts/check-comments.sh [task-number...]`, under the same conditions.
-- Run the checks of a task's history, from the repo root: `scripts/check-history.sh [task-number...]`, under the same conditions; 2 and 3 are the frontend's, and need only the packages.
+- Run the checks of a task's history, from the repo root: `scripts/check-history.sh [task-number...]`, under the same conditions; 2 and 3 are the frontend's, and need only the packages, and 6, a description's texts and their diff, needs both.
 
 ## Migrations
 

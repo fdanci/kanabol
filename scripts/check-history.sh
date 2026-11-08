@@ -1,8 +1,8 @@
 #!/bin/sh
-# Acceptance checks for a task's history (group 16 in the project's Tasks.md; docs/SPEC.md §4.4 "Istoricul
-# unui task", §10, §13.3; docs/UI_UX_SPEC.md §7.5). The tests and specs hold the rules, so these checks
-# run them, and add what they can't see: the real API process on a real PostgreSQL, its answers, and the
-# frontend's production build.
+# Acceptance checks for a task's history (groups 16 and 16b in the project's Tasks.md; docs/SPEC.md §4.4
+# "Istoricul unui task", §2, §10, §13.3; docs/UI_UX_SPEC.md §7.5). The tests and specs hold the rules, so
+# these checks run them, and add what they can't see: the real API process on a real PostgreSQL, its
+# answers, and the frontend's production build.
 #
 # Usage: scripts/check-history.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
@@ -19,6 +19,11 @@
 #   5  the group's flows end to end: the API's tests (every change writes its entry and nothing else does,
 #      an archived task, the names, the pages, compose's list), then every change on the real API, with
 #      the dates to the microsecond. Docker, PostgreSQL.
+#   6  a description's texts on demand and their diff (group 16b): the tests and the flows, then the real
+#      API in Production: the list without the texts, the entry with them, 404 History.NotFound on another
+#      task's entry, an outsider, an archived task; then the diff's block: specs, lint, formatting, the
+#      production build, the diff package only in the task panel's chunk, never in the initial bundle.
+#      Docker, PostgreSQL and the packages.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -898,8 +903,229 @@ task_5() {
   check "a title that stays, a comment and a file write nothing" nothing_else_writes_an_entry
 }
 
+# ---- 16b.6: a description's texts on demand, and their diff.
+
+entry_as() { # entry_as <token> <task id> <entry id>: prints the status, the entry in the last answer
+  as "$1" GET "/api/tasks/$2/history/$3"
+}
+
+entry_app=backend/src/Kanabol.Application/Features/Tasks/Queries/GetTaskHistoryEntry
+
+entry_handler_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    TaskHistoryQueryHandlerTests.Get_AChangeOfTheDescription_ComesWithoutItsTexts_AndTheOtherFieldsWithTheirs \
+    TaskHistoryQueryHandlerTests.GetEntry_AChangeOfTheDescription_GivesItWhole_WithBothTexts \
+    TaskHistoryQueryHandlerTests.GetEntry_OfAnotherField_GivesItAsTheListDoes_WithTheNames \
+    TaskHistoryQueryHandlerTests.GetEntry_OfAnotherTask_ReturnsHistoryNotFound \
+    TaskHistoryQueryHandlerTests.GetEntry_ThatDoesntExist_ReturnsHistoryNotFound \
+    TaskHistoryQueryHandlerTests.GetEntry_ByAnOutsider_ReturnsMemberRequired \
+    TaskHistoryQueryHandlerTests.GetEntry_OfAnArchivedTask_IsTaskNotFound_ButForTasksArchive
+}
+
+entry_endpoint_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    TaskHistoryEndpointTests.Get_AChangeOfTheDescription_ComesWithNullTexts \
+    TaskHistoryEndpointTests.GetEntry_Returns200WithTheEntryAndItsTexts \
+    TaskHistoryEndpointTests.GetEntry_OfAnotherTasksEntry_Returns404HistoryNotFound \
+    TaskHistoryEndpointTests.GetEntry_OfAnArchivedTask_Returns404TaskNotFound_ButToTasksArchive \
+    TaskHistoryEndpointTests.GetEntry_ForSomeoneOutsideTheProject_Returns403MemberRequired \
+    TaskHistoryEndpointTests.GetEntry_WithoutASession_Returns401
+}
+
+diff_flow_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    TaskHistoryFlowTests.ADescriptionsTexts_StayOutOfThePages_AndComeWholeWithTheirEntry \
+    TaskHistoryFlowTests.AnEntry_IsForWhoeverSeesTheTask_AndOnlyUnderItsOwnTask
+}
+
+# Dan writes a description, the admin rewrites it, then renames the task: the list gives the two
+# description entries with both values null, and the database still holds every text.
+the_list_leaves_the_descriptions_texts_out() {
+  a_new_task 'Descriere' || return 1
+  described_task=$new_task
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$described_task/description" '{"description":"Autentificare prin **Azure AD**.\n\nPași:\n\n- login\n- logout"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$described_task/description" '{"description":"Autentificare prin **Entra ID**.\n\nPași:\n\n- login\n- refresh\n- logout"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$described_task/title" '{"title":"Descriere, redenumit"}')" || return 1
+  status_is 200 "$(history_as "$ioana_token" "$described_task")" || return 1
+  is 'Title:Descriere:Descriere, redenumit|Description:null:null|Description:null:null' \
+    "$(json "b.items.map(e => [e.field, e.oldValue, e.newValue].map(String).join(':')).join('|')")" || return 1
+  if grep -q 'Azure\|Entra' "$scratch/body"; then
+    echo "the page holds a description's text"
+    return 1
+  fi
+  described_entry=$(json "b.items[1].id")
+  first_entry=$(json "b.items[2].id")
+  is 2 "$(in_db "SELECT count(*) FROM task_history_entries WHERE task_id = '$described_task' AND field = 'Description' AND new_value LIKE 'Autentificare prin **%'")"
+}
+
+# The entry gives both texts as they were saved, lines and diacritics kept, with who changed it.
+the_entry_gives_both_texts() {
+  [ -n "${described_entry:-}" ] || the_list_leaves_the_descriptions_texts_out || return 1
+  status_is 200 "$(entry_as "$ioana_token" "$described_task" "$described_entry")" || return 1
+  is "Description|$described_entry|$admin_id|0" "$(json "[b.field, b.id, b.changedBy.userId, Object.keys(b.names).length].join('|')")" || return 1
+  is 'Autentificare prin **Azure AD**.//Pași://- login/- logout' "$(json "b.oldValue.split('\n').join('/')")" || return 1
+  is 'Autentificare prin **Entra ID**.//Pași://- login/- refresh/- logout' "$(json "b.newValue.split('\n').join('/')")" || return 1
+  status_is 200 "$(entry_as "$dan_token" "$described_task" "$first_entry")" || return 1
+  is "null|$dan_id" "$(json "[String(b.oldValue), b.changedBy.userId].join('|')")"
+}
+
+# Another task's entry, under this task, is 404 History.NotFound, as is one that doesn't exist.
+another_tasks_entry_is_404() {
+  [ -n "${described_entry:-}" ] || the_list_leaves_the_descriptions_texts_out || return 1
+  a_new_task 'Alt task cu descriere' || return 1
+  status_is 200 "$(as "$dan_token" PUT "/api/tasks/$new_task/description" '{"description":"Al altui task"}')" || return 1
+  status_is 200 "$(history_as "$dan_token" "$new_task")" || return 1
+  others=$(json "b.items[0].id")
+  code_is 404 History.NotFound "$(entry_as "$dan_token" "$described_task" "$others")" || return 1
+  code_is 404 History.NotFound "$(entry_as "$dan_token" "$described_task" 0193a000-0000-7000-8000-000000000000)" || return 1
+  status_is 200 "$(entry_as "$dan_token" "$new_task" "$others")" || return 1
+  is 'Al altui task' "$(json "b.newValue")"
+}
+
+an_outsider_reads_no_entry() {
+  [ -n "${described_entry:-}" ] || the_list_leaves_the_descriptions_texts_out || return 1
+  code_is 403 Project.MemberRequired "$(entry_as "$eva_token" "$described_task" "$described_entry")"
+}
+
+# Archived by the admin: Dan gets 404 Task.NotFound, the admin, with tasks.archive, the texts.
+an_archived_tasks_entry_is_only_for_tasks_archive() {
+  [ -n "${described_entry:-}" ] || the_list_leaves_the_descriptions_texts_out || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$described_task")" || return 1
+  code_is 404 Task.NotFound "$(entry_as "$dan_token" "$described_task" "$described_entry")" || return 1
+  status_is 200 "$(entry_as "$admin_token" "$described_task" "$described_entry")" || return 1
+  is true "$(json "b.newValue.startsWith('Autentificare prin **Entra ID**')")"
+}
+
+diff_specs_name_the_rules() {
+  spec_names "$tasks_web/description-diff.spec.ts" \
+    'marks a word taken out as deleted, and the words around it as they are' \
+    'marks a word put in as added' \
+    'shows a word replaced as the old one deleted, then the new one added' \
+    'keeps the lines of the markdown source, a new line among them' \
+    'shows a first description as added whole, and one taken away as deleted whole' \
+    'keeps markdown and HTML in the texts as plain text' \
+    'deletes the old text whole and adds the new one whole when comparing them would take too long' &&
+    spec_names "$tasks_web/task-timeline.spec.ts" \
+      'offers the difference only on a change of the description' \
+      'opens the difference under its row with "Vezi diferența", reading the entry with its texts' \
+      'hides the difference with "Ascunde", and opens it again without reading it again' \
+      'shows a skeleton of two rows while it reads the entry' \
+      'says it could not read the difference, and reads it again on Reîncearcă' \
+      'keeps an open difference open when it reads the history again after a save' &&
+    spec_names "$tasks_web/tasks-api.spec.ts" \
+      'reads one entry of a task’s history, with its texts, saying itself that it is not there'
+}
+
+# docs/SPEC.md §2: jsdiff, as the package diff, 9 here, which the lock holds.
+diff_is_a_dependency() {
+  node -e "
+    const fs = require('fs');
+    const { dependencies } = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
+    const lock = JSON.parse(fs.readFileSync('frontend/package-lock.json', 'utf8'));
+    const locked = lock.packages['node_modules/diff'];
+    if (!/^\^9\./.test(dependencies.diff ?? '') || !locked || !locked.version.startsWith('9.')) {
+      console.log('diff: ' + dependencies.diff + ', locked ' + (locked && locked.version));
+      process.exit(1);
+    }"
+}
+
+# Only the diff's component imports it, so nothing else pulls it into another chunk.
+only_the_diff_imports_it() {
+  is "$tasks_web/description-diff.ts" "$(grep -rlE "from 'diff'|import\('diff'\)|require\('diff'\)" "$app" | grep -v '\.spec\.ts$' | sort | tr '\n' ' ' | sed 's/ $//')" &&
+    in_file 'diffWordsWithSpace(oldText, newText, limit)' "$tasks_web/description-diff.ts"
+}
+
+# docs/UI_UX_SPEC.md §7.5 "Diferența descrierii": its words, the block of at most 240px, the colors.
+the_diff_follows_the_ui_spec() {
+  for words in 'Vezi diferența' 'Ascunde' 'Nu am putut încărca diferența.' 'Reîncearcă' '<kb-description-diff [before]="diff.before" [after]="diff.after" />'; do
+    in_file "$words" "$tasks_web/task-timeline.ts" || {
+      echo "no '$words' in task-timeline.ts"
+      return 1
+    }
+  done
+  in_file 'box-sizing: border-box;' "$tasks_web/task-timeline.ts" &&
+    in_file 'max-height: 240px;' "$tasks_web/task-timeline.ts" &&
+    in_file 'overflow: auto;' "$tasks_web/task-timeline.ts" &&
+    in_file "store.toggleDiff(line.id)" "$tasks_web/task-timeline.ts" &&
+    in_file "this.api.historyEntry(taskId, entryId)" "$tasks_web/task-timeline-store.ts" &&
+    in_file 'font-size: 13px;' "$tasks_web/description-diff.ts" &&
+    in_file 'white-space: pre-wrap;' "$tasks_web/description-diff.ts" &&
+    in_file 'background: var(--kb-danger-bg);' "$tasks_web/description-diff.ts" &&
+    in_file 'text-decoration: line-through;' "$tasks_web/description-diff.ts" &&
+    in_file 'background: var(--kb-success-bg);' "$tasks_web/description-diff.ts" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+      "$tasks_web/description-diff.ts" "$tasks_web/task-timeline.ts" "$tasks_web/task-timeline-store.ts"
+}
+
+# The initial bundle is what index.html loads: its scripts and the chunks it preloads.
+initial_files() {
+  grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/dist/browser/index.html" |
+    sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# jsdiff's own option names, which the minifier keeps.
+jsdiff_marker='maxEditLength|oneChangePerToken|useLongestToken'
+
+# docs/SPEC.md §2: jsdiff only in the tasks' chunk, the task panel's, which holds the timeline; none of
+# the initial files holds it or the diff's component.
+jsdiff_comes_with_the_panel_only() {
+  built || return 1
+  initial=$(initial_files)
+  [ -n "$initial" ] || {
+    echo "index.html loads nothing"
+    return 1
+  }
+  for file in $initial; do
+    if grep -qE "$jsdiff_marker|kb-description-diff" "$scratch/dist/browser/$file"; then
+      echo "$file, in the initial bundle, holds jsdiff or the diff's component"
+      return 1
+    fi
+  done
+  holders=$(grep -lE "$jsdiff_marker" "$scratch"/dist/browser/*.js | sed 's|.*/||' | tr '\n' ' ' | sed 's/ $//')
+  [ -n "$holders" ] && [ "$(printf '%s\n' $holders | wc -l)" -eq 1 ] || {
+    echo "jsdiff is in: ${holders:-no file}"
+    return 1
+  }
+  grep -q 'kb-task-timeline' "$scratch/dist/browser/$holders" && grep -q 'kb-description-diff' "$scratch/dist/browser/$holders" || {
+    echo "$holders, which holds jsdiff, isn't the task panel's chunk"
+    return 1
+  }
+}
+
+task_6() {
+  echo "16b.6 A description's texts on demand, and their diff in the timeline"
+  check "Docker is running" docker_is_running
+  check "the entry's query is tracked" tracked "$entry_app/GetTaskHistoryEntryQuery.cs"
+  check "its handler is tracked" tracked "$entry_app/GetTaskHistoryEntryQueryHandler.cs"
+  check "the solution builds without warnings" solution_builds
+  check "the formatting is clean" formatting_is_clean
+  check "the handler's tests pass: the list without the texts, the entry with them, another task's, who sees it" entry_handler_tests_pass
+  check "the endpoint's tests pass" entry_endpoint_tests_pass
+  check "the flows pass: the texts out of the pages, whole in their entry, for whoever sees the task" diff_flow_tests_pass
+  check "the list leaves a description's texts out, and the database keeps them" the_list_leaves_the_descriptions_texts_out
+  check "the entry gives both texts as saved, lines and diacritics kept" the_entry_gives_both_texts
+  check "another task's entry is 404 History.NotFound" another_tasks_entry_is_404
+  check "an outsider reads no entry, 403 Project.MemberRequired" an_outsider_reads_no_entry
+  check "an archived task's entry is 404 Task.NotFound, but for tasks.archive" an_archived_tasks_entry_is_only_for_tasks_archive
+  check "backend/CLAUDE.md says how the entry works" in_file '`GET /api/tasks/{id}/history/{entryId}`' backend/CLAUDE.md
+  for file in description-diff.ts description-diff.spec.ts; do
+    check "features/tasks/$file is tracked" tracked "$tasks_web/$file"
+  done
+  check "the specs name the rules: a word deleted, one added, the lines kept, the link, the skeleton, the error" diff_specs_name_the_rules
+  check "the specs of the diff, the timeline and the API pass" specs_pass 'src/app/features/tasks/{description-diff,task-timeline,tasks-api}.spec.ts' 27
+  check "every spec of the tasks feature passes" specs_pass 'src/app/features/tasks/*.spec.ts' 127
+  check "diff 9 is a dependency, in the lock" diff_is_a_dependency
+  check "only the diff's component imports it, with diffWordsWithSpace" only_the_diff_imports_it
+  check "the diff follows the UI spec: its words, at most 240px, the colors, nothing unsafe" the_diff_follows_the_ui_spec
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "jsdiff comes only in the task panel's chunk, never in the initial bundle" jsdiff_comes_with_the_panel_only
+  check "frontend/CLAUDE.md says how it works" in_file '`kb-description-diff`' frontend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5
+  set -- 1 2 3 4 5 6
 fi
 for task in "$@"; do
   "task_$task"
