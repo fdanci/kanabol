@@ -12,7 +12,7 @@
 #      project, an assignee added later alerted at the next run and nobody twice, an interval under a
 #      minute stopping the API at its start, and the check turned off. Docker, PostgreSQL.
 #   2  the notifications' endpoints: the tests, then the real API in Production on notifications that a
-#      comment, two assignments and the overdue check made: the caller's own, a Page of 20 from the
+#      comment, two assignments and the overdue check made, for people of its own: the caller's own, a Page of 20 from the
 #      newest, the filters unread and type, 400 on a wrong query, an outsider's none, the unread count,
 #      read twice keeping the first time, another's 404 Notification.NotFound, read-all counting what it
 #      marked. Docker, PostgreSQL.
@@ -20,6 +20,11 @@
 #      without warnings but the budget's, the texts of docs/UI_UX_SPEC.md §7.6, Realtime reached only
 #      through import(), SignalR out of the initial bundle in a chunk the board and the bell share. Only
 #      the packages that scripts/setup.sh installs.
+#   4  the group's flows end to end: the API's tests (once per task and person, a later assignee, what isn't
+#      overdue, the alert on the user's own group, read and read-all, a task the user no longer sees),
+#      then the real API with the check every minute: an alert heard by its people over a real
+#      WebSocket, connected as the bell connects, without a board, and by no member or outsider. The
+#      script writes a small SignalR client in Node, as check-realtime.sh does. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -584,55 +589,57 @@ notifications_as() { # notifications_as <token> [query]: prints the status, the 
   as "$1" GET "/api/notifications${2:+?$2}"
 }
 
-# With the check off, the admin creates NOT-1 for Dan, Ioana comments on it, and the admin creates NOT-2,
-# overdue, for Dan; then the API starts with the check on, which tells Dan and the admin of NOT-2. Dan has
+# With the check off, the admin creates NOT-1 for Nora, Ilie comments on it, and the admin creates NOT-2,
+# overdue, for Nora; then the API starts with the check on, which tells Nora and the admin of NOT-2. Nora has
 # four, from the newest: NOT-2 overdue, NOT-2 assigned, the comment on NOT-1, NOT-1 assigned.
 notifications_are_ready() {
   team_is_ready || return 1
+  colleague_is_ready nora nora@example.com 'Nora Pop' || return 1
+  colleague_is_ready ilie ilie@example.com 'Ilie Marin' || return 1
   [ -n "${not_one:-}" ] && return 0
   api_is_up || return 1
   status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Notificari","key":"NOT"}')" || return 1
   not_id=$(body_field id)
-  for member in "$dan_id" "$ioana_id"; do
+  for member in "$nora_id" "$ilie_id"; do
     status_is 201 "$(as "$admin_token" POST "/api/projects/$not_id/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
   done
-  a_task_in "$not_id" 'Login SSO' "\"assigneeIds\":[\"$dan_id\"]" || return 1
+  a_task_in "$not_id" 'Login SSO' "\"assigneeIds\":[\"$nora_id\"]" || return 1
   not_one=$new_task
-  status_is 201 "$(as "$ioana_token" POST "/api/tasks/$not_one/comments" '{"body":"Merge și pe mobil"}')" || return 1
-  a_task_in "$not_id" 'Export CSV' "\"dueDate\":\"$past\",\"assigneeIds\":[\"$dan_id\"]" || return 1
+  status_is 201 "$(as "$ilie_token" POST "/api/tasks/$not_one/comments" '{"body":"Merge și pe mobil"}')" || return 1
+  a_task_in "$not_id" 'Export CSV' "\"dueDate\":\"$past\",\"assigneeIds\":[\"$nora_id\"]" || return 1
   not_two=$new_task
   start_api Production Alerts__OverdueCheckInterval=00:01:00 || return 1
-  wait_for 30 not_two_alerts_are 2 && wait_for 30 dans_count_is 4
+  wait_for 30 not_two_alerts_are 2 && wait_for 30 noras_count_is 4
 }
 
 not_two_alerts_are() {
   is "$1" "$(in_db "SELECT count(*) FROM notifications WHERE type = 'TaskOverdue' AND task_id = '$not_two'")"
 }
 
-dans_count_is() {
-  is "$1" "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$dan_id' AND task_id IN ('$not_one', '$not_two')")"
+noras_count_is() {
+  is "$1" "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$nora_id' AND task_id IN ('$not_one', '$not_two')")"
 }
 
-dans_list_is_a_page_from_the_newest() {
+noras_list_is_a_page_from_the_newest() {
   notifications_are_ready || return 1
   start_api Production Alerts__OverdueCheckEnabled=false || return 1
-  status_is 200 "$(notifications_as "$dan_token")" || return 1
+  status_is 200 "$(notifications_as "$nora_token")" || return 1
   is '1|20|4' "$(json "[b.page, b.pageSize, b.totalCount].join('|')")" || return 1
   is 'TaskOverdue:NOT-2:Export CSV|TaskAssigned:NOT-2:Export CSV|CommentAdded:NOT-1:Login SSO|TaskAssigned:NOT-1:Login SSO' \
     "$(json "b.items.map(n => [n.type, n.task.key, n.task.title].join(':')).join('|')")"
 }
 
 each_comes_with_its_fields() {
-  status_is 200 "$(notifications_as "$dan_token")" || return 1
+  status_is 200 "$(notifications_as "$nora_token")" || return 1
   is "NOT-2: Export CSV is overdue|$not_two|null|true" \
     "$(json "[b.items[0].message, b.items[0].task.id, String(b.items[0].readAt), !isNaN(Date.parse(b.items[0].createdAt))].join('|')")" || return 1
-  is 'Ioana Marin commented on NOT-1: Login SSO|Administrator assigned you NOT-1: Login SSO' "$(json "[b.items[2].message, b.items[3].message].join('|')")"
+  is 'Ilie Marin commented on NOT-1: Login SSO|Administrator assigned you NOT-1: Login SSO' "$(json "[b.items[2].message, b.items[3].message].join('|')")"
 }
 
 the_filters_and_the_page_hold() {
-  status_is 200 "$(notifications_as "$dan_token" 'unread=true&type=CommentAdded')" || return 1
+  status_is 200 "$(notifications_as "$nora_token" 'unread=true&type=CommentAdded')" || return 1
   is 'CommentAdded:1' "$(json "b.items.map(n => n.type).join() + ':' + b.totalCount")" || return 1
-  status_is 200 "$(notifications_as "$dan_token" 'type=TaskOverdue&type=CommentAdded&page=2&pageSize=1')" || return 1
+  status_is 200 "$(notifications_as "$nora_token" 'type=TaskOverdue&type=CommentAdded&page=2&pageSize=1')" || return 1
   is 'CommentAdded:2' "$(json "b.items.map(n => n.type).join() + ':' + b.totalCount")"
 }
 
@@ -640,12 +647,12 @@ wrong_queries_are_400_on_their_field() {
   for pair in 'type=Unknown:type' 'pageSize=101:pageSize' 'page=0:page' 'unread=poate:unread'; do
     query=${pair%:*}
     field=${pair##*:}
-    status_is 400 "$(notifications_as "$dan_token" "$query")" || return 1
+    status_is 400 "$(notifications_as "$nora_token" "$query")" || return 1
     is "$field" "$(json "Object.keys(b.errors).join()")" || return 1
   done
 }
 
-an_outsider_sees_none_of_dans() {
+an_outsider_sees_none_of_noras() {
   status_is 200 "$(notifications_as "$eva_token")" || return 1
   is 0 "$(json "b.totalCount")"
 }
@@ -655,39 +662,39 @@ unread_count_is() { # unread_count_is <count> <token>
   is "{\"count\":$1}" "$(cat "$scratch/body")"
 }
 
-dans_unread_count_is_four() {
-  unread_count_is 4 "$dan_token"
+noras_unread_count_is_four() {
+  unread_count_is 4 "$nora_token"
 }
 
-# Dan reads the comment's notification, twice: the first time stays, and the count goes down by one.
+# Nora reads the comment's notification, twice: the first time stays, and the count goes down by one.
 reading_one_is_idempotent() {
-  status_is 200 "$(notifications_as "$dan_token" 'type=CommentAdded')" || return 1
+  status_is 200 "$(notifications_as "$nora_token" 'type=CommentAdded')" || return 1
   comment_notification=$(json "b.items[0].id")
   task_updated=$(in_db "SELECT updated_at FROM task_items WHERE id = '$not_one'")
-  status_is 200 "$(as "$dan_token" POST "/api/notifications/$comment_notification/read")" || return 1
+  status_is 200 "$(as "$nora_token" POST "/api/notifications/$comment_notification/read")" || return 1
   first_read=$(json "b.readAt")
   [ "$first_read" != null ] || return 1
-  status_is 200 "$(as "$dan_token" POST "/api/notifications/$comment_notification/read")" || return 1
+  status_is 200 "$(as "$nora_token" POST "/api/notifications/$comment_notification/read")" || return 1
   is "$first_read" "$(json "b.readAt")" || return 1
   is "$comment_notification|NOT-1" "$(json "b.id + '|' + b.task.key")" || return 1
-  unread_count_is 3 "$dan_token" || return 1
+  unread_count_is 3 "$nora_token" || return 1
   is "$task_updated" "$(in_db "SELECT updated_at FROM task_items WHERE id = '$not_one'")"
 }
 
-# Eva can't read Dan's, which stays unread.
+# Eva can't read Nora's, which stays unread.
 anothers_is_404() {
-  status_is 200 "$(notifications_as "$dan_token" 'unread=true')" || return 1
-  dans=$(json "b.items[0].id")
-  code_is 404 Notification.NotFound "$(as "$eva_token" POST "/api/notifications/$dans/read")" || return 1
-  is '' "$(in_db "SELECT read_at FROM notifications WHERE id = '$dans'")"
+  status_is 200 "$(notifications_as "$nora_token" 'unread=true')" || return 1
+  noras=$(json "b.items[0].id")
+  code_is 404 Notification.NotFound "$(as "$eva_token" POST "/api/notifications/$noras/read")" || return 1
+  is '' "$(in_db "SELECT read_at FROM notifications WHERE id = '$noras'")"
 }
 
 read_all_counts_what_it_marked() {
-  status_is 200 "$(as "$dan_token" POST /api/notifications/read-all)" || return 1
+  status_is 200 "$(as "$nora_token" POST /api/notifications/read-all)" || return 1
   is '{"count":3}' "$(cat "$scratch/body")" || return 1
-  status_is 200 "$(as "$dan_token" POST /api/notifications/read-all)" || return 1
+  status_is 200 "$(as "$nora_token" POST /api/notifications/read-all)" || return 1
   is '{"count":0}' "$(cat "$scratch/body")" || return 1
-  unread_count_is 0 "$dan_token" || return 1
+  unread_count_is 0 "$nora_token" || return 1
   is 2 "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$admin_id' AND read_at IS NULL AND task_id IN ('$not_one', '$not_two')")"
 }
 
@@ -711,13 +718,13 @@ task_2() {
   check "the handlers' tests pass: the caller's own, the filters, the pages, read and read-all" notification_handler_tests_pass
   check "the endpoints' tests pass" notification_endpoint_tests_pass
   check "the endpoints need no permission" notifications_need_no_permission
-  check "a comment, two assignments and an overdue check make Dan four notifications" notifications_are_ready
-  check "Dan's list is a page of 20 from the newest, each with its task" dans_list_is_a_page_from_the_newest
+  check "a comment, two assignments and an overdue check make Nora four notifications" notifications_are_ready
+  check "Nora's list is a page of 20 from the newest, each with its task" noras_list_is_a_page_from_the_newest
   check "each comes with its message, its task, its time and no readAt" each_comes_with_its_fields
   check "unread, type repeated, page and pageSize hold" the_filters_and_the_page_hold
   check "an unknown type, a page out of range or a wrong unread is 400 on its field" wrong_queries_are_400_on_their_field
-  check "an outsider sees none of Dan's" an_outsider_sees_none_of_dans
-  check "Dan's unread count is 4" dans_unread_count_is_four
+  check "an outsider sees none of Nora's" an_outsider_sees_none_of_noras
+  check "Nora's unread count is 4" noras_unread_count_is_four
   check "reading one twice keeps the first time, counts one less and leaves the task alone" reading_one_is_idempotent
   check "someone else's is 404 Notification.NotFound, and stays unread" anothers_is_404
   check "read-all answers how many it marked, then none, and leaves the admin's" read_all_counts_what_it_marked
@@ -932,8 +939,209 @@ task_3() {
   check "frontend/CLAUDE.md says how the bell works" in_file '`kb-notification-bell`' frontend/CLAUDE.md
 }
 
+# ---- A SignalR client as a browser is one: the JSON protocol over a WebSocket, the token only in the
+# query string, as check-realtime.sh's. Built once, on first use.
+
+hub_client() {
+  [ -f "$scratch/hub.mjs" ] && return 0
+  cat >"$scratch/hub.mjs" <<'JS'
+// node hub.mjs <API address> <script file>: runs the script's steps and writes what happened as JSON.
+// A step connects a name with a token, as the bell does, without joining any project; sends a request to
+// the API; or waits until a name heard so many messages of an event, or the time is up. What each
+// connection heard comes last.
+import { readFileSync } from 'node:fs';
+
+const RS = '\x1e';
+const [base, scriptFile] = process.argv.slice(2);
+const steps = JSON.parse(readFileSync(scriptFile, 'utf8'));
+
+async function connect(token) {
+  const query = `access_token=${encodeURIComponent(token)}`;
+  const negotiated = await fetch(`${base}/hubs/board/negotiate?negotiateVersion=1&${query}`, { method: 'POST' });
+  if (negotiated.status !== 200) throw new Error(`negotiate answered ${negotiated.status}`);
+  const { connectionId, connectionToken } = await negotiated.json();
+  const socket = new WebSocket(`${base.replace(/^http/, 'ws')}/hubs/board?id=${encodeURIComponent(connectionToken)}&${query}`);
+  const heard = [];
+  let shake;
+  const shaken = new Promise((resolve, reject) => (shake = { resolve, reject }));
+  socket.onmessage = (event) => {
+    for (const frame of String(event.data).split(RS).filter(Boolean)) {
+      const message = JSON.parse(frame);
+      if (!('type' in message)) {
+        if (message.error) shake.reject(new Error(message.error));
+        else shake.resolve();
+      } else if (message.type === 1) {
+        heard.push({ event: message.target, payload: message.arguments[0] });
+      } else if (message.type === 7) {
+        heard.push({ event: '(closed)', payload: message.error ?? null });
+      }
+    }
+  };
+  await new Promise((resolve, reject) => {
+    socket.onopen = resolve;
+    socket.onerror = () => reject(new Error('the WebSocket failed'));
+  });
+  socket.send(JSON.stringify({ protocol: 'json', version: 1 }) + RS);
+  await shaken;
+  return { connectionId, heard, close: () => socket.close() };
+}
+
+const hubs = {};
+const result = { connections: {}, steps: [], heard: {} };
+try {
+  for (const step of steps) {
+    if (step.connect) {
+      try {
+        hubs[step.connect] = await connect(step.token);
+        result.connections[step.connect] = hubs[step.connect].connectionId;
+        result.steps.push('connected');
+      } catch (error) {
+        result.steps.push(`refused: ${error.message}`);
+      }
+    } else if (step.request) {
+      const answer = await fetch(`${base}${step.request}`, {
+        method: step.method,
+        headers: { Authorization: `Bearer ${step.token}`, 'Content-Type': 'application/json' },
+        body: step.body === undefined ? undefined : JSON.stringify(step.body),
+      });
+      result.steps.push(String(answer.status));
+    } else if (step.until) {
+      const started = Date.now();
+      const count = () => hubs[step.until].heard.filter((message) => message.event === step.event).length;
+      while (count() < step.count && Date.now() - started < step.timeout) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      result.steps.push(count() >= step.count ? 'heard' : `heard ${count()} of ${step.count}`);
+    }
+  }
+  // Whatever else was on its way reaches the sockets.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+} finally {
+  for (const [name, hub] of Object.entries(hubs)) {
+    result.heard[name] = hub.heard;
+    hub.close();
+  }
+}
+console.log(JSON.stringify(result));
+JS
+}
+
+hub() { # hub <steps as JSON>: runs them, and leaves what happened in the scratch folder
+  hub_client || return 1
+  printf '%s' "$1" >"$scratch/hub-steps.json"
+  rm -f "$scratch/hub-result.json"
+  node "$(native "$scratch/hub.mjs")" "$API_URL" "$(native "$scratch/hub-steps.json")" >"$scratch/hub-result.json" 2>"$scratch/hub-error.log" || {
+    cat "$scratch/hub-error.log"
+    return 1
+  }
+}
+
+heard() { # heard <JavaScript expression on r, the last hub run>: prints its value
+  node -e "const r = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
+    "$(native "$scratch/hub-result.json")" "$1"
+}
+
+steps_were() { # steps_were <expected steps, separated by |>
+  is "$1" "$(heard "r.steps.join('|')")" || {
+    cat "$scratch/hub-result.json"
+    return 1
+  }
+}
+
+# ---- 17.4: the group's flows end to end, in the tests and on the real API.
+
+flow_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests \
+    OverdueAlertsFlowTests.OverdueTask_TellsItsAssigneeAndTheOwnerOnce_AndNobodyElse \
+    OverdueAlertsFlowTests.AssigneeAddedLater_IsToldAtTheNextRun_AndNobodyTwice_EvenAfterTheDeadlinePassesAgain \
+    OverdueAlertsFlowTests.TaskDoneArchivedNotDueOrInAnArchivedProject_TellsNobody \
+    OverdueAlertsFlowTests.Alert_IsHeardOnTheUsersOwnGroup_WithoutABoard_AndByNoOutsider \
+    OverdueAlertsFlowTests.ReadAndReadAll_CountOnlyWhatTheyMarkNow_AndNobodyReadsAnothers \
+    OverdueAlertsFlowTests.Alert_StaysInTheList_WhenItsUserNoLongerSeesTheTask
+}
+
+# One run on the real API with the check every minute: Radu, Sara (a member) and Eva (from outside) are
+# connected as the bell connects, without a board, and so is the admin. The admin creates HUB-1, overdue,
+# for Radu: Radu hears of the assignment at once, then, at the next run, Radu and the admin hear of the
+# deadline.
+the_alert_runs_over_the_hub() {
+  team_is_ready || return 1
+  [ -n "${hub_project:-}" ] && return 0
+  colleague_is_ready radu radu@example.com 'Radu Stan' || return 1
+  colleague_is_ready sara sara@example.com 'Sara Ene' || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Pe hub","key":"HUB"}')" || return 1
+  hub_project=$(body_field id)
+  for member in "$radu_id" "$sara_id"; do
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$hub_project/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
+  done
+  # A fresh start: its own run comes at once, before anyone is connected, and the next one a minute later.
+  stop_api
+  start_api Production Alerts__OverdueCheckInterval=00:01:00 || return 1
+  hub "[
+    {\"connect\":\"admin\",\"token\":\"$admin_token\"},
+    {\"connect\":\"radu\",\"token\":\"$radu_token\"},
+    {\"connect\":\"sara\",\"token\":\"$sara_token\"},
+    {\"connect\":\"eva\",\"token\":\"$eva_token\"},
+    {\"request\":\"/api/projects/$hub_project/tasks\",\"method\":\"POST\",\"token\":\"$admin_token\",
+     \"body\":{\"title\":\"Login pe hub\",\"priority\":\"Medium\",\"dueDate\":\"$past\",\"assigneeIds\":[\"$radu_id\"]}},
+    {\"until\":\"radu\",\"event\":\"NotificationCreated\",\"count\":2,\"timeout\":90000},
+    {\"until\":\"admin\",\"event\":\"NotificationCreated\",\"count\":1,\"timeout\":10000}
+  ]" || return 1
+  steps_were 'connected|connected|connected|connected|201|heard|heard'
+  hub_task=$(in_db "SELECT id FROM task_items WHERE project_id = '$hub_project'")
+}
+
+notification_ids_heard_by() { # notification_ids_heard_by <name>: sorted, one per line
+  heard "r.heard.$1.filter(m => m.event === 'NotificationCreated').map(m => m.payload.notificationId).join('\n')" | tr -d '\r' | sort
+}
+
+# Radu hears the ids of his two notifications, the assignment's and the deadline's, each once.
+the_assignee_hears_each_of_his_once() {
+  the_alert_runs_over_the_hub || return 1
+  is "$(in_db "SELECT id FROM notifications WHERE user_id = '$radu_id' AND task_id = '$hub_task' ORDER BY id" | sort)" \
+    "$(notification_ids_heard_by radu)" || return 1
+  is 'TaskAssigned,TaskOverdue' "$(in_db "SELECT string_agg(type, ',' ORDER BY type) FROM notifications WHERE user_id = '$radu_id' AND task_id = '$hub_task'")"
+}
+
+the_payload_is_the_id_only() {
+  the_alert_runs_over_the_hub || return 1
+  is 'notificationId' "$(heard "[...new Set(r.heard.radu.map(m => Object.keys(m.payload).join()))].join('|')")"
+}
+
+# The admin, the owner, hears of the deadline only: nobody is told of an assignment they made.
+the_owner_hears_the_deadline_only() {
+  the_alert_runs_over_the_hub || return 1
+  is "$(in_db "SELECT id FROM notifications WHERE user_id = '$admin_id' AND task_id = '$hub_task' AND type = 'TaskOverdue'")" \
+    "$(notification_ids_heard_by admin)"
+}
+
+nobody_else_hears_a_thing() {
+  the_alert_runs_over_the_hub || return 1
+  is 0 "$(heard "r.heard.sara.length + r.heard.eva.length")"
+}
+
+the_bell_reads_them_after() {
+  the_alert_runs_over_the_hub || return 1
+  status_is 200 "$(as "$radu_token" GET /api/notifications/unread-count)" || return 1
+  is '{"count":2}' "$(cat "$scratch/body")" || return 1
+  status_is 200 "$(as "$radu_token" GET '/api/notifications?pageSize=10')" || return 1
+  is 'TaskOverdue:HUB-1|TaskAssigned:HUB-1' "$(json "b.items.map(n => n.type + ':' + n.task.key).join('|')")"
+}
+
+task_4() {
+  echo "17.4 The group's flows end to end, and an alert heard on the bell's hub connection"
+  check "Docker is running" docker_is_running
+  check "the flows' tests pass: once per task and person, a later assignee, what isn't overdue, the hub, read and read-all" flow_tests_pass
+  check "the real API with the check every minute tells Radu over his connection, without a board" the_alert_runs_over_the_hub
+  check "Radu hears each of his two notifications once, by id" the_assignee_hears_each_of_his_once
+  check "the payload is the notification's id only" the_payload_is_the_id_only
+  check "the owner hears of the deadline only" the_owner_hears_the_deadline_only
+  check "a member and an outsider hear nothing" nobody_else_hears_a_thing
+  check "the bell's count and list then hold both" the_bell_reads_them_after
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 for task in "$@"; do
   "task_$task"
