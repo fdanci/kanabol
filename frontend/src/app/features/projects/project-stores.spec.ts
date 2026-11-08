@@ -20,6 +20,7 @@ function summary(id: string): ProjectSummaryDto {
     memberCount: 1,
     openTaskCount: 0,
     overdueTaskCount: 0,
+    completedTaskCount: 0,
     updatedAt: '2026-11-04T08:00:00Z',
     archivedAt: null,
   };

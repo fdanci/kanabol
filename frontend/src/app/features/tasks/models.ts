@@ -97,6 +97,16 @@ export interface TaskSummaryDto {
   updatedAt: string;
 }
 
+/**
+ * A row of "Task-urile mele" (GET /api/me/tasks, docs/SPEC.md §4.4): a row of the List view, with the
+ * project it is in.
+ */
+export interface MyTaskDto extends TaskSummaryDto {
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+}
+
 /** What a task needs of its project: the board's columns, and whether the caller is in it. */
 export interface TaskProjectDto {
   id: string;

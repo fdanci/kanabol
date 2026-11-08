@@ -6,6 +6,7 @@ import { handledHere } from '../../core/api/error-interceptor';
 import { Page } from '../../shared/models/page';
 import { TaskSort, sortToQuery } from '../../shared/models/task-filters';
 import {
+  MyTaskDto,
   NewTask,
   TaskHistoryEntryDto,
   TaskItemDto,
@@ -17,6 +18,21 @@ import {
 
 /** The timeline reads a task's history 50 changes at a time (docs/UI_UX_SPEC.md §7.5). */
 export const HISTORY_PAGE_SIZE = 50;
+
+/** "Task-urile mele" go by deadline from the soonest, those without one last (docs/UI_UX_SPEC.md §7.2). */
+export const MY_TASKS_SORT: TaskSort = { field: 'dueDate', descending: false };
+
+/** A page of the user's own tasks: the List's filters but the assignee, and only the open ones with open. */
+export interface MyTasksQuery {
+  page: number;
+  pageSize: number;
+  sort: TaskSort;
+  open: boolean;
+  priorities: TaskPriority[];
+  overdue: boolean;
+  search: string;
+  includeArchived: boolean;
+}
 
 /** A page of a project's tasks: the board's filters, with the assignee as an id. */
 export interface TaskListQuery {
@@ -86,6 +102,31 @@ export class TasksApi {
     return this.api.get<TaskHistoryEntryDto>(`/tasks/${id}/history/${entryId}`, {
       context: handledHere('History.NotFound'),
     });
+  }
+
+  /** The user's own tasks across every project (docs/SPEC.md §4.4), the API's default sort left out. */
+  myTasks(query: MyTasksQuery): Observable<Page<MyTaskDto>> {
+    let params = new HttpParams().set('page', query.page).set('pageSize', query.pageSize);
+    const sort = sortToQuery(query.sort, MY_TASKS_SORT);
+    if (sort) {
+      params = params.set('sort', sort);
+    }
+    if (query.open) {
+      params = params.set('open', true);
+    }
+    for (const priority of query.priorities) {
+      params = params.append('priority', priority);
+    }
+    if (query.overdue) {
+      params = params.set('overdue', true);
+    }
+    if (query.search.trim() !== '') {
+      params = params.set('search', query.search.trim());
+    }
+    if (query.includeArchived) {
+      params = params.set('includeArchived', true);
+    }
+    return this.api.get<Page<MyTaskDto>>('/me/tasks', { params });
   }
 
   /** The project's columns and the caller's role in it, for the panel's choices. */

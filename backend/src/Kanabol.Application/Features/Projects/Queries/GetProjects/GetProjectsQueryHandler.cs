@@ -9,8 +9,8 @@ namespace Kanabol.Application.Features.Projects.Queries.GetProjects;
 
 /// <summary>
 /// The projects the caller can open: theirs, or every one with projects.view_all or projects.manage,
-/// as IProjectAccess decides it, from the database and never for a deactivated user. Archived ones
-/// only when asked for, so an owner can find one to restore.
+/// as IProjectAccess decides it, from the database and never for a deactivated user, or only theirs with
+/// Mine. Archived ones only when asked for, so an owner can find one to restore.
 /// </summary>
 public sealed class GetProjectsQueryHandler(IAppDbContext db, ICurrentUser currentUser, IClock clock)
     : IQueryHandler<GetProjectsQuery, Page<ProjectSummaryDto>>
@@ -36,7 +36,7 @@ public sealed class GetProjectsQueryHandler(IAppDbContext db, ICurrentUser curre
 
         // IgnoreQueryFilters reaches the tasks too, so the counts below leave archived tasks out themselves.
         var projects = query.IncludeArchived ? db.Projects.IgnoreQueryFilters() : db.Projects;
-        if (!caller.SeesAll)
+        if (!caller.SeesAll || query.Mine)
         {
             projects = projects.Where(project => project.Members.Any(member => member.UserId == userId));
         }
@@ -72,6 +72,7 @@ public sealed class GetProjectsQueryHandler(IAppDbContext db, ICurrentUser curre
                 MemberCount = project.Members.Count,
                 OpenTaskCount = openTasks.Count(task => task.ProjectId == project.Id),
                 OverdueTaskCount = openTasks.Count(task => task.ProjectId == project.Id && task.DueDate < now),
+                CompletedTaskCount = db.TaskItems.Count(task => task.ProjectId == project.Id && task.ArchivedAt == null && task.CompletedAt != null),
                 ProjectChangedAt = project.UpdatedAt ?? project.CreatedAt,
                 TaskChangedAt = db.TaskItems.Where(task => task.ProjectId == project.Id).Max(task => (DateTimeOffset?)(task.UpdatedAt ?? task.CreatedAt)),
                 project.ArchivedAt,
@@ -86,6 +87,7 @@ public sealed class GetProjectsQueryHandler(IAppDbContext db, ICurrentUser curre
                 row.MemberCount,
                 row.OpenTaskCount,
                 row.OverdueTaskCount,
+                row.CompletedTaskCount,
                 row.TaskChangedAt > row.ProjectChangedAt ? row.TaskChangedAt.Value : row.ProjectChangedAt,
                 row.ArchivedAt))
             .ToPage(query.Page, query.PageSize, ct);

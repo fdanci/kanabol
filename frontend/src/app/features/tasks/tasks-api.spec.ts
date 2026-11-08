@@ -26,6 +26,49 @@ describe('TasksApi', () => {
     http.verify();
   });
 
+  // docs/SPEC.md §4.4 "Panoul principal și task-urile mele": the project list's filters but the assignee.
+  it('reads a page of the user’s own tasks, with only the filters asked for', async () => {
+    const reading = firstValueFrom(
+      api.myTasks({
+        page: 1,
+        pageSize: 50,
+        sort: { field: 'dueDate', descending: false },
+        open: true,
+        priorities: ['High', 'Critical'],
+        overdue: true,
+        search: ' login ',
+        includeArchived: true,
+      }),
+    );
+
+    const request = http.expectOne((sent) => sent.url === '/api/me/tasks' && sent.method === 'GET');
+    expect(request.request.params.toString()).toBe(
+      'page=1&pageSize=50&open=true&priority=High&priority=Critical&overdue=true&search=login&includeArchived=true',
+    );
+    request.flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+
+    expect((await reading).totalCount).toBe(0);
+  });
+
+  it('sends the sort only when it is not by deadline, and no open for the finished ones too', () => {
+    void firstValueFrom(
+      api.myTasks({
+        page: 2,
+        pageSize: 25,
+        sort: { field: 'key', descending: true },
+        open: false,
+        priorities: [],
+        overdue: false,
+        search: '',
+        includeArchived: false,
+      }),
+    );
+
+    const request = http.expectOne((sent) => sent.url === '/api/me/tasks');
+    expect(request.request.params.toString()).toBe('page=2&pageSize=25&sort=key:desc');
+    request.flush({ items: [], page: 2, pageSize: 25, totalCount: 0 });
+  });
+
   it('reads a page of a task’s history, 50 at a time', async () => {
     const page = { items: [anEntry()], page: 2, pageSize: 50, totalCount: 51 };
     const reading = firstValueFrom(api.history('t1', 2));

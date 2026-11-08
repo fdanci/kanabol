@@ -21,6 +21,8 @@ export interface ProjectSummaryDto {
   openTaskCount: number;
   /** Open past their deadline. */
   overdueTaskCount: number;
+  /** With completed_at, archived tasks left out: the main panel's progress (docs/SPEC.md §4.4). */
+  completedTaskCount: number;
   /** The last change to the project or to one of its tasks. */
   updatedAt: string;
   archivedAt: string | null;

@@ -13,12 +13,18 @@ import { SEARCH_DELAY_MS, TaskFilterBar } from './task-filter-bar';
     [filters]="filters()"
     [people]="people"
     [canSeeArchived]="canSeeArchived()"
+    [withAssignee]="withAssignee()"
+    [finished]="finished()"
     (filtersChange)="changed.push($event); filters.set($event)"
+    (finishedChange)="finishedChanges.push($event); finished.set($event)"
   />`,
 })
 class Host {
   readonly filters = signal<TaskFilters>(NO_TASK_FILTERS);
   readonly canSeeArchived = signal(false);
+  readonly withAssignee = signal(true);
+  readonly finished = signal<boolean | null>(null);
+  readonly finishedChanges: boolean[] = [];
   readonly people = [
     { userId: 'u1', displayName: 'Ana Pop' },
     { userId: 'u2', displayName: 'Dan Ionescu' },
@@ -111,6 +117,32 @@ describe('TaskFilterBar', () => {
     chip('Și cele arhivate').click();
 
     expect(last().archived).toBe(true);
+  });
+
+  // docs/UI_UX_SPEC.md §7.2: "Task-urile mele" are the user's own, without an assignee to pick.
+  it('leaves out Ale mele and the assignee select when the tasks are all the user’s', () => {
+    fixture.componentInstance.withAssignee.set(false);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(chip('Ale mele')).toBeUndefined();
+    expect(host.querySelector('mat-select.assignee')).toBeNull();
+    expect(host.querySelector('mat-select.priority')).not.toBeNull();
+    expect(chip('Întârziate')).toBeDefined();
+  });
+
+  it('offers "Și cele terminate" only when given, and says when it is pressed', () => {
+    expect(chip('Și cele terminate')).toBeUndefined();
+
+    fixture.componentInstance.finished.set(false);
+    fixture.detectChanges();
+    expect(chip('Și cele terminate').getAttribute('aria-pressed')).toBe('false');
+    chip('Și cele terminate').click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.finishedChanges).toEqual([true]);
+    expect(chip('Și cele terminate').getAttribute('aria-pressed')).toBe('true');
+    expect(fixture.componentInstance.changed).toEqual([]);
   });
 
   it('clears the filters, keeping the archived ones as chosen', () => {

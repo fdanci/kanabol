@@ -33,6 +33,7 @@ function summary(
     memberCount: 1,
     openTaskCount: 0,
     overdueTaskCount: 0,
+    completedTaskCount: 0,
     updatedAt: new Date(Date.now() - 2 * HOUR).toISOString(),
     archivedAt: null,
     ...extra,

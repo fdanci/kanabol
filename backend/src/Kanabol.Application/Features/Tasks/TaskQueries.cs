@@ -15,6 +15,18 @@ public static class TaskQueries
     public static IQueryable<TaskItem> Tasks(this IAppDbContext db, bool includeArchived) =>
         db.TaskItems.IgnoreQueryFilters().Where(task => includeArchived || task.ArchivedAt == null);
 
+    /// <summary>
+    /// The user's own (SPEC section 4.4, "Panoul principal și task-urile mele"): the tasks they are assigned
+    /// to, in projects not archived where they are still a member, and nothing for a deactivated account.
+    /// projects.view_all widens nothing. The project filter is written out, as in Tasks.
+    /// </summary>
+    public static IQueryable<TaskItem> MyTasks(this IAppDbContext db, Guid userId, bool includeArchived) =>
+        db.Tasks(includeArchived).Where(task =>
+            task.Assignees.Any(assignee => assignee.UserId == userId)
+            && db.Projects.IgnoreQueryFilters().Any(project => project.Id == task.ProjectId && project.ArchivedAt == null)
+            && db.ProjectMembers.Any(member => member.ProjectId == task.ProjectId && member.UserId == userId)
+            && db.Users.Any(user => user.Id == userId && user.IsActive));
+
     /// <summary>The task as the caller sees it, in a project archived or not. Access is the caller's to check first.</summary>
     public static async Task<TaskItemDto?> ReadTask(this IAppDbContext db, Guid taskId, ICurrentUser caller, bool includeArchived, CancellationToken ct)
     {

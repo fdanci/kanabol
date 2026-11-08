@@ -41,7 +41,15 @@ export const routes: Routes = [
     component: Shell,
     canActivate: [authGuard],
     children: [
-      placeholder('', $localize`Panou principal`),
+      {
+        path: '',
+        pathMatch: 'full',
+        title: $localize`Panou principal · Kanabol`,
+        loadChildren: () =>
+          import('./features/dashboard/dashboard.routes').then(
+            (dashboard) => dashboard.DASHBOARD_ROUTES,
+          ),
+      },
       {
         path: 'projects',
         title: $localize`Proiecte · Kanabol`,
@@ -63,7 +71,12 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/tasks/task-panel-route').then((panel) => panel.TaskPanelRoute),
       },
-      placeholder('my-tasks', $localize`Task-urile mele`),
+      {
+        path: 'my-tasks',
+        title: $localize`Task-urile mele · Kanabol`,
+        loadComponent: () =>
+          import('./features/tasks/my-tasks-page').then((page) => page.MyTasksPage),
+      },
       {
         path: 'notifications',
         title: $localize`Notificări · Kanabol`,
