@@ -16,6 +16,10 @@
 #      newest, the filters unread and type, 400 on a wrong query, an outsider's none, the unread count,
 #      read twice keeping the first time, another's 404 Notification.NotFound, read-all counting what it
 #      marked. Docker, PostgreSQL.
+#   3  the bell, its menu and the notifications page: specs, lint, formatting, the production build
+#      without warnings but the budget's, the texts of docs/UI_UX_SPEC.md §7.6, Realtime reached only
+#      through import(), SignalR out of the initial bundle in a chunk the board and the bell share. Only
+#      the packages that scripts/setup.sh installs.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -721,8 +725,215 @@ task_2() {
   check "backend/CLAUDE.md lists the endpoints" in_file '`POST /api/notifications/read-all`' backend/CLAUDE.md
 }
 
+# ---- 17.3: the bell, its menu and the notifications page.
+
+web=frontend
+app=$web/src/app
+bell_web=$app/core/notifications
+page_web=$app/features/notifications
+
+plain() { # plain <file>: without the terminal's colors
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*{},' '______').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is there, so a filter can't run nothing
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "$name" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/dist") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+# The build's own warnings: a // comment in a component's inline CSS breaks the rule after it.
+the_build_warns_only_of_the_budget() {
+  built || return 1
+  warnings=$(plain "$scratch/build.log" | grep -F 'WARNING' | grep -vF 'exceeded maximum budget')
+  [ -z "$warnings" ] || {
+    echo "$warnings"
+    return 1
+  }
+}
+
+the_bell_specs_name_the_rules() {
+  spec_names "$bell_web/notification-bell.spec.ts" \
+    'reads the unread count once signed in, and shows it on the bell' \
+    'hides the badge at 0, and shows 99+ over 99' \
+    "opens the hub for the user's own group, without joining any project" \
+    'reads the count again at each NotificationCreated and each reconnection' \
+    'reads the last 10 when the menu opens, quietly, from the newest' \
+    'reads the list again each time it opens, and at NotificationCreated only while open' \
+    'marks a row read and opens its task' \
+    'marks all of them read, with the menu still open, then reads count and list again' \
+    'forgets the count and the list when the session ends, and stops listening' \
+    'reads nothing while the password has to change, as the API would refuse it' &&
+    spec_names "$bell_web/notification-text.spec.ts" \
+      'says a task is past its deadline' \
+      'says the user was assigned, without who assigned them' \
+      'says there is a new comment, without its author' \
+      'writes the badge: nothing at 0, the number up to 99, then 99+' &&
+    spec_names "$page_web/notifications-page.spec.ts" \
+      'reads the first page of 50, every type, read or not' \
+      'takes the filters from the address: unread=1 and type=' \
+      'marks a row read and opens its task, and tells the bell' \
+      'says "Nicio notificare." without filters' \
+      'says "Nicio notificare pentru filtrele alese." with them, and offers to clear them' \
+      'says it could not read them, and tries again' &&
+    spec_names "$app/core/realtime/realtime.spec.ts" \
+      'opens the connection for the bell without joining a project, once'
+}
+
+# docs/UI_UX_SPEC.md §7.6, word for word where it gives the words.
+the_texts_follow_the_ui_spec() {
+  for words in '${subject}:subject: a depășit deadline-ul' 'Ai fost asignat pe ${subject}:subject:' 'Comentariu nou pe ${subject}:subject:' \
+    "TaskOverdue: 'event_busy'" "TaskAssigned: 'person_add'" "CommentAdded: 'chat_bubble'" "count > 99 ? '99+'"; do
+    in_file "$words" "$bell_web/notification-text.ts" || {
+      echo "no '$words' in notification-text.ts"
+      return 1
+    }
+  done
+  for words in 'Marchează toate ca citite' 'Nicio notificare.' 'Vezi toate' 'routerLink="/notifications"' 'kb-menu kb-notifications-menu'; do
+    in_file "$words" "$bell_web/notification-bell.ts" || {
+      echo "no '$words' in notification-bell.ts"
+      return 1
+    }
+  done
+  for words in 'Doar necitite' 'Toate' 'Marchează toate ca citite' 'Nicio notificare.' 'Nicio notificare pentru filtrele alese.' 'Nu am putut încărca notificările.' 'Reîncearcă'; do
+    grep -qF -- "$words" "$page_web/notifications-page.html" "$page_web/notifications-page.ts" || {
+      echo "no '$words' in the page"
+      return 1
+    }
+  done
+  in_file 'export const BELL_MENU_SIZE = 10;' "$bell_web/bell-store.ts" &&
+    in_file 'const DEFAULT_PAGE_SIZE = 50;' "$page_web/notifications-page.ts" &&
+    in_file "params.get('unread') === '1'" "$page_web/notifications-page.ts" &&
+    in_file "params.get('type')" "$page_web/notifications-page.ts" &&
+    in_file 'width: 400px;' "$web/src/styles/_utilities.scss" &&
+    in_file 'class="badge kb-badge"' "$bell_web/notification-bell.ts" &&
+    in_file 'background: var(--kb-fill-accent);' "$web/src/styles/_utilities.scss" &&
+    in_file 'background: var(--kb-tint-100);' "$bell_web/notification-bell.ts" &&
+    in_file 'background: var(--kb-accent-600);' "$bell_web/notification-line.ts" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+      "$bell_web"/*.ts "$page_web"/*.ts "$page_web/notifications-page.scss"
+}
+
+the_page_has_its_route() {
+  in_file "import('./features/notifications/notifications.routes')" "$app/app.routes.ts" &&
+    lacks "placeholder\('notifications'" "$app/app.routes.ts" &&
+    in_file '<kb-notification-bell />' "$app/core/layout/navbar.ts"
+}
+
+# docs/SPEC.md §9: the bell reaches Realtime only through import(), and nothing the first bundle loads
+# imports it; the board's store does, in its own chunk.
+realtime_comes_only_through_import() {
+  in_file "await import('../realtime/realtime')" "$bell_web/bell-store.ts" || return 1
+  static=$(grep -rlE "from '[./]*(core/)?realtime/realtime'|from '\./realtime'" "$app" --include='*.ts' |
+    grep -vE '\.spec\.ts$|realtime-testing\.ts$|/realtime/realtime\.ts$' | sed "s|$app/||" | sort | tr '\n' ' ' | sed 's/ $//')
+  is 'features/board/board-store.ts' "$static"
+}
+
+# The initial bundle is what index.html loads: its scripts and the chunks it preloads.
+initial_files() {
+  grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/dist/browser/index.html" |
+    sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# SignalR's own names, which the minifier keeps.
+signalr_marker='WebSocketTransport|HubConnectionBuilder|negotiateVersion'
+
+# The bell in the first bundle, SignalR out of it, in one chunk that the board's chunk and the bell's
+# import() share.
+signalr_stays_out_of_the_initial_bundle() {
+  built || return 1
+  initial=$(initial_files)
+  [ -n "$initial" ] || {
+    echo "index.html loads nothing"
+    return 1
+  }
+  bell_found=
+  for file in $initial; do
+    if grep -qE "$signalr_marker" "$scratch/dist/browser/$file"; then
+      echo "$file, in the initial bundle, holds SignalR"
+      return 1
+    fi
+    grep -q 'kb-notification-bell' "$scratch/dist/browser/$file" && bell_found=yes
+  done
+  [ -n "$bell_found" ] || {
+    echo "the bell isn't in the initial bundle"
+    return 1
+  }
+  holders=$(grep -lE "$signalr_marker" "$scratch"/dist/browser/*.js | sed 's|.*/||' | tr '\n' ' ' | sed 's/ $//')
+  [ -n "$holders" ] && [ "$(printf '%s\n' $holders | wc -l)" -eq 1 ] || {
+    echo "SignalR is in: ${holders:-no file}"
+    return 1
+  }
+  importers=$(grep -lF "$holders" "$scratch"/dist/browser/*.js | sed 's|.*/||' | tr '\n' ' ')
+  [ "$(printf '%s\n' $importers | wc -l)" -ge 2 ] || {
+    echo "only $importers load $holders"
+    return 1
+  }
+}
+
+task_3() {
+  echo "17.3 The bell, its menu and the notifications page"
+  for file in models.ts notifications-api.ts notification-text.ts notification-line.ts bell-store.ts notification-bell.ts \
+    notification-bell.spec.ts notification-text.spec.ts notifications-api.spec.ts notifications-testing.ts; do
+    check "core/notifications/$file is tracked" tracked "$bell_web/$file"
+  done
+  for file in notifications-page.ts notifications-page.html notifications-page.scss notifications-store.ts notifications.routes.ts notifications-page.spec.ts; do
+    check "features/notifications/$file is tracked" tracked "$page_web/$file"
+  done
+  check "the specs name the rules: the badge, the hub, the menu, the page, the session" the_bell_specs_name_the_rules
+  check "the specs of the bell, its texts, the API, Realtime and the layout pass" specs_pass 'src/app/core/{notifications,realtime,layout}/*.spec.ts' 81
+  check "the page's specs pass" specs_pass 'src/app/features/notifications/*.spec.ts' 13
+  check "the texts, icons, sizes and colors follow docs/UI_UX_SPEC.md §7.6, nothing unsafe" the_texts_follow_the_ui_spec
+  check "/notifications is the page, and the navbar holds the bell" the_page_has_its_route
+  check "Realtime comes to the bell only through import()" realtime_comes_only_through_import
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "the build warns only of the budget" the_build_warns_only_of_the_budget
+  check "SignalR stays out of the initial bundle, in a chunk the board and the bell share" signalr_stays_out_of_the_initial_bundle
+  check "frontend/CLAUDE.md says how the bell works" in_file '`kb-notification-bell`' frontend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 for task in "$@"; do
   "task_$task"

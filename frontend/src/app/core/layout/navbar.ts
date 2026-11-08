@@ -6,6 +6,7 @@ import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { MatTooltip } from '@angular/material/tooltip';
 import { Router, RouterLink } from '@angular/router';
 import { AuthStore } from '../auth/auth-store';
+import { NotificationBell } from '../notifications/notification-bell';
 import { Avatar } from '../../shared/ui/avatar';
 import { Lockup } from '../../shared/ui/lockup';
 import { ThemeToggle } from '../../shared/ui/theme-toggle';
@@ -31,6 +32,7 @@ import { ThemeStore } from './theme-store';
     Avatar,
     Lockup,
     ThemeToggle,
+    NotificationBell,
   ],
   template: `
     <button
@@ -53,18 +55,7 @@ import { ThemeStore } from './theme-store';
 
     <span class="spacer"></span>
 
-    <button
-      matIconButton
-      type="button"
-      class="tool bell"
-      i18n-aria-label
-      aria-label="Notificări"
-      i18n-matTooltip
-      matTooltip="Notificări"
-      routerLink="/notifications"
-    >
-      <mat-icon aria-hidden="true">notifications</mat-icon>
-    </button>
+    <kb-notification-bell />
 
     @if (auth.user(); as user) {
       <button

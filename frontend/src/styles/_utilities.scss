@@ -249,6 +249,29 @@ textarea.kb-field {
   --_icon: 16px;
 }
 
+// A count on an icon (6.0.11), the bell's: a pill 16px at least, fill-accent with white 10px/700 text,
+// and a 2px border of the toolbar's color, so it sits on the icon. <span class="kb-badge">3</span>.
+.kb-badge {
+  box-sizing: border-box;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 2px solid var(--kb-surface-0);
+  border-radius: var(--kb-radius-pill);
+  background: var(--kb-fill-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+}
+
+// The bell's menu (UI spec 7.6): 400px, past mat-menu's own 280px, and never wider than the window.
+.kb-menu.kb-notifications-menu {
+  width: 400px;
+  max-width: calc(100vw - 2 * var(--kb-space-4));
+}
+
 // A filter toggle (6.0.11): a 26px bezel pill, fill-accent with white text while on. A button with
 // aria-pressed: <button class="kb-filter-chip" [attr.aria-pressed]="on">.
 .kb-filter-chip {

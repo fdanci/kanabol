@@ -1,0 +1,108 @@
+<kb-page-header [title]="heading" [crumbs]="crumbs">
+  <button
+    matButton="outlined"
+    class="kb-bezel kb-regular"
+    type="button"
+    [disabled]="bell.count() === 0"
+    (click)="markAllRead()"
+    i18n
+  >
+    Marchează toate ca citite
+  </button>
+</kb-page-header>
+
+<div class="content">
+  <div class="filters">
+    <button
+      type="button"
+      class="kb-filter-chip"
+      [attr.aria-pressed]="query().unread"
+      (click)="toggleUnread()"
+      i18n
+    >
+      Doar necitite
+    </button>
+    <mat-select
+      class="kb-field kb-select type"
+      panelClass="kb-menu"
+      i18n-aria-label
+      aria-label="Tip"
+      [value]="query().type ?? everyType"
+      (selectionChange)="chooseType($event.value)"
+    >
+      <mat-option [value]="everyType" i18n>Toate</mat-option>
+      @for (type of types; track type.value) {
+        <mat-option [value]="type.value">{{ type.label }}</mat-option>
+      }
+    </mat-select>
+  </div>
+
+  @if (store.state() === 'error') {
+    <kb-empty-state icon="error" [title]="loadFailed">
+      <p i18n>Verifică conexiunea și reîncearcă.</p>
+      <button
+        kbEmptyAction
+        matButton="outlined"
+        class="kb-bezel"
+        type="button"
+        (click)="store.reload()"
+        i18n
+      >
+        Reîncearcă
+      </button>
+    </kb-empty-state>
+  } @else if (store.state() === 'loading' && store.rows().length === 0) {
+    <div class="list" aria-busy="true">
+      @for (row of [1, 2, 3, 4]; track row) {
+        <div class="placeholder-row">
+          <kb-skeleton width="20px" />
+          <kb-skeleton width="55%" />
+        </div>
+      }
+    </div>
+  } @else if (store.totalCount() === 0) {
+    @if (filtered()) {
+      <kb-empty-state icon="filter_alt_off" [title]="noMatchTitle">
+        <p i18n>Schimbă filtrele sau șterge-le ca să vezi toate notificările.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="clearFilters()"
+          i18n
+        >
+          Șterge filtrele
+        </button>
+      </kb-empty-state>
+    } @else {
+      <kb-empty-state icon="notifications" [title]="emptyTitle">
+        <p i18n>Aici apar deadline-urile depășite, asignările și comentariile noi.</p>
+      </kb-empty-state>
+    }
+  } @else {
+    <div class="list" [attr.aria-busy]="store.state() === 'loading'">
+      <ul i18n-aria-label aria-label="Notificările tale">
+        @for (notification of store.rows(); track notification.id) {
+          <li>
+            <button
+              type="button"
+              class="row"
+              [class.unread]="notification.readAt === null"
+              (click)="open(notification)"
+            >
+              <kb-notification-line [notification]="notification" />
+            </button>
+          </li>
+        }
+      </ul>
+      <mat-paginator
+        [length]="store.totalCount()"
+        [pageIndex]="query().page - 1"
+        [pageSize]="query().pageSize"
+        [pageSizeOptions]="pageSizes"
+        (page)="paged($event)"
+      />
+    </div>
+  }
+</div>

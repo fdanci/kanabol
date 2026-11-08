@@ -49,8 +49,9 @@ export const HUB_LINK_FACTORY = new InjectionToken<(accessToken: () => Promise<s
 );
 
 /**
- * The one connection to /hubs/board (docs/SPEC.md §9). It opens when the first board joins, and stays
- * while the user is signed in, so the API also knows the user's own group; it closes with the session.
+ * The one connection to /hubs/board (docs/SPEC.md §9). The bell opens it once the user is signed in, for
+ * the user's own group, which the API joins by itself; a board joins its project on it. It stays while
+ * the user is signed in, and closes with the session.
  * SignalR reconnects by itself, and when it gives up this starts it again; after either, it joins the
  * projects again and tells its listeners, who read what they missed. The connection's id goes in
  * X-Connection-Id on every API request (connectionInterceptor), so a board can tell its own changes.
@@ -81,6 +82,16 @@ export class Realtime {
         });
       }
     });
+  }
+
+  /**
+   * The connection without a project, for the bell's NotificationCreated (docs/SPEC.md §9). A connection
+   * already there, or on its way, or one SignalR is bringing back, is left as it is.
+   */
+  async open(): Promise<void> {
+    if (this.link === null) {
+      await this.connect();
+    }
   }
 
   /** The project's changes, for a board; connects first if it has to. */

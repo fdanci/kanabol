@@ -7,6 +7,7 @@ import { MatSlideToggleHarness } from '@angular/material/slide-toggle/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { AuthStore } from '../auth/auth-store';
+import { BellStore } from '../notifications/bell-store';
 import { CurrentUserDto } from '../auth/models';
 import { Lockup } from '../../shared/ui/lockup';
 import { PageHeader } from '../../shared/ui/page-header';
@@ -63,6 +64,16 @@ describe('layout', () => {
         provideRouter([{ path: '**', children: [] }]),
         { provide: AuthStore, useValue: auth },
         { provide: ThemeStore, useValue: theme },
+        {
+          provide: BellStore,
+          useValue: {
+            count: signal(4),
+            items: signal([]),
+            state: signal('idle'),
+            opened: vi.fn(),
+            closed: vi.fn(),
+          },
+        },
       ],
     });
   });
@@ -159,6 +170,17 @@ describe('layout', () => {
       expect(home.querySelector('kb-lockup')).not.toBeNull();
     });
 
+    // docs/UI_UX_SPEC.md §7.6: the bell opens its menu, with the unread count on it (group 17).
+    it('holds the bell, with its count, before the user menu', async () => {
+      const { element } = await navbar();
+
+      const bell = element.querySelector('kb-notification-bell')!;
+      expect(bell).not.toBeNull();
+      expect(bell.querySelector('.badge')?.textContent.trim()).toBe('4');
+      expect(bell.querySelector('button')?.getAttribute('aria-haspopup')).toBe('menu');
+      expect(bell.nextElementSibling?.classList).toContain('user');
+    });
+
     // Global search was taken out of v1 (docs/UI_UX_SPEC.md v1.5).
     it('has no search', async () => {
       const { element } = await navbar();
@@ -185,7 +207,7 @@ describe('layout', () => {
       expect(element.querySelector('.user')?.textContent).toContain('ana.pop@example.com');
       expect(element.querySelector('.user kb-avatar')?.textContent).toContain('AP');
 
-      const menu = await loader.getHarness(MatMenuHarness);
+      const menu = await loader.getHarness(MatMenuHarness.with({ selector: '.user' }));
       await menu.open();
       const toggle = await (await menu.getChildLoader('.theme')).getHarness(MatSlideToggleHarness);
       expect(await toggle.getLabelText()).toBe('Temă întunecată');
