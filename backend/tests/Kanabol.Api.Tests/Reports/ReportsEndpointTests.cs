@@ -19,6 +19,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
 {
     private const string Completed = "/api/reports/completed";
     private const string CycleTime = "/api/reports/cycle-time";
+    private const string Deadlines = "/api/reports/deadlines";
 
     // Four weeks of October 2026, from Monday the 5th.
     private const string October = "from=2026-10-05T00:00:00Z&to=2026-11-02T00:00:00Z";
@@ -254,5 +255,47 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         await OctobersWork();
 
         (await FieldErrorsFrom(await Send(HttpMethod.Get, $"{CycleTime}?{query}", await ReportsToken()))).Should().Equal(field);
+    }
+
+    // KAN-1 finished on 8 October, due the 10th; KAN-2 on the 14th, due the 13th; KAN-3 open, due 1 October.
+    [Fact]
+    public async Task Deadlines_Returns200WithTheOverdueOnTimeLateRateAndPeriods()
+    {
+        await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{Deadlines}?{October}", await ReportsToken());
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = await JsonFrom(response);
+        var report = json.RootElement;
+        (report.GetProperty("overdue").GetInt32(), report.GetProperty("completedOnTime").GetInt32(), report.GetProperty("completedLate").GetInt32())
+            .Should().Be((1, 1, 1));
+        report.GetProperty("onTimeRate").GetDouble().Should().Be(0.5);
+        string.Join(' ', report.GetProperty("series").EnumerateArray().Select(period =>
+                $"{period.GetProperty("periodStart").GetString()}:{period.GetProperty("onTime").GetInt32()}/{period.GetProperty("late").GetInt32()}"))
+            .Should().Be("2026-10-05T00:00:00+00:00:1/0 2026-10-12T00:00:00+00:00:0/1 2026-10-19T00:00:00+00:00:0/0 2026-10-26T00:00:00+00:00:0/0");
+    }
+
+    [Fact]
+    public async Task Deadlines_WithoutFinishedTasksWithADeadline_GivesANullRate()
+    {
+        var (_, _, _, web) = await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{Deadlines}?{October}&projectId={web.Id}&granularity=month", await ReportsToken());
+
+        using var json = await JsonFrom(response);
+        json.RootElement.GetProperty("onTimeRate").ValueKind.Should().Be(JsonValueKind.Null);
+        json.RootElement.GetProperty("series").GetArrayLength().Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("from=2026-10-05T00:00:00Z", "to")]
+    [InlineData($"{October}&granularity=quarter", "granularity")]
+    [InlineData($"{October}&userId=dan", "userId")]
+    public async Task Deadlines_WithAWrongParameter_Returns400OnIt(string query, string field)
+    {
+        await OctobersWork();
+
+        (await FieldErrorsFrom(await Send(HttpMethod.Get, $"{Deadlines}?{query}", await ReportsToken()))).Should().Equal(field);
     }
 }

@@ -102,7 +102,7 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
             .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Reports")
             .ToList();
 
-        found.Should().HaveCount(2);
+        found.Should().HaveCount(3);
         found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
     }
 

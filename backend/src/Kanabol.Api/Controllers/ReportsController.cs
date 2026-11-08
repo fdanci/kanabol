@@ -3,6 +3,7 @@ using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Features.Reports;
 using Kanabol.Application.Features.Reports.Queries.GetCompletedReport;
 using Kanabol.Application.Features.Reports.Queries.GetCycleTimeReport;
+using Kanabol.Application.Features.Reports.Queries.GetDeadlinesReport;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Controllers;
@@ -38,4 +39,16 @@ public sealed class ReportsController : ControllerBase
         [FromQuery] Guid? projectId = null,
         [FromQuery] Guid? userId = null) =>
         (await handler.Handle(new GetCycleTimeReportQuery(from, to, projectId, userId), ct)).ToActionResult();
+
+    /// <summary>The tasks overdue now, and those finished in [from, to) by their deadline or after it, with the rate and the periods.</summary>
+    [HttpGet("deadlines")]
+    public async Task<IActionResult> GetDeadlinesReport(
+        [FromServices] IQueryHandler<GetDeadlinesReportQuery, DeadlinesReportDto> handler,
+        CancellationToken ct,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
+        [FromQuery] Guid? projectId = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] ReportGranularity granularity = ReportGranularity.Week) =>
+        (await handler.Handle(new GetDeadlinesReportQuery(from, to, projectId, userId, granularity), ct)).ToActionResult();
 }

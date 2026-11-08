@@ -6,14 +6,16 @@
 #
 # Usage: scripts/check-reports.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
-#   1  the three queries, GET /api/reports/completed and cycle-time: the tests, then the real API in
+#   1  the three queries, GET /api/reports/completed, cycle-time and deadlines: the tests, then the real API in
 #      Production on work built through the API, its moments set in the database to October 2026: tasks
 #      finished in several projects, one with two assignees, one archived after it was finished, one in a
 #      project archived since, one created straight in the second column, one without a deadline, one
 #      nobody's; the total, by user, by project, the periods by week and by month, from and to with an
 #      offset across summer time, a project and a person; lead and cycle time as averages and medians, the
 #      cycle of the task created in the second column from its creation, the time in each column with a
-#      project only; 400 on from, to and granularity, 404 for a project that doesn't exist. Docker, PostgreSQL.
+#      project only; the tasks overdue now whatever the interval, none in an archived project, those
+#      finished by their deadline and after it, the rate, null without a deadline, and their periods; 400 on
+#      from, to and granularity, 404 for a project that doesn't exist. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -392,7 +394,7 @@ columns_of() { # columns_of <project id> <name prefix>: its columns' ids in <pre
 # PAN-3 Dan's and the admin's, without a deadline, created 15 Oct 10:00, În lucru 18 Oct 12:00, Gata 20 Oct
 # 12:00, then archived; PAN-4 Dan's, open, long overdue. MEU-1 Eva's, created 20 Oct 10:00, În lucru 22 Oct
 # 10:00, Gata 27 Oct 10:00, due 30 Oct (on time); MEU-2 nobody's, created 27 Oct 10:00, Gata 28 Oct 10:00.
-# ARH-1 Dan's, created 10 Oct 10:00, În lucru 12 Oct 10:00, Gata 15 Oct 10:00.
+# ARH-1 Dan's, created 10 Oct 10:00, În lucru 12 Oct 10:00, Gata 15 Oct 10:00; ARH-2 Dan's, open, long overdue.
 work_is_ready() {
   colleague_is_ready dan dan@example.com 'Dan Ionescu' || return 1
   colleague_is_ready eva eva@example.com 'Eva Marin' || return 1
@@ -443,6 +445,7 @@ work_is_ready() {
   arh_1=$new_task
   created_at "$arh_1" 2026-10-10T10:00:00Z && entered_at "$arh_1" "$arh_doing" 2026-10-12T10:00:00Z &&
     entered_at "$arh_1" "$arh_done" 2026-10-15T10:00:00Z || return 1
+  a_task_in "$arh_id" 'Uitat in arhiva' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$past\"" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$arh_id")"
 }
 
@@ -464,8 +467,12 @@ cycle_time_tests_pass() {
   tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetCycleTimeReportQueryHandlerTests' 16
 }
 
+deadlines_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetDeadlinesReportQueryHandlerTests' 14
+}
+
 endpoint_tests_pass() {
-  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsEndpointTests' 27 &&
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsEndpointTests' 32 &&
     named_tests_pass Kanabol.Api.Tests EndpointPermissionsTests.Reports_NeedNoPermissionOnTheEndpoint
 }
 
@@ -571,13 +578,55 @@ cycle_time_intervals_are_refused() {
     field_is_refused to "$(as "$admin_token" GET '/api/reports/cycle-time?from=2026-01-01T00:00:00Z&to=2027-01-02T00:00:01Z')"
 }
 
+deadline_numbers() { # deadline_numbers: overdue onTime late rate of the last answer, null as null
+  json "[b.overdue, b.completedOnTime, b.completedLate, b.onTimeRate].map(String).join(' ')"
+}
+
+deadline_periods() {
+  json "b.series.map(p => p.onTime + '/' + p.late).join(' ')"
+}
+
+# On time: PAN-1 (8 Oct, due the 10th) and MEU-1 (27 Oct, due the 30th). Late: PAN-2 (14 Oct 09:00, due
+# the 13th at noon). Overdue now: PAN-4; ARH-2 is in an archived project.
+the_deadlines_are_kept_and_missed() {
+  work_is_ready || return 1
+  report "$admin_token" deadlines "$october" || return 1
+  is '1 2 1 0.6666666666666666' "$(deadline_numbers)" &&
+    is '1/0 0/1 0/0 1/0' "$(deadline_periods)" || return 1
+  report "$admin_token" deadlines 'from=2026-09-01T00:00:00Z&to=2026-11-03T00:00:00Z&granularity=month' || return 1
+  is '0/0 2/1 0/0' "$(deadline_periods)"
+}
+
+overdue_is_todays_state() {
+  work_is_ready || return 1
+  report "$admin_token" deadlines 'from=2026-03-01T00:00:00Z&to=2026-04-01T00:00:00Z' || return 1
+  is '1 0 0 null' "$(deadline_numbers)"
+}
+
+the_deadlines_follow_the_filter() {
+  work_is_ready || return 1
+  report "$admin_token" deadlines "$october&projectId=$pan_id" || return 1
+  is '1 1 1 0.5' "$(deadline_numbers)" || return 1
+  report "$admin_token" deadlines "$october&userId=$eva_id" || return 1
+  is '0 1 0 1' "$(deadline_numbers)" || return 1
+  report "$admin_token" deadlines "$october&projectId=$arh_id" || return 1
+  is '0 0 0 null' "$(deadline_numbers)"
+}
+
+deadlines_intervals_are_refused() {
+  work_is_ready || return 1
+  field_is_refused to "$(as "$admin_token" GET '/api/reports/deadlines?from=2026-10-05T00:00:00Z&to=2026-10-04T00:00:00Z')" &&
+    field_is_refused granularity "$(as "$admin_token" GET "/api/reports/deadlines?$october&granularity=quarter")"
+}
+
 task_1() {
-  echo "18.1 The reports' queries: GET /api/reports/completed and cycle-time"
+  echo "18.1 The reports' queries: GET /api/reports/completed, cycle-time and deadlines"
   check "Docker is running" docker_is_running
   check "the solution builds without warnings" solution_builds
   check "the formatting is clean" formatting_is_clean
   check "the tests of the finished tasks pass: the interval, archived, assignees, weeks, months, offsets" completed_tests_pass
   check "the tests of lead and cycle time pass: the first column, created in the second, reopened, columns" cycle_time_tests_pass
+  check "the tests of the deadlines pass: overdue now, on time at the very deadline, the rate, archived" deadlines_tests_pass
   check "the endpoints' tests pass, with no permission on them" endpoint_tests_pass
   check "the real API in Production counts each finished task once, by project, archived ones too" the_finished_work_is_counted
   check "a task with two assignees counts for each, the sum going past the total" each_assignee_counts_a_task
@@ -592,7 +641,11 @@ task_1() {
   check "with a project, each of its columns has its time, in the board's order" each_column_has_its_time_in_a_project
   check "a person's times are those of their tasks, and null when nothing was finished" a_persons_times_are_theirs
   check "cycle-time takes the same interval and refuses the same mistakes" cycle_time_intervals_are_refused
-  check "backend/CLAUDE.md lists the endpoints" in_file '`GET /api/reports/cycle-time' backend/CLAUDE.md
+  check "the deadlines: overdue now, on time, late, the rate and their periods, by week and by month" the_deadlines_are_kept_and_missed
+  check "the tasks overdue are today's, whatever the interval" overdue_is_todays_state
+  check "a project and a person narrow them, and an archived project has nothing overdue" the_deadlines_follow_the_filter
+  check "deadlines takes the same interval and refuses the same mistakes" deadlines_intervals_are_refused
+  check "backend/CLAUDE.md lists the endpoints" in_file '`GET /api/reports/deadlines' backend/CLAUDE.md
 }
 
 if [ "$#" -eq 0 ]; then
