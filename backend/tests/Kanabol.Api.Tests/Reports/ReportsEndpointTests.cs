@@ -18,6 +18,7 @@ namespace Kanabol.Api.Tests.Reports;
 public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
 {
     private const string Completed = "/api/reports/completed";
+    private const string CycleTime = "/api/reports/cycle-time";
 
     // Four weeks of October 2026, from Monday the 5th.
     private const string October = "from=2026-10-05T00:00:00Z&to=2026-11-02T00:00:00Z";
@@ -194,4 +195,64 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     [Fact]
     public async Task Completed_WithoutASession_Returns401() =>
         (await Send(HttpMethod.Get, $"{Completed}?{October}", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+    private static string Duration(JsonElement duration) =>
+        $"{Seconds(duration.GetProperty("averageSeconds"))}/{Seconds(duration.GetProperty("medianSeconds"))}";
+
+    private static string Seconds(JsonElement seconds) =>
+        seconds.ValueKind == JsonValueKind.Null ? "-" : seconds.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    // KAN-1 7 d, its cycle from 6 October 2 d; KAN-2, created in În lucru, 12 d both; WEB-1 5 d, its cycle 0.
+    [Fact]
+    public async Task CycleTime_Returns200WithTheCountLeadAndCycleTimeInSeconds()
+    {
+        await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{CycleTime}?{October}", await ReportsToken());
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = await JsonFrom(response);
+        var report = json.RootElement;
+        report.GetProperty("count").GetInt32().Should().Be(3);
+        Duration(report.GetProperty("leadTime")).Should().Be("691200/604800");
+        Duration(report.GetProperty("cycleTime")).Should().Be("403200/172800");
+        report.GetProperty("perColumn").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task CycleTime_ForAProject_GivesEachColumnWithItsIdAndName()
+    {
+        var (_, _, kan, _) = await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{CycleTime}?{October}&projectId={kan.Id}", await ReportsToken());
+
+        using var json = await JsonFrom(response);
+        var columns = json.RootElement.GetProperty("perColumn").EnumerateArray().ToList();
+        string.Join(", ", columns.Select(column => $"{column.GetProperty("name").GetString()} {Duration(column)}"))
+            .Should().Be("De făcut 432000/432000, În lucru 604800/604800, Gata 0/0");
+        columns.Select(column => column.GetProperty("columnId").GetGuid())
+            .Should().Equal(kan.Columns.OrderBy(column => column.Position).Select(column => column.Id));
+    }
+
+    [Fact]
+    public async Task CycleTime_WithoutFinishedTasks_GivesNullTimes()
+    {
+        var (ana, _, _, web) = await OctobersWork();
+
+        var response = await Send(HttpMethod.Get, $"{CycleTime}?{October}&projectId={web.Id}&userId={ana.Id}", await ReportsToken());
+
+        using var json = await JsonFrom(response);
+        (json.RootElement.GetProperty("count").GetInt32(), Duration(json.RootElement.GetProperty("leadTime"))).Should().Be((0, "-/-"));
+    }
+
+    [Theory]
+    [InlineData("to=2026-11-02T00:00:00Z", "from")]
+    [InlineData("from=2026-11-02T00:00:00Z&to=2026-10-05T00:00:00Z", "to")]
+    [InlineData($"{October}&projectId=kan", "projectId")]
+    public async Task CycleTime_WithAWrongParameter_Returns400OnIt(string query, string field)
+    {
+        await OctobersWork();
+
+        (await FieldErrorsFrom(await Send(HttpMethod.Get, $"{CycleTime}?{query}", await ReportsToken()))).Should().Equal(field);
+    }
 }

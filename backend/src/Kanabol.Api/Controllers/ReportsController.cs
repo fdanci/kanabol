@@ -2,6 +2,7 @@ using Kanabol.Api.Errors;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Features.Reports;
 using Kanabol.Application.Features.Reports.Queries.GetCompletedReport;
+using Kanabol.Application.Features.Reports.Queries.GetCycleTimeReport;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Controllers;
@@ -26,4 +27,15 @@ public sealed class ReportsController : ControllerBase
         [FromQuery] Guid? userId = null,
         [FromQuery] ReportGranularity granularity = ReportGranularity.Week) =>
         (await handler.Handle(new GetCompletedReportQuery(from, to, projectId, userId, granularity), ct)).ToActionResult();
+
+    /// <summary>Lead and cycle time of the tasks finished in [from, to), averages and medians in seconds, and with projectId the time in each column.</summary>
+    [HttpGet("cycle-time")]
+    public async Task<IActionResult> GetCycleTimeReport(
+        [FromServices] IQueryHandler<GetCycleTimeReportQuery, CycleTimeReportDto> handler,
+        CancellationToken ct,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
+        [FromQuery] Guid? projectId = null,
+        [FromQuery] Guid? userId = null) =>
+        (await handler.Handle(new GetCycleTimeReportQuery(from, to, projectId, userId), ct)).ToActionResult();
 }

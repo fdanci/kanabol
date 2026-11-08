@@ -6,12 +6,14 @@
 #
 # Usage: scripts/check-reports.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
-#   1  GET /api/reports/completed: the tests, then the real API in Production on work built through the API,
-#      its moments set in the database to October 2026: tasks finished in several projects, one with two
-#      assignees, one archived after it was finished, one in a project archived since, one created straight
-#      in the second column, one without a deadline, one nobody's; the total, by user, by project, the
-#      periods by week and by month, from and to with an offset across summer time, a project and a person,
-#      400 on from, to and granularity, 404 for a project that doesn't exist. Docker, PostgreSQL.
+#   1  the three queries, GET /api/reports/completed and cycle-time: the tests, then the real API in
+#      Production on work built through the API, its moments set in the database to October 2026: tasks
+#      finished in several projects, one with two assignees, one archived after it was finished, one in a
+#      project archived since, one created straight in the second column, one without a deadline, one
+#      nobody's; the total, by user, by project, the periods by week and by month, from and to with an
+#      offset across summer time, a project and a person; lead and cycle time as averages and medians, the
+#      cycle of the task created in the second column from its creation, the time in each column with a
+#      project only; 400 on from, to and granularity, 404 for a project that doesn't exist. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -458,8 +460,12 @@ completed_tests_pass() {
   tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetCompletedReportQueryHandlerTests' 30
 }
 
+cycle_time_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetCycleTimeReportQueryHandlerTests' 16
+}
+
 endpoint_tests_pass() {
-  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsEndpointTests' 21 &&
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsEndpointTests' 27 &&
     named_tests_pass Kanabol.Api.Tests EndpointPermissionsTests.Reports_NeedNoPermissionOnTheEndpoint
 }
 
@@ -530,12 +536,48 @@ a_project_that_does_not_exist_is_404() {
   code_is 404 Project.NotFound "$(as "$admin_token" GET "/api/reports/completed?$october&projectId=0199a000-0000-7000-8000-000000000000")"
 }
 
+durations() { # durations <field>: average/median of a duration of the last answer, - for null
+  json "[b.$1.averageSeconds, b.$1.medianSeconds].map(s => s === null ? '-' : s).join('/')"
+}
+
+# Leads: PAN-1 7 d 1 h, PAN-2 12 d, PAN-3 5 d 2 h, MEU-1 7 d, MEU-2 1 d, ARH-1 5 d. Cycles: PAN-1 2 d,
+# PAN-2 12 d (created in În lucru, so from its creation), PAN-3 2 d, MEU-1 5 d, MEU-2 0, ARH-1 3 d.
+the_lead_and_cycle_times_are_measured() {
+  work_is_ready || return 1
+  report "$admin_token" cycle-time "$october" || return 1
+  is '6 534600/522000 345600/216000 null' "$(json b.count) $(durations leadTime) $(durations cycleTime) $(json b.perColumn)"
+}
+
+# PAN-1: De făcut 5 d 1 h, În lucru 2 d; PAN-2: În lucru 12 d; PAN-3: De făcut 3 d 2 h, În lucru 2 d.
+each_column_has_its_time_in_a_project() {
+  work_is_ready || return 1
+  report "$admin_token" cycle-time "$october&projectId=$pan_id" || return 1
+  is 'De făcut 351000/351000, În lucru 460800/172800, Gata 0/0' \
+    "$(json "b.perColumn.map(c => c.name + ' ' + c.averageSeconds + '/' + c.medianSeconds).join(', ')")" &&
+    is "$pan_todo $pan_doing $pan_done" "$(json "b.perColumn.map(c => c.columnId).join(' ')")"
+}
+
+a_persons_times_are_theirs() {
+  work_is_ready || return 1
+  report "$admin_token" cycle-time "$october&userId=$eva_id" || return 1
+  is '1 604800/604800 432000/432000' "$(json b.count) $(durations leadTime) $(durations cycleTime)" || return 1
+  report "$admin_token" cycle-time "$october&projectId=$meu_id&userId=$dan_id" || return 1
+  is '0 -/- -/-' "$(json b.count) $(durations leadTime) $(durations cycleTime)"
+}
+
+cycle_time_intervals_are_refused() {
+  work_is_ready || return 1
+  field_is_refused from "$(as "$admin_token" GET '/api/reports/cycle-time?to=2026-11-02T00:00:00Z')" &&
+    field_is_refused to "$(as "$admin_token" GET '/api/reports/cycle-time?from=2026-01-01T00:00:00Z&to=2027-01-02T00:00:01Z')"
+}
+
 task_1() {
-  echo "18.1 The reports' queries: GET /api/reports/completed"
+  echo "18.1 The reports' queries: GET /api/reports/completed and cycle-time"
   check "Docker is running" docker_is_running
   check "the solution builds without warnings" solution_builds
   check "the formatting is clean" formatting_is_clean
   check "the tests of the finished tasks pass: the interval, archived, assignees, weeks, months, offsets" completed_tests_pass
+  check "the tests of lead and cycle time pass: the first column, created in the second, reopened, columns" cycle_time_tests_pass
   check "the endpoints' tests pass, with no permission on them" endpoint_tests_pass
   check "the real API in Production counts each finished task once, by project, archived ones too" the_finished_work_is_counted
   check "a task with two assignees counts for each, the sum going past the total" each_assignee_counts_a_task
@@ -546,7 +588,11 @@ task_1() {
   check "an archived project's work is reported" an_archived_project_is_reported
   check "from and to missing, malformed, out of order or over 366 days, and a granularity unknown, answer 400" wrong_intervals_are_refused
   check "a project that doesn't exist answers 404 Project.NotFound" a_project_that_does_not_exist_is_404
-  check "backend/CLAUDE.md lists the endpoint" in_file '`GET /api/reports/completed' backend/CLAUDE.md
+  check "lead and cycle time come as averages and medians in seconds, the cycle from the first exit" the_lead_and_cycle_times_are_measured
+  check "with a project, each of its columns has its time, in the board's order" each_column_has_its_time_in_a_project
+  check "a person's times are those of their tasks, and null when nothing was finished" a_persons_times_are_theirs
+  check "cycle-time takes the same interval and refuses the same mistakes" cycle_time_intervals_are_refused
+  check "backend/CLAUDE.md lists the endpoints" in_file '`GET /api/reports/cycle-time' backend/CLAUDE.md
 }
 
 if [ "$#" -eq 0 ]; then
