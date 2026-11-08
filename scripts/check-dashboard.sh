@@ -11,6 +11,10 @@
 #      someone else's: the four numbers, weekStart missing, malformed or in the future answering 400 on
 #      it, the caller's own tasks by deadline with their project, open=true, the filters, includeArchived
 #      without tasks.archive refused, nothing for projects.view_all or an outsider. Docker, PostgreSQL.
+#   2  GET /api/projects with mine=true and completedTaskCount: the tests, then the real API in Production
+#      on the same projects: only those the caller is a member of with mine=true, also for projects.view_all,
+#      archived ones only with includeArchived, the finished tasks counted without the archived one, mine
+#      not a boolean answering 400 on it. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -364,7 +368,7 @@ viewer_is_ready() {
 
 # PAN and MEU, owned by the admin, with Dan as a member; ARH, with Dan too, archived once its task is in.
 # PAN-1 Dan's, High, overdue; PAN-2 Dan's, Low, due later; PAN-3 Dan's, archived; PAN-4 Dan's, finished
-# now; PAN-5 the admin's, overdue. MEU-1 Dan's and the admin's, Critical, without a deadline. ARH-1 Dan's,
+# now; PAN-5 the admin's, overdue; PAN-6 the admin's, finished, then archived. MEU-1 Dan's and the admin's, Critical, without a deadline. ARH-1 Dan's,
 # overdue, in the archived project. Eva is in no project, and Vera sees them all.
 team_is_ready() {
   colleague_is_ready dan dan@example.com 'Dan Ionescu' || return 1
@@ -385,6 +389,9 @@ team_is_ready() {
   pan_done=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND is_done")
   status_is 200 "$(as "$dan_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$pan_done\"}")" || return 1
   a_task_in "$pan_id" 'Al adminului' "\"priority\":\"Medium\",\"assigneeIds\":[\"$admin_id\"],\"dueDate\":\"$past\"" &&
+    a_task_in "$pan_id" 'Gata si arhivat' "\"priority\":\"Medium\",\"assigneeIds\":[\"$admin_id\"]" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$pan_done\"}")" &&
+    status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$new_task")" &&
     a_task_in "$meu_id" 'Formular de contact' "\"priority\":\"Critical\",\"assigneeIds\":[\"$dan_id\",\"$admin_id\"]" &&
     a_task_in "$arh_id" 'Din arhiva' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$past\"" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$arh_id")"
@@ -525,8 +532,64 @@ task_1() {
   check "backend/CLAUDE.md lists both endpoints" in_file '`GET /api/me/summary?weekStart=' backend/CLAUDE.md
 }
 
+# ---- 17a.2: GET /api/projects with mine=true and completedTaskCount.
+
+project_list_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~GetProjectsQueryHandlerTests' 22
+}
+
+project_list_endpoint_tests_pass() {
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ProjectListEndpointTests' 8
+}
+
+project_counts() { # project_counts <token> <query>: key:open:finished of each project, by name
+  status_is 200 "$(as "$1" GET "/api/projects?$2")" || return 1
+  json "b.items.map(p => p.key + ':' + p.openTaskCount + ':' + p.completedTaskCount).join(' ')"
+}
+
+# PAN: PAN-1, PAN-2 and PAN-5 open, PAN-4 finished, PAN-3 archived open and PAN-6 archived finished.
+the_finished_tasks_are_counted_without_the_archived() {
+  team_is_ready || return 1
+  is 'MEU:1:0 PAN:3:1' "$(project_counts "$dan_token" 'mine=true')"
+}
+
+mine_leaves_out_what_view_all_shows() {
+  team_is_ready || return 1
+  is 'MEU:1:0 PAN:3:1' "$(project_counts "$vera_token" '')" &&
+    is '' "$(project_counts "$vera_token" 'mine=true')" &&
+    is 'MEU:1:0 PAN:3:1' "$(project_counts "$admin_token" 'mine=true')"
+}
+
+mine_takes_archived_ones_only_when_asked() {
+  team_is_ready || return 1
+  is 'ARH:1:0 MEU:1:0 PAN:3:1' "$(project_counts "$dan_token" 'mine=true&includeArchived=true')"
+}
+
+an_outsider_has_no_projects_of_their_own() {
+  team_is_ready || return 1
+  is '' "$(project_counts "$eva_token" 'mine=true')"
+}
+
+mine_has_to_be_a_boolean() {
+  team_is_ready || return 1
+  field_is_refused mine "$(as "$dan_token" GET '/api/projects?mine=maybe')"
+}
+
+task_2() {
+  echo "17a.2 GET /api/projects with mine=true and completedTaskCount"
+  check "Docker is running" docker_is_running
+  check "the project list's tests pass: mine, also for view_all and manage, archived, the finished count" project_list_tests_pass
+  check "the endpoint's tests pass" project_list_endpoint_tests_pass
+  check "the real API in Production counts the finished tasks, not the archived one" the_finished_tasks_are_counted_without_the_archived
+  check "mine=true leaves out what projects.view_all shows" mine_leaves_out_what_view_all_shows
+  check "mine=true gives archived projects only with includeArchived" mine_takes_archived_ones_only_when_asked
+  check "an outsider has no projects with mine=true" an_outsider_has_no_projects_of_their_own
+  check "mine that isn't a boolean answers 400 on it" mine_has_to_be_a_boolean
+  check "backend/CLAUDE.md says what mine and completedTaskCount do" in_file '`mine=true`' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 for task in "$@"; do
   "task_$task"

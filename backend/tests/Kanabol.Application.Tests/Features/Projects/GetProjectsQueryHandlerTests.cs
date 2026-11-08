@@ -16,8 +16,8 @@ namespace Kanabol.Application.Tests.Features.Projects;
 /// </summary>
 public sealed class GetProjectsQueryHandlerTests(PostgresFixture postgres) : ProjectHandlerTest(postgres)
 {
-    private Task<Result<Page<ProjectSummaryDto>>> List(int page = 1, int pageSize = 50, bool includeArchived = false) =>
-        Ask<GetProjectsQuery, Page<ProjectSummaryDto>>(new GetProjectsQuery(page, pageSize, includeArchived));
+    private Task<Result<Page<ProjectSummaryDto>>> List(int page = 1, int pageSize = 50, bool includeArchived = false, bool mine = false) =>
+        Ask<GetProjectsQuery, Page<ProjectSummaryDto>>(new GetProjectsQuery(page, pageSize, includeArchived, mine));
 
     [Fact]
     public async Task Handle_ForAMember_ListsOnlyTheirProjects()
@@ -160,6 +160,93 @@ public sealed class GetProjectsQueryHandlerTests(PostgresFixture postgres) : Pro
 
         summary.OpenTaskCount.Should().Be(3);
         summary.OverdueTaskCount.Should().Be(1);
+    }
+
+    // SPEC section 4.4 (group 17a): the progress bar is finished / (open + finished), archived tasks out.
+    [Fact]
+    public async Task Handle_Always_CountsTheFinishedTasksButNotArchivedOnes()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        var done = project.Columns.Single(column => column.IsDone);
+        var archived = new TaskItemBuilder().InProject(project).InColumn(done).Build();
+        await AddTasks(
+            new TaskItemBuilder().InProject(project).Build(),
+            new TaskItemBuilder().InProject(project).InColumn(done).Build(),
+            new TaskItemBuilder().InProject(project).InColumn(done).Build(),
+            archived);
+        await ArchiveTask(archived);
+        SignIn(owner);
+
+        var summary = (await List()).Value.Items.Single();
+
+        (summary.OpenTaskCount, summary.CompletedTaskCount).Should().Be((1, 2));
+
+        // includeArchived turns the tasks' own filter off too.
+        (await List(includeArchived: true)).Value.Items.Single().CompletedTaskCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Handle_OfAProjectWithoutTasks_CountsNoneFinished()
+    {
+        var owner = await CreateUser();
+        await CreateProject(builder => builder.OwnedBy(owner));
+        SignIn(owner);
+
+        (await List()).Value.Items.Single().CompletedTaskCount.Should().Be(0);
+    }
+
+    // SPEC section 4.4 (group 17a): mine=true is the projects the caller is a member of, not those
+    // projects.view_all or projects.manage show.
+    [Theory]
+    [InlineData(Permissions.ProjectsViewAll)]
+    [InlineData(Permissions.ProjectsManage)]
+    public async Task Handle_OfMineWithAPermissionOverAllProjects_ListsOnlyThoseTheCallerIsAMemberOf(string permission)
+    {
+        var manager = await SignInWith(permission);
+        var joined = await CreateProject(builder => builder.WithName("Al meu").WithMember(manager));
+        await CreateProject(builder => builder.WithName("Altul"));
+
+        var result = await List(mine: true);
+
+        result.Value.Items.Select(project => (project.Id, project.MyRole)).Should().Equal((joined.Id, ProjectRole.Member));
+        result.Value.TotalCount.Should().Be(1);
+        (await List()).Value.TotalCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Handle_OfMineForAMember_ListsTheirProjectsAsWithout()
+    {
+        var user = await CreateUser();
+        var owned = await CreateProject(builder => builder.WithName("Al meu").OwnedBy(user));
+        await CreateProject(builder => builder.WithName("Străin"));
+        SignIn(user);
+
+        (await List(mine: true)).Value.Items.Select(project => project.Id).Should().Equal(owned.Id);
+    }
+
+    [Fact]
+    public async Task Handle_OfMine_LeavesOutArchivedProjectsUnlessAskedFor()
+    {
+        var user = await CreateUser();
+        await CreateProject(builder => builder.WithName("Deschis").OwnedBy(user));
+        var closed = await CreateProject(builder => builder.WithName("Închis").OwnedBy(user));
+        await Archive(closed, user);
+        SignIn(user);
+
+        (await List(mine: true)).Value.TotalCount.Should().Be(1);
+        (await List(includeArchived: true, mine: true)).Value.TotalCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Handle_OfMineForADeactivatedUser_ListsNothing()
+    {
+        var user = await CreateUser();
+        await CreateProject(builder => builder.OwnedBy(user));
+        await Deactivate(user);
+        SignIn(user);
+
+        (await List(mine: true)).Value.TotalCount.Should().Be(0);
     }
 
     [Fact]

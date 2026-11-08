@@ -35,8 +35,9 @@ public sealed class ProjectsController : ControllerBase
         CancellationToken ct,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = Paging.DefaultPageSize,
-        [FromQuery] bool includeArchived = false) =>
-        (await handler.Handle(new GetProjectsQuery(page, pageSize, includeArchived), ct)).ToActionResult();
+        [FromQuery] bool includeArchived = false,
+        [FromQuery] bool mine = false) =>
+        (await handler.Handle(new GetProjectsQuery(page, pageSize, includeArchived, mine), ct)).ToActionResult();
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetProject(

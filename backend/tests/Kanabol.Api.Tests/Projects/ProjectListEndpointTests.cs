@@ -27,6 +27,7 @@ public sealed class ProjectListEndpointTests(ApiFixture api) : ProjectApiTest(ap
         row.GetProperty("memberCount").GetInt32().Should().Be(1);
         row.GetProperty("openTaskCount").GetInt32().Should().Be(0);
         row.GetProperty("overdueTaskCount").GetInt32().Should().Be(0);
+        row.GetProperty("completedTaskCount").GetInt32().Should().Be(0);
         row.GetProperty("memberPreview").GetArrayLength().Should().Be(1);
         row.GetProperty("owners").GetArrayLength().Should().Be(0);
     }
@@ -41,6 +42,32 @@ public sealed class ProjectListEndpointTests(ApiFixture api) : ProjectApiTest(ap
         using var body = await JsonFrom(await Send(HttpMethod.Get, Projects, token));
 
         body.RootElement.GetProperty("totalCount").GetInt32().Should().Be(2);
+    }
+
+    // SPEC section 4.4 (group 17a): the main panel's "Proiectele mele".
+    [Fact]
+    public async Task Get_OfMineWithProjectsViewAll_ListsOnlyThoseTheCallerIsAMemberOf()
+    {
+        var (viewer, token) = await SignedIn(Permissions.ProjectsViewAll);
+        var mine = await CreateProject(builder => builder.WithName("Al meu").WithMember(viewer));
+        await CreateProject();
+
+        using var body = await JsonFrom(await Send(HttpMethod.Get, $"{Projects}?mine=true", token));
+
+        body.RootElement.GetProperty("totalCount").GetInt32().Should().Be(1);
+        body.RootElement.GetProperty("items").EnumerateArray().Single().GetProperty("id").GetGuid().Should().Be(mine.Id);
+    }
+
+    [Fact]
+    public async Task Get_WithMineThatIsNotABoolean_Returns400OnMine()
+    {
+        var (_, token) = await SignedIn();
+
+        var response = await Send(HttpMethod.Get, $"{Projects}?mine=maybe", token);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = await JsonFrom(response);
+        body.RootElement.GetProperty("errors").EnumerateObject().Select(field => field.Name).Should().Equal("mine");
     }
 
     [Fact]
