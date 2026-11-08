@@ -20,6 +20,10 @@
 #      List's table and filter bar on /my-tasks with Proiect, no assignee and "Și cele terminate", and none
 #      of either page in the initial bundle, which index.html loads. Only the packages that scripts/setup.sh
 #      installs.
+#   4  the group's flows end to end: the API's tests (a task finished, archived, restored and reopened, a
+#      deadline moved, assignees changed, a project archived and restored, a member taken out, nothing
+#      for projects.view_all), then the same changes on the real API in Production, each changing Dan's
+#      four numbers, his own tasks and his project cards as the rules say. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -855,8 +859,97 @@ task_3() {
   check "frontend/CLAUDE.md says how Task-urile mele work" in_file '`MyTasksPage`' frontend/CLAUDE.md
 }
 
+# ---- 17a.4: the group's flows end to end, in the tests and on the real API.
+
+flow_tests_pass() {
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~DashboardFlowTests' 7
+}
+
+dans_numbers_are() { # dans_numbers_are <open overdue finished projects>
+  is "$1" "$(summary_of "$dan_token" "weekStart=$week_start")"
+}
+
+# PAN-7, Dan's, past its deadline: the change every later check of this task follows.
+a_live_task_is_ready() {
+  team_is_ready || return 1
+  [ -n "${live_task:-}" ] && return 0
+  dans_numbers_are '3 1 1 2' || return 1
+  a_task_in "$pan_id" 'Panou viu' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$past\"" || return 1
+  live_task=$new_task
+  pan_first=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND position = 0")
+  [ -n "$pan_first" ]
+}
+
+a_new_task_counts_open_and_overdue() {
+  a_live_task_is_ready || return 1
+  dans_numbers_are '4 2 1 2' &&
+    is 'PAN-7 PAN-1 PAN-2 MEU-1' "$(my_task_keys "$dan_token" 'open=true')"
+}
+
+finishing_it_counts_it_this_week() {
+  a_live_task_is_ready || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$live_task/position" "{\"columnId\":\"$pan_done\"}")" || return 1
+  dans_numbers_are '3 1 2 2' &&
+    is 'MEU:1:0 PAN:3:2' "$(project_counts "$dan_token" 'mine=true')"
+}
+
+archiving_and_restoring_it_takes_it_out_and_back() {
+  a_live_task_is_ready || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$live_task")" || return 1
+  dans_numbers_are '3 1 1 2' &&
+    is 'MEU:1:0 PAN:3:1' "$(project_counts "$dan_token" 'mine=true')" || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/tasks/$live_task/restore")" || return 1
+  dans_numbers_are '3 1 2 2'
+}
+
+reopening_it_and_moving_its_deadline_count_again() {
+  a_live_task_is_ready || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$live_task/position" "{\"columnId\":\"$pan_first\"}")" || return 1
+  dans_numbers_are '4 2 1 2' || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$live_task/due-date" "{\"dueDate\":\"$future\"}")" || return 1
+  dans_numbers_are '4 1 1 2'
+}
+
+taking_dan_off_it_leaves_his_numbers() {
+  a_live_task_is_ready || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$live_task/assignees" "{\"assigneeIds\":[\"$admin_id\"]}")" || return 1
+  dans_numbers_are '3 1 1 2' &&
+    is 'PAN-1 PAN-2 PAN-4 MEU-1' "$(my_task_keys "$dan_token" '')"
+}
+
+# Dan stays on MEU-1, but a project he left is no longer his on the panel.
+leaving_a_project_takes_its_tasks_off_the_panel() {
+  a_live_task_is_ready || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/projects/$meu_id/members/$dan_id")" || return 1
+  dans_numbers_are '2 1 1 1' &&
+    is 'PAN-1 PAN-2 PAN-4' "$(my_task_keys "$dan_token" '')" &&
+    is 'PAN:4:1' "$(project_counts "$dan_token" 'mine=true')"
+}
+
+an_archived_project_leaves_the_panel_until_restored() {
+  a_live_task_is_ready || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/projects/$pan_id")" || return 1
+  dans_numbers_are '0 0 0 0' &&
+    is '' "$(my_task_keys "$dan_token" '')" || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/projects/$pan_id/restore")" || return 1
+  dans_numbers_are '2 1 1 1'
+}
+
+task_4() {
+  echo "17a.4 The group's flows end to end: a change to a task changes the panel's numbers"
+  check "Docker is running" docker_is_running
+  check "the flows' tests pass: finished, archived, restored, reopened, a deadline, assignees, projects" flow_tests_pass
+  check "the real API counts a new task of Dan's, past its deadline, as open and overdue" a_new_task_counts_open_and_overdue
+  check "moved to the done column, it counts as finished this week, on the project's card too" finishing_it_counts_it_this_week
+  check "archived it leaves the numbers, restored it comes back finished" archiving_and_restoring_it_takes_it_out_and_back
+  check "moved back it's open and overdue again, and a later deadline takes it off the overdue ones" reopening_it_and_moving_its_deadline_count_again
+  check "taken off it, Dan no longer counts it" taking_dan_off_it_leaves_his_numbers
+  check "out of a project, Dan no longer counts its tasks or the project" leaving_a_project_takes_its_tasks_off_the_panel
+  check "an archived project leaves the panel until it's restored" an_archived_project_leaves_the_panel_until_restored
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 for task in "$@"; do
   "task_$task"
