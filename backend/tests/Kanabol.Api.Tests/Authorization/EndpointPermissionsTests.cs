@@ -94,6 +94,18 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
         found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
     }
 
+    // reports.view, or an owner of the project asked for: the handlers check it, not the endpoint (SPEC section 5.1.1).
+    [Fact]
+    public void Reports_NeedNoPermissionOnTheEndpoint()
+    {
+        var found = RealActions
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Reports")
+            .ToList();
+
+        found.Should().HaveCount(1);
+        found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
+    }
+
     [Fact]
     public void HasPermission_InTheApiThatShips_NamesOnlyPermissionsThatExist() =>
         RealActions

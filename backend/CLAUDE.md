@@ -24,6 +24,7 @@ Run from `backend/`:
 - Run the checks of a task's history, from the repo root: `scripts/check-history.sh [task-number...]`, under the same conditions; 2 and 3 are the frontend's, and need only the packages, and 6, a description's texts and their diff, needs both.
 - Run the checks of the deadline alerts, from the repo root: `scripts/check-alerts.sh [task-number...]`, under the same conditions.
 - Run the checks of the main panel and "Task-urile mele", from the repo root: `scripts/check-dashboard.sh [task-number...]`, under the same conditions.
+- Run the checks of the reports, from the repo root: `scripts/check-reports.sh [task-number...]`, under the same conditions.
 
 ## Migrations
 
@@ -192,6 +193,17 @@ In Docker and production, settings come from environment variables:
 - `weekStart` is the Monday at midnight in the caller's own time, which the browser sends as an instant with its offset; it is required and at most now, or the summary answers 400 on it. The handler turns it into UTC first, since Npgsql writes only UTC to a `timestamptz`.
 - Open means `completed_at` null. `overdue` in the list stays the project list's: open past the deadline, outside a done column.
 - The project's list and this one share `TaskListRows`: the filters, the rows and the sorts. The key is the project's key, then the number. Ties go by key in the same direction in the project's list, and from the newest whichever the direction here, as the default sort's do.
+
+## Reports
+
+| Endpoint                                                                     | Does                                                                                                                                                                                                                                                             | Needs          |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `GET /api/reports/completed?from=…&to=…&projectId=&userId=&granularity=week` | The tasks finished in `[from, to)`, archived after or not, in projects archived or not: `total`, `byUser` (`userId`, `name`, `count`, a task for each of its assignees), `byProject` (`projectId`, `key`, `name`, `count`) and `series` (`periodStart`, `count`) | `reports.view` |
+
+- The reports share their parameters (`IReportFilter`): `from` and `to`, instants, required, `from` before `to` and at most 366 days apart (`HasAnInterval`), or 400 on them, and `projectId` and `userId`, optional; `granularity` is `week` or `month`, in any case, `week` by default. A `projectId` that doesn't exist answers 404 `Project.NotFound`, whoever asks.
+- Who reads them is checked in the handler (`ReportAccess`), not on the controller: `reports.view`, from the token.
+- `ReportPeriods` cuts the interval: the periods start at `from` and step 7 days or a calendar month on the clock `from` came with, each month counted from `from` itself (31 August, 30 September, 31 October), and the last one ends at `to`. The API knows only the offsets, not the time zone: steps are compared with `to`'s own clock, so October in Bucharest, `+03:00` to `+02:00`, stays one period, and every start keeps `from`'s offset, an hour off past a change of summer time. `periodStart` comes in that offset. `from` and `to` go to UTC for the queries.
+- With `userId` only the tasks they are assigned to count, and `byUser` has only them. A task without an assignee is in `total` and `byProject` only.
 
 ## Comments
 
