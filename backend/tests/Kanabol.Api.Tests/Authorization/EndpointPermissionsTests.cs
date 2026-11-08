@@ -70,6 +70,18 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
         found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
     }
 
+    // Everyone signed in reads and marks only their own notifications, without a permission (SPEC section 4.4).
+    [Fact]
+    public void Notifications_NeedNoPermissionOnTheEndpoint()
+    {
+        var found = RealActions
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Notifications")
+            .ToList();
+
+        found.Should().HaveCount(4);
+        found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
+    }
+
     [Fact]
     public void HasPermission_InTheApiThatShips_NamesOnlyPermissionsThatExist() =>
         RealActions

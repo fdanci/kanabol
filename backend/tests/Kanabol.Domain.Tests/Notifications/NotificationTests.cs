@@ -25,4 +25,37 @@ public sealed class NotificationTests
 
         notification.Message.Should().HaveLength(Notification.MaxMessageLength).And.EndWith("…");
     }
+
+    /// <summary>SPEC section 4.4: reading is idempotent, a second time keeps the first.</summary>
+    [Fact]
+    public void MarkRead_WhenUnread_ReadsItThen()
+    {
+        var notification = new Notification(Guid.CreateVersion7(), NotificationType.TaskOverdue, null, "KAN-1: Login is overdue", _now);
+
+        notification.MarkRead(_now.AddMinutes(5)).Should().BeTrue();
+
+        notification.ReadAt.Should().Be(_now.AddMinutes(5));
+    }
+
+    [Fact]
+    public void MarkRead_WhenAlreadyRead_KeepsTheFirstTime()
+    {
+        var notification = new Notification(Guid.CreateVersion7(), NotificationType.TaskOverdue, null, "KAN-1: Login is overdue", _now);
+        notification.MarkRead(_now.AddMinutes(5));
+
+        notification.MarkRead(_now.AddMinutes(9)).Should().BeFalse();
+
+        notification.ReadAt.Should().Be(_now.AddMinutes(5));
+    }
+
+    [Fact]
+    public void MarkRead_Always_RaisesNothingMore()
+    {
+        var notification = new Notification(Guid.CreateVersion7(), NotificationType.TaskOverdue, null, "KAN-1: Login is overdue", _now);
+        notification.ClearDomainEvents();
+
+        notification.MarkRead(_now);
+
+        notification.DomainEvents.Should().BeEmpty();
+    }
 }

@@ -11,6 +11,11 @@
 #      assignees and owners, nobody else, nothing for a task done, archived, not yet due or in an archived
 #      project, an assignee added later alerted at the next run and nobody twice, an interval under a
 #      minute stopping the API at its start, and the check turned off. Docker, PostgreSQL.
+#   2  the notifications' endpoints: the tests, then the real API in Production on notifications that a
+#      comment, two assignments and the overdue check made: the caller's own, a Page of 20 from the
+#      newest, the filters unread and type, 400 on a wrong query, an outsider's none, the unread count,
+#      read twice keeping the first time, another's 404 Notification.NotFound, read-all counting what it
+#      marked. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -551,8 +556,173 @@ task_1() {
   check "backend/CLAUDE.md says how the check is set" in_file '| `Alerts__OverdueCheckInterval` ' backend/CLAUDE.md
 }
 
+# ---- 17.2: the notifications' endpoints.
+
+notifications_app=backend/src/Kanabol.Application/Features/Notifications
+
+notification_handler_tests_pass() {
+  tests_pass Kanabol.Application.Tests 'FullyQualifiedName~NotificationHandlerTests' 17
+}
+
+notification_domain_tests_pass() {
+  tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~Notifications.NotificationTests' 5
+}
+
+notification_endpoint_tests_pass() {
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~NotificationsEndpointTests' 16
+}
+
+notifications_need_no_permission() {
+  named_tests_pass Kanabol.Api.Tests EndpointPermissionsTests.Notifications_NeedNoPermissionOnTheEndpoint
+}
+
+notifications_as() { # notifications_as <token> [query]: prints the status, the page in the last answer
+  as "$1" GET "/api/notifications${2:+?$2}"
+}
+
+# With the check off, the admin creates NOT-1 for Dan, Ioana comments on it, and the admin creates NOT-2,
+# overdue, for Dan; then the API starts with the check on, which tells Dan and the admin of NOT-2. Dan has
+# four, from the newest: NOT-2 overdue, NOT-2 assigned, the comment on NOT-1, NOT-1 assigned.
+notifications_are_ready() {
+  team_is_ready || return 1
+  [ -n "${not_one:-}" ] && return 0
+  api_is_up || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Notificari","key":"NOT"}')" || return 1
+  not_id=$(body_field id)
+  for member in "$dan_id" "$ioana_id"; do
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$not_id/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
+  done
+  a_task_in "$not_id" 'Login SSO' "\"assigneeIds\":[\"$dan_id\"]" || return 1
+  not_one=$new_task
+  status_is 201 "$(as "$ioana_token" POST "/api/tasks/$not_one/comments" '{"body":"Merge și pe mobil"}')" || return 1
+  a_task_in "$not_id" 'Export CSV' "\"dueDate\":\"$past\",\"assigneeIds\":[\"$dan_id\"]" || return 1
+  not_two=$new_task
+  start_api Production Alerts__OverdueCheckInterval=00:01:00 || return 1
+  wait_for 30 not_two_alerts_are 2 && wait_for 30 dans_count_is 4
+}
+
+not_two_alerts_are() {
+  is "$1" "$(in_db "SELECT count(*) FROM notifications WHERE type = 'TaskOverdue' AND task_id = '$not_two'")"
+}
+
+dans_count_is() {
+  is "$1" "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$dan_id' AND task_id IN ('$not_one', '$not_two')")"
+}
+
+dans_list_is_a_page_from_the_newest() {
+  notifications_are_ready || return 1
+  start_api Production Alerts__OverdueCheckEnabled=false || return 1
+  status_is 200 "$(notifications_as "$dan_token")" || return 1
+  is '1|20|4' "$(json "[b.page, b.pageSize, b.totalCount].join('|')")" || return 1
+  is 'TaskOverdue:NOT-2:Export CSV|TaskAssigned:NOT-2:Export CSV|CommentAdded:NOT-1:Login SSO|TaskAssigned:NOT-1:Login SSO' \
+    "$(json "b.items.map(n => [n.type, n.task.key, n.task.title].join(':')).join('|')")"
+}
+
+each_comes_with_its_fields() {
+  status_is 200 "$(notifications_as "$dan_token")" || return 1
+  is "NOT-2: Export CSV is overdue|$not_two|null|true" \
+    "$(json "[b.items[0].message, b.items[0].task.id, String(b.items[0].readAt), !isNaN(Date.parse(b.items[0].createdAt))].join('|')")" || return 1
+  is 'Ioana Marin commented on NOT-1: Login SSO|Administrator assigned you NOT-1: Login SSO' "$(json "[b.items[2].message, b.items[3].message].join('|')")"
+}
+
+the_filters_and_the_page_hold() {
+  status_is 200 "$(notifications_as "$dan_token" 'unread=true&type=CommentAdded')" || return 1
+  is 'CommentAdded:1' "$(json "b.items.map(n => n.type).join() + ':' + b.totalCount")" || return 1
+  status_is 200 "$(notifications_as "$dan_token" 'type=TaskOverdue&type=CommentAdded&page=2&pageSize=1')" || return 1
+  is 'CommentAdded:2' "$(json "b.items.map(n => n.type).join() + ':' + b.totalCount")"
+}
+
+wrong_queries_are_400_on_their_field() {
+  for pair in 'type=Unknown:type' 'pageSize=101:pageSize' 'page=0:page' 'unread=poate:unread'; do
+    query=${pair%:*}
+    field=${pair##*:}
+    status_is 400 "$(notifications_as "$dan_token" "$query")" || return 1
+    is "$field" "$(json "Object.keys(b.errors).join()")" || return 1
+  done
+}
+
+an_outsider_sees_none_of_dans() {
+  status_is 200 "$(notifications_as "$eva_token")" || return 1
+  is 0 "$(json "b.totalCount")"
+}
+
+unread_count_is() { # unread_count_is <count> <token>
+  status_is 200 "$(as "$2" GET /api/notifications/unread-count)" || return 1
+  is "{\"count\":$1}" "$(cat "$scratch/body")"
+}
+
+dans_unread_count_is_four() {
+  unread_count_is 4 "$dan_token"
+}
+
+# Dan reads the comment's notification, twice: the first time stays, and the count goes down by one.
+reading_one_is_idempotent() {
+  status_is 200 "$(notifications_as "$dan_token" 'type=CommentAdded')" || return 1
+  comment_notification=$(json "b.items[0].id")
+  task_updated=$(in_db "SELECT updated_at FROM task_items WHERE id = '$not_one'")
+  status_is 200 "$(as "$dan_token" POST "/api/notifications/$comment_notification/read")" || return 1
+  first_read=$(json "b.readAt")
+  [ "$first_read" != null ] || return 1
+  status_is 200 "$(as "$dan_token" POST "/api/notifications/$comment_notification/read")" || return 1
+  is "$first_read" "$(json "b.readAt")" || return 1
+  is "$comment_notification|NOT-1" "$(json "b.id + '|' + b.task.key")" || return 1
+  unread_count_is 3 "$dan_token" || return 1
+  is "$task_updated" "$(in_db "SELECT updated_at FROM task_items WHERE id = '$not_one'")"
+}
+
+# Eva can't read Dan's, which stays unread.
+anothers_is_404() {
+  status_is 200 "$(notifications_as "$dan_token" 'unread=true')" || return 1
+  dans=$(json "b.items[0].id")
+  code_is 404 Notification.NotFound "$(as "$eva_token" POST "/api/notifications/$dans/read")" || return 1
+  is '' "$(in_db "SELECT read_at FROM notifications WHERE id = '$dans'")"
+}
+
+read_all_counts_what_it_marked() {
+  status_is 200 "$(as "$dan_token" POST /api/notifications/read-all)" || return 1
+  is '{"count":3}' "$(cat "$scratch/body")" || return 1
+  status_is 200 "$(as "$dan_token" POST /api/notifications/read-all)" || return 1
+  is '{"count":0}' "$(cat "$scratch/body")" || return 1
+  unread_count_is 0 "$dan_token" || return 1
+  is 2 "$(in_db "SELECT count(*) FROM notifications WHERE user_id = '$admin_id' AND read_at IS NULL AND task_id IN ('$not_one', '$not_two')")"
+}
+
+without_a_token_is_401() {
+  status_is 401 "$(send GET /api/notifications)" &&
+    status_is 401 "$(send GET /api/notifications/unread-count)" &&
+    status_is 401 "$(send POST /api/notifications/read-all)"
+}
+
+task_2() {
+  echo "17.2 The notifications' endpoints"
+  check "Docker is running" docker_is_running
+  check "the controller is tracked" tracked backend/src/Kanabol.Api/Controllers/NotificationsController.cs
+  for file in Queries/GetNotifications/GetNotificationsQueryHandler.cs Queries/GetUnreadNotificationCount/GetUnreadNotificationCountQueryHandler.cs \
+    Commands/MarkNotificationRead/MarkNotificationReadCommandHandler.cs Commands/MarkAllNotificationsRead/MarkAllNotificationsReadCommandHandler.cs; do
+    check "$file is tracked" tracked "$notifications_app/$file"
+  done
+  check "the solution builds without warnings" solution_builds
+  check "the formatting is clean" formatting_is_clean
+  check "the domain's tests pass: read once, the first time kept" notification_domain_tests_pass
+  check "the handlers' tests pass: the caller's own, the filters, the pages, read and read-all" notification_handler_tests_pass
+  check "the endpoints' tests pass" notification_endpoint_tests_pass
+  check "the endpoints need no permission" notifications_need_no_permission
+  check "a comment, two assignments and an overdue check make Dan four notifications" notifications_are_ready
+  check "Dan's list is a page of 20 from the newest, each with its task" dans_list_is_a_page_from_the_newest
+  check "each comes with its message, its task, its time and no readAt" each_comes_with_its_fields
+  check "unread, type repeated, page and pageSize hold" the_filters_and_the_page_hold
+  check "an unknown type, a page out of range or a wrong unread is 400 on its field" wrong_queries_are_400_on_their_field
+  check "an outsider sees none of Dan's" an_outsider_sees_none_of_dans
+  check "Dan's unread count is 4" dans_unread_count_is_four
+  check "reading one twice keeps the first time, counts one less and leaves the task alone" reading_one_is_idempotent
+  check "someone else's is 404 Notification.NotFound, and stays unread" anothers_is_404
+  check "read-all answers how many it marked, then none, and leaves the admin's" read_all_counts_what_it_marked
+  check "without a token they are 401" without_a_token_is_401
+  check "backend/CLAUDE.md lists the endpoints" in_file '`POST /api/notifications/read-all`' backend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1
+  set -- 1 2
 fi
 for task in "$@"; do
   "task_$task"

@@ -35,4 +35,16 @@ public sealed class Notification : Entity
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset? ReadAt { get; private set; }
+
+    /// <summary>Reads it now, unless it was read before, whose first time stays (SPEC section 4.4). True when it changed.</summary>
+    public bool MarkRead(DateTimeOffset now)
+    {
+        if (ReadAt is not null)
+        {
+            return false;
+        }
+
+        ReadAt = now;
+        return true;
+    }
 }
