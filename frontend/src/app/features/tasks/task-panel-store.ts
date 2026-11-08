@@ -35,6 +35,8 @@ export class TaskPanelStore {
   readonly state = this.loadState.asReadonly();
   readonly columns = this.columnList.asReadonly();
   readonly saving = signal(false);
+  /** How many changes the panel saved, so its timeline reads the history again after each one. */
+  readonly savedChanges = signal(0);
   readonly canChange = computed(() => this.current()?.canChange ?? false);
   readonly canRestore = computed(
     () => this.current()?.archivedAt != null && this.auth.has(PERMISSIONS.tasksArchive),
@@ -167,6 +169,7 @@ export class TaskPanelStore {
     try {
       this.current.set(await firstValueFrom(send(task.id)));
       this.changes.saved();
+      this.savedChanges.update((count) => count + 1);
       return { saved: true };
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 409) {

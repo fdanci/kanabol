@@ -7,12 +7,16 @@ import { Page } from '../../shared/models/page';
 import { TaskSort, sortToQuery } from '../../shared/models/task-filters';
 import {
   NewTask,
+  TaskHistoryEntryDto,
   TaskItemDto,
   TaskMemberDto,
   TaskPriority,
   TaskProjectDto,
   TaskSummaryDto,
 } from './models';
+
+/** The timeline reads a task's history 50 changes at a time (docs/UI_UX_SPEC.md §7.5). */
+export const HISTORY_PAGE_SIZE = 50;
 
 /** A page of a project's tasks: the board's filters, with the assignee as an id. */
 export interface TaskListQuery {
@@ -64,6 +68,13 @@ export class TasksApi {
       params = params.set('includeArchived', true);
     }
     return this.api.get<Page<TaskSummaryDto>>(`/projects/${projectId}/tasks`, { params });
+  }
+
+  /** A page of the task's changes, from the newest; an archived task's only for tasks.archive. */
+  history(id: string, page: number): Observable<Page<TaskHistoryEntryDto>> {
+    return this.api.get<Page<TaskHistoryEntryDto>>(`/tasks/${id}/history`, {
+      params: { page, pageSize: HISTORY_PAGE_SIZE },
+    });
   }
 
   /** The project's columns and the caller's role in it, for the panel's choices. */

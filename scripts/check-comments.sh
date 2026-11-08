@@ -511,11 +511,12 @@ attachment_endpoint_tests_pass() {
   tests_pass Kanabol.Api.Tests 'FullyQualifiedName~AttachmentsEndpointTests' 31
 }
 
-# docs/SPEC.md §10: the default list, written out here, so a change to appsettings.json shows.
+# docs/SPEC.md §10: the default list, one value with commas, written out here, so a change to
+# appsettings.json shows.
 the_default_extensions_are_the_specs() {
   is 'pdf,png,jpg,jpeg,gif,txt,md,csv,xlsx,docx,zip' "$(node -e "
     const settings = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
-    console.log(settings.Storage.AllowedExtensions.join());" "$(native backend/src/Kanabol.Api/appsettings.json)")"
+    console.log(settings.Storage.AllowedExtensions);" "$(native backend/src/Kanabol.Api/appsettings.json)")"
 }
 
 a_file_of() { # a_file_of <name> <bytes>: a file of zeros in the scratch folder, its path printed
@@ -631,12 +632,15 @@ two_files_in_one_request_are_refused() {
     -F "file=@$(native "$scratch/brief.pdf");filename=unu.pdf" -F "file=@$(native "$scratch/brief.pdf");filename=doi.pdf")"
 }
 
-# docs/SPEC.md §13.3: compose overrides the list as Storage__AllowedExtensions__0, __1 and so on.
+# docs/SPEC.md §13.3: compose overrides the whole list as one value, Storage__AllowedExtensions=exe,txt:
+# png, which a list by index would have kept, goes too.
 the_list_comes_from_the_settings() {
   files_task_is_ready || return 1
-  start_api Production Storage__AllowedExtensions__0=exe || return 1
+  start_api Production Storage__AllowedExtensions=exe,txt || return 1
   status_is 201 "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" unealta.exe)" || return 1
+  status_is 201 "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" note.txt)" || return 1
   refused_on_file "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" brief.pdf)" || return 1
+  refused_on_file "$(upload "$dan_token" "$files_task" "$scratch/brief.pdf" poza.png)" || return 1
   start_api Production
 }
 
@@ -692,7 +696,7 @@ task_2() {
   check "a file of 28 MB is 400 on file too" a_file_far_over_the_limit_is_refused_on_file_too
   check "an extension outside the list is 400 on file" an_extension_outside_the_list_is_refused
   check "two files in one request are 400 on file" two_files_in_one_request_are_refused
-  check "the list comes from Storage__AllowedExtensions" the_list_comes_from_the_settings
+  check "Storage__AllowedExtensions=exe,txt replaces the whole list" the_list_comes_from_the_settings
   check "another member deletes nothing, 403 Attachment.NotYours" someone_else_deletes_nothing
   check "its uploader deletes it, row and file" its_uploader_deletes_it_file_and_all
   check "an archived task takes no file, 409 Task.Archived" an_archived_task_takes_no_file

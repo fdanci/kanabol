@@ -145,7 +145,10 @@
               />
             </mat-tab>
             <mat-tab i18n-label label="Istoric">
-              <p class="later" i18n>Istoricul vine într-o versiune următoare.</p>
+              <!-- Lazy: the timeline reads the history each time its tab opens. -->
+              <ng-template matTabContent>
+                <kb-task-timeline [taskId]="task.id" [revision]="store.savedChanges()" />
+              </ng-template>
             </mat-tab>
           </mat-tab-group>
         </section>
@@ -238,6 +241,14 @@
                     [value]="task.priority"
                     (selectionChange)="prioritize(prioritySelect, $event.value)"
                   >
+                    <!-- The chip itself: the option's text would hold its icon's name too. -->
+                    <mat-select-trigger>
+                      @if (chosenPriority(); as chosen) {
+                        <kb-chip [kind]="$any(chosen.toLowerCase())">{{
+                          priorityLabel(chosen)
+                        }}</kb-chip>
+                      }
+                    </mat-select-trigger>
                     @for (priority of priorities; track priority) {
                       <mat-option [value]="priority">
                         <kb-chip [kind]="$any(priority.toLowerCase())">{{

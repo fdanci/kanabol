@@ -17,7 +17,7 @@ import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskItemDto } from './models';
 import { TaskPanelRoute } from './task-panel-route';
 import { CommentsApi } from './comments-api';
-import { aComment, aMember, aProject, aTask, anAttachment, refused } from './task-testing';
+import { aComment, aMember, aProject, aTask, anAttachment, anEntry, refused } from './task-testing';
 import { TasksApi } from './tasks-api';
 
 @Component({
@@ -69,6 +69,14 @@ describe('TaskPanel', () => {
       move: answer({ columnId: 'c2', columnName: 'În lucru' }),
       archive: vi.fn(() => of(undefined)),
       restore: answer({ archivedAt: null }),
+      history: vi.fn(() =>
+        of({
+          items: [anEntry({ oldValue: 'Login SSO', newValue: 'Login cu SSO' })],
+          page: 1,
+          pageSize: 50,
+          totalCount: 1,
+        }),
+      ),
     };
     comments = { list: vi.fn(() => of([aComment()])), add: vi.fn(), edit: vi.fn() };
     confirmation = {
@@ -128,6 +136,15 @@ describe('TaskPanel', () => {
     return overlay.getHarness(
       MatSelectHarness.with({ selector: `[aria-labelledby~="${labelId}"]` }),
     );
+  }
+
+  /** What a sighted reader sees: the text without what's hidden from them, such as an icon's ligature. */
+  function visibleText(element: HTMLElement): string {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => {
+      hidden.remove();
+    });
+    return copy.textContent.replace(/\s+/g, ' ').trim();
   }
 
   afterEach(() => {
@@ -228,6 +245,28 @@ describe('TaskPanel', () => {
 
     expect(api['prioritize']).toHaveBeenCalledWith('t1', 'High');
     expect(api['move']).toHaveBeenCalledWith('t1', 'c2');
+  });
+
+  // docs/UI_UX_SPEC.md §7.5: the select shows the priority's chip, through mat-select-trigger, not
+  // the text of its option, which held the icon's name: "arrow_upwardHigh" (a bug from group 12).
+  it('shows the priority as its chip in the select, not the name of its icon', async () => {
+    await open();
+    const host = panel().querySelector<HTMLElement>('[aria-labelledby~="kb-task-priority"]')!;
+    expect(visibleText(host)).toBe('Medium');
+    expect(host.querySelector('kb-chip')?.classList).toContain('medium');
+
+    await (await select('kb-task-priority')).clickOptions({ text: /High/ });
+    await settle();
+
+    expect(visibleText(host)).toBe('High');
+    expect(host.querySelector('kb-chip')?.classList).toContain('high');
+
+    api['prioritize'].mockReturnValueOnce(refused(403, 'Project.MemberRequired'));
+    await (await select('kb-task-priority')).clickOptions({ text: /Critical/ });
+    await settle();
+
+    expect(visibleText(host)).toBe('High');
+    expect(host.querySelector('kb-chip')?.classList).toContain('high');
   });
 
   // docs/UI_UX_SPEC.md §7.5: ticks with avatars, saved once, when the list closes.
@@ -374,7 +413,7 @@ describe('TaskPanel', () => {
     expect(api['restore']).toHaveBeenCalledWith('t1');
   });
 
-  // docs/UI_UX_SPEC.md §6.7 and §7.5: Comentarii first, then Atașamente; Istoric comes with group 16.
+  // docs/UI_UX_SPEC.md §6.7 and §7.5: Comentarii first, then Atașamente and Istoric.
   it('shows the comments and the files of the task in its tabs', async () => {
     task = aTask({ attachments: [anAttachment({ fileName: 'brief.pdf' })] });
     const opened = await open();
@@ -397,6 +436,32 @@ describe('TaskPanel', () => {
     );
     expect(opened.querySelector('kb-task-attachments kb-upload-zone')).not.toBeNull();
     expect(opened.textContent).not.toContain('vin într-o versiune următoare');
+  });
+
+  // docs/UI_UX_SPEC.md §7.5: the timeline is read when its tab opens, and again after each change
+  // saved from the panel, without SignalR.
+  it('reads the history when its tab opens, and again after a change saved in the panel', async () => {
+    const opened = await open();
+    expect(api['history']).not.toHaveBeenCalled();
+
+    const tabs = await overlay.getAllHarnesses(MatTabHarness);
+    await tabs[2].select();
+    await settle();
+
+    expect(api['history']).toHaveBeenCalledTimes(1);
+    expect(api['history']).toHaveBeenCalledWith('t1', 1);
+    expect(opened.querySelector('kb-task-timeline .entry')?.textContent).toContain('Login cu SSO');
+    expect(opened.textContent).not.toContain('vine într-o versiune următoare');
+
+    await (await select('kb-task-priority')).clickOptions({ text: /High/ });
+    await settle();
+    expect(api['history']).toHaveBeenCalledTimes(2);
+
+    await tabs[0].select();
+    await settle();
+    await tabs[2].select();
+    await settle();
+    expect(api['history']).toHaveBeenCalledTimes(3);
   });
 
   it('has neither a comment form nor an upload zone for someone who can only read the task', async () => {

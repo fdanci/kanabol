@@ -29,6 +29,7 @@ services:
       Admin__InitialPassword: ${ADMIN_INITIAL_PASSWORD}
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
       Storage__Root: /data/attachments
+      # The allowed extensions have a default in appsettings.json; override the whole list here as Storage__AllowedExtensions=pdf,png (one value, commas; group 16)
       Database__MigrateOnStartup: "true"
     volumes: [attachments:/data/attachments]
     depends_on:

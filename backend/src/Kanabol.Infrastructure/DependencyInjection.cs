@@ -18,7 +18,15 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddValidatedOptions<JwtOptions>(configuration, JwtOptions.SectionName);
-        services.AddValidatedOptions<StorageOptions>(configuration, StorageOptions.SectionName);
+        services.AddValidatedOptions<StorageOptions>(configuration, StorageOptions.SectionName)
+            .Validate(
+                storage => StorageOptions.ExtensionsIn(storage.AllowedExtensions).Count > 0,
+                "Storage:AllowedExtensions needs at least one extension, separated by commas.")
+
+            // Bound to one value, a list by index (__0, __1) would be dropped without a word.
+            .Validate(
+                _ => !configuration.GetSection($"{StorageOptions.SectionName}:{nameof(StorageOptions.AllowedExtensions)}").GetChildren().Any(),
+                "Storage:AllowedExtensions is one value separated by commas, such as Storage__AllowedExtensions=pdf,png, not a list by index.");
         services.AddValidatedOptions<AdminOptions>(configuration, AdminOptions.SectionName)
             .Validate(
                 admin => string.IsNullOrEmpty(admin.InitialPassword)

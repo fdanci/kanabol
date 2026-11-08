@@ -1,6 +1,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { AttachmentDto, CommentDto, TaskItemDto, TaskMemberDto, TaskProjectDto } from './models';
+import {
+  AttachmentDto,
+  CommentDto,
+  TaskHistoryEntryDto,
+  TaskItemDto,
+  TaskMemberDto,
+  TaskProjectDto,
+} from './models';
 
 /** What the specs of the tasks feature build their tasks, projects and refusals from. */
 export function aTask(extra: Partial<TaskItemDto> = {}): TaskItemDto {
@@ -51,6 +58,20 @@ export function anAttachment(extra: Partial<AttachmentDto> = {}): AttachmentDto 
     uploadedBy: { userId: 'me', displayName: 'Florin Danci' },
     uploadedAt: '2026-11-07T08:00:00Z',
     canDelete: true,
+    ...extra,
+  };
+}
+
+/** A change of the title by Florin, unless told otherwise; names only for the ids its values hold. */
+export function anEntry(extra: Partial<TaskHistoryEntryDto> = {}): TaskHistoryEntryDto {
+  return {
+    id: 'h1',
+    field: 'Title',
+    oldValue: null,
+    newValue: null,
+    changedAt: '2026-11-08T10:00:00Z',
+    changedBy: { userId: 'me', displayName: 'Florin Danci' },
+    names: {},
     ...extra,
   };
 }

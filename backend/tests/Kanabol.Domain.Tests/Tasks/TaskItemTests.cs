@@ -398,6 +398,31 @@ public sealed class TaskItemTests
         task.DomainEvents.Should().ContainSingle().Which.Should().Be(new TaskArchivedEvent(task.Id, _project.Id, _by));
     }
 
+    /// <summary>
+    /// PostgreSQL keeps a timestamptz to the microsecond, so a restore, which writes the moment read back,
+    /// writes the very text the archiving wrote: the entity writes dates to the microsecond (group 16).
+    /// </summary>
+    [Fact]
+    public void Archive_AtAMomentFinerThanAMicrosecond_WritesItToTheMicrosecond()
+    {
+        var task = NewTask();
+        var stored = _now.AddTicks(12_345_670);
+
+        task.Archive(_by, stored.AddTicks(8));
+
+        task.History.Single().NewValue.Should().Be("2026-11-06T12:00:01.2345670+00:00");
+    }
+
+    [Fact]
+    public void SetDueDate_AtAMomentFinerThanAMicrosecond_WritesItToTheMicrosecond()
+    {
+        var task = NewTask();
+
+        task.SetDueDate(new DateTimeOffset(2026, 11, 20, 21, 59, 59, TimeSpan.Zero).AddTicks(9_999_999), _by, _now);
+
+        task.History.Single().NewValue.Should().Be("2026-11-20T21:59:59.9999990+00:00");
+    }
+
     [Fact]
     public void Archive_WhenAlreadyArchived_KeepsTheFirstTimeAndWritesNothing()
     {
