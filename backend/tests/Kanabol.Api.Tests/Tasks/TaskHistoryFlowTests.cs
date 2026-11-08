@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
 using Kanabol.Application.Abstractions;
@@ -20,7 +19,7 @@ namespace Kanabol.Api.Tests.Tasks;
 /// their place in it; it comes 50 to a page; and the list of extensions compose gives replaces the whole
 /// default list.
 /// </summary>
-public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
+public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
 {
     private static readonly byte[] _pdf = "%PDF-1.7 un brief de proba\n"u8.ToArray();
 
@@ -194,10 +193,11 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
     }
 
     /// <summary>
-    /// The API's own appsettings.json under compose's override, as the container reads them. A second host
-    /// would end this one's logging (Serilog's static logger), so the settings go through AddInfrastructure,
-    /// and the API that runs here shows the default list at work. scripts/check-history.sh 4 starts the
-    /// real API with compose's value.
+    /// The API's own appsettings.json under the override compose.yaml documents, Storage__AllowedExtensions=pdf,png
+    /// (SPEC section 13.3), as the container reads them. A second host would end this one's logging (Serilog's
+    /// static logger), so the settings go through AddInfrastructure, and the API that runs here shows the
+    /// default list at work. scripts/check-history.sh 4 reads the value from compose.yaml itself and starts the
+    /// real API with it: the tests stay inside backend/, which is all scripts/check-tests.sh copies.
     /// </summary>
     [Fact]
     public async Task TheListOfExtensionsComposeGives_ReplacesTheWholeDefaultList()
@@ -205,13 +205,11 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
         var (owner, token) = await SignedIn(Permissions.TasksCreate);
         var project = await CreateProject(builder => builder.WithKey("HIS").OwnedBy(owner));
         var taskId = await Created(token, project, "Fisiere");
-        var (variable, value) = ComposeOverride();
 
         var byDefault = ExtensionsWith();
-        var composed = ExtensionsWith((variable, value));
+        var composed = ExtensionsWith(("Storage__AllowedExtensions", "pdf,png"));
         var txtOnTheApi = await Upload(Client, taskId, token, "note.txt");
 
-        (variable, value).Should().Be(("Storage__AllowedExtensions", "pdf,png"));
         byDefault.Should().Equal("pdf", "png", "jpg", "jpeg", "gif", "txt", "md", "csv", "xlsx", "docx", "zip");
         composed.Should().Equal("pdf", "png");
         txtOnTheApi.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -221,7 +219,7 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
     private static IReadOnlyCollection<string> ExtensionsWith(params (string Variable, string Value)[] environment)
     {
         var configuration = new ConfigurationBuilder()
-            .AddJsonFile(Path.Combine(RepositoryRoot(), "backend", "src", "Kanabol.Api", "appsettings.json"))
+            .AddJsonFile(ApiSettingsFile())
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = "Host=localhost;Database=unused",
@@ -236,26 +234,16 @@ public sealed partial class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTes
         return provider.GetRequiredService<IAttachmentRules>().AllowedExtensions;
     }
 
-    private static string RepositoryRoot()
+    /// <summary>The API project's appsettings.json, found from where the tests run, up to backend/.</summary>
+    private static string ApiSettingsFile()
     {
         var folder = new DirectoryInfo(AppContext.BaseDirectory);
-        while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "compose.yaml")))
+        while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "src", "Kanabol.Api", "appsettings.json")))
         {
             folder = folder.Parent;
         }
 
-        folder.Should().NotBeNull("the tests run inside the repository, next to compose.yaml");
-        return folder!.FullName;
+        folder.Should().NotBeNull("the tests run under backend/, next to src/Kanabol.Api");
+        return Path.Combine(folder!.FullName, "src", "Kanabol.Api", "appsettings.json");
     }
-
-    /// <summary>The override compose.yaml's comment gives (SPEC section 13.3), as the variable and its value.</summary>
-    private static (string Variable, string Value) ComposeOverride()
-    {
-        var match = OverrideInCompose().Match(File.ReadAllText(Path.Combine(RepositoryRoot(), "compose.yaml")));
-        match.Success.Should().BeTrue("compose.yaml says how to override the list");
-        return (match.Groups["variable"].Value, match.Groups["value"].Value);
-    }
-
-    [GeneratedRegex(@"override the whole list here as (?<variable>Storage__AllowedExtensions)=(?<value>[^ ]+) ")]
-    private static partial Regex OverrideInCompose();
 }
