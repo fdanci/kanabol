@@ -67,7 +67,8 @@ export interface CommentDto {
 /**
  * One change of a task (docs/SPEC.md §4.4 "Istoricul unui task"). The values are the entry's text: ids
  * for Assignees, sorted and separated by commas, and for ColumnId; names gives each of them its name,
- * null for a column deleted since. Dates are ISO, in UTC.
+ * null for a column deleted since. Dates are ISO, in UTC. In the list a Description entry has both
+ * values null: GET /api/tasks/{id}/history/{entryId} gives its texts.
  */
 export interface TaskHistoryEntryDto {
   id: string;

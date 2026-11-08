@@ -2,10 +2,14 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
+import { HANDLED_CODES } from '../../core/api/error-interceptor';
 import { anEntry } from './task-testing';
 import { TasksApi } from './tasks-api';
 
-/** docs/SPEC.md §4.4 "Istoricul unui task": a Page from the newest, 50 at a time. */
+/**
+ * docs/SPEC.md §4.4 "Istoricul unui task": a Page from the newest, 50 at a time, and one entry whole,
+ * with a description's texts.
+ */
 describe('TasksApi', () => {
   let api: TasksApi;
   let http: HttpTestingController;
@@ -34,5 +38,19 @@ describe('TasksApi', () => {
     request.flush(page);
 
     expect(await reading).toEqual(page);
+  });
+
+  it('reads one entry of a task’s history, with its texts, saying itself that it is not there', async () => {
+    const entry = anEntry({ id: 'h7', field: 'Description', oldValue: 'Veche', newValue: 'Nouă' });
+    const reading = firstValueFrom(api.historyEntry('t1', 'h7'));
+
+    const request = http.expectOne(
+      (sent) => sent.url === '/api/tasks/t1/history/h7' && sent.method === 'GET',
+    );
+    expect(request.request.params.keys()).toEqual([]);
+    expect(request.request.context.get(HANDLED_CODES)).toEqual(['History.NotFound']);
+    request.flush(entry);
+
+    expect(await reading).toEqual(entry);
   });
 });

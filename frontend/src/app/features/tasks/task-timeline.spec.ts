@@ -28,10 +28,11 @@ function pageOf(
 /**
  * docs/UI_UX_SPEC.md §7.5: a vertical timeline from the newest change, 50 at a time with "Încarcă mai
  * multe" at the end while there are more, read when the tab opens and again after each change the panel
- * saves; no SignalR.
+ * saves; no SignalR. A description's row offers "Vezi diferența", which reads the entry with its texts
+ * (docs/SPEC.md §4.4) and opens the diff under the row.
  */
 describe('TaskTimeline', () => {
-  let api: { history: ReturnType<typeof vi.fn> };
+  let api: { history: ReturnType<typeof vi.fn>; historyEntry: ReturnType<typeof vi.fn> };
   let fixture: ComponentFixture<Host>;
 
   beforeEach(() => {
@@ -49,6 +50,16 @@ describe('TaskTimeline', () => {
               changedAt: '2026-11-07T08:00:00Z',
             }),
           ]),
+        ),
+      ),
+      historyEntry: vi.fn(() =>
+        of(
+          anEntry({
+            id: 'h3',
+            field: 'Description',
+            oldValue: 'Cu **Azure AD**',
+            newValue: 'Cu **Entra ID**\n- un rând nou',
+          }),
         ),
       ),
     };
@@ -75,6 +86,25 @@ describe('TaskTimeline', () => {
 
   function text(element: Element): string {
     return element.textContent.replace(/\s+/g, ' ').trim();
+  }
+
+  function button(label: string, root: Element = fixture.nativeElement as HTMLElement) {
+    return [...root.querySelectorAll('button')].find(
+      (candidate) => candidate.textContent.trim() === label,
+    );
+  }
+
+  /** The history with a change of the description on top, as the list gives it: without its texts. */
+  async function shownWithADescription(): Promise<HTMLElement> {
+    api.history.mockReturnValueOnce(
+      of(
+        pageOf([
+          anEntry({ id: 'h3', field: 'Description' }),
+          anEntry({ id: 'h2', field: 'Priority', oldValue: 'Medium', newValue: 'High' }),
+        ]),
+      ),
+    );
+    return shown();
   }
 
   function more(): HTMLButtonElement | undefined {
@@ -195,6 +225,131 @@ describe('TaskTimeline', () => {
     await settle();
 
     expect(api.history).toHaveBeenLastCalledWith('t2', 1);
+  });
+
+  it('offers the difference only on a change of the description', async () => {
+    await shownWithADescription();
+
+    const [described, prioritized] = entries();
+    const toggle = button('Vezi diferența', described);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(button('Vezi diferența', prioritized)).toBeUndefined();
+    expect(described.querySelector('.diff-block')).toBeNull();
+    expect(api.historyEntry).not.toHaveBeenCalled();
+  });
+
+  it('opens the difference under its row with "Vezi diferența", reading the entry with its texts', async () => {
+    await shownWithADescription();
+    const described = entries()[0];
+
+    button('Vezi diferența', described)!.click();
+    await settle();
+
+    expect(api.historyEntry).toHaveBeenCalledExactlyOnceWith('t1', 'h3');
+    const block = described.querySelector('.diff-block')!;
+    expect(block.getAttribute('id')).toBe(
+      button('Ascunde', described)!.getAttribute('aria-controls'),
+    );
+    expect(button('Ascunde', described)!.getAttribute('aria-expanded')).toBe('true');
+    expect([...block.querySelectorAll('del')].map((part) => part.textContent)).toEqual([
+      'Azure',
+      'AD',
+    ]);
+    expect(block.querySelector('ins')?.textContent).toBe('Entra');
+    expect(block.querySelector('kb-description-diff')?.textContent).toBe(
+      'Cu **AzureEntra ADID**\n- un rând nou',
+    );
+  });
+
+  it('hides the difference with "Ascunde", and opens it again without reading it again', async () => {
+    await shownWithADescription();
+    const described = entries()[0];
+    button('Vezi diferența', described)!.click();
+    await settle();
+
+    button('Ascunde', described)!.click();
+    await settle();
+    expect(described.querySelector('.diff-block')).toBeNull();
+    expect(button('Vezi diferența', described)).toBeDefined();
+
+    button('Vezi diferența', described)!.click();
+    await settle();
+    expect(described.querySelector('.diff-block del')).not.toBeNull();
+    expect(api.historyEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a skeleton of two rows while it reads the entry', async () => {
+    const answer = new Subject<TaskHistoryEntryDto>();
+    api.historyEntry.mockReturnValueOnce(answer);
+    await shownWithADescription();
+    const described = entries()[0];
+
+    button('Vezi diferența', described)!.click();
+    await settle();
+
+    const block = described.querySelector('.diff-block')!;
+    expect(block.getAttribute('aria-busy')).toBe('true');
+    expect(block.querySelectorAll('kb-skeleton')).toHaveLength(2);
+    answer.next(anEntry({ id: 'h3', field: 'Description', oldValue: 'a', newValue: 'b' }));
+    answer.complete();
+    await settle();
+    expect(block.querySelectorAll('kb-skeleton')).toHaveLength(0);
+    expect(block.querySelector('ins')?.textContent).toBe('b');
+  });
+
+  it('says it could not read the difference, and reads it again on Reîncearcă', async () => {
+    api.historyEntry.mockReturnValueOnce(refused(500, 'Unexpected'));
+    await shownWithADescription();
+    const described = entries()[0];
+
+    button('Vezi diferența', described)!.click();
+    await settle();
+    const block = described.querySelector('.diff-block')!;
+    expect(block.querySelector('.empty')?.textContent.trim()).toBe(
+      'Nu am putut încărca diferența.',
+    );
+
+    button('Reîncearcă', block)!.click();
+    await settle();
+
+    expect(api.historyEntry).toHaveBeenCalledTimes(2);
+    expect(described.querySelector('.diff-block del')).not.toBeNull();
+    expect(described.querySelector('.diff-block .empty')).toBeNull();
+  });
+
+  it('keeps an open difference open when it reads the history again after a save', async () => {
+    await shownWithADescription();
+    button('Vezi diferența', entries()[0])!.click();
+    await settle();
+    api.history.mockReturnValueOnce(
+      of(
+        pageOf([
+          anEntry({ id: 'h4', field: 'Title', oldValue: 'Login SSO', newValue: 'Login' }),
+          anEntry({ id: 'h3', field: 'Description' }),
+        ]),
+      ),
+    );
+
+    fixture.componentInstance.revision.set(1);
+    await settle();
+
+    expect(entries()[1].querySelector('.diff-block del')).not.toBeNull();
+    expect(api.historyEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts with every difference closed for another task', async () => {
+    await shownWithADescription();
+    button('Vezi diferența', entries()[0])!.click();
+    await settle();
+    api.history.mockReturnValueOnce(of(pageOf([anEntry({ id: 'h3', field: 'Description' })])));
+
+    fixture.componentInstance.taskId.set('t2');
+    await settle();
+    button('Vezi diferența', entries()[0])!.click();
+    await settle();
+
+    expect(api.historyEntry).toHaveBeenLastCalledWith('t2', 'h3');
+    expect(api.historyEntry).toHaveBeenCalledTimes(2);
   });
 
   it('says when nothing has changed yet', async () => {
