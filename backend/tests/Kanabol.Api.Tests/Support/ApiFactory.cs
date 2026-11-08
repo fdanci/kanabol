@@ -54,6 +54,9 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
         builder.UseSetting("Storage:Root", Path.Combine(Path.GetTempPath(), "kanabol-tests", "attachments"));
         builder.UseSetting("Admin:InitialPassword", "only-for-these-tests");
 
+        // The tests run the overdue check themselves, when they want it (SPEC section 4.3).
+        builder.UseSetting("Alerts:OverdueCheckEnabled", "false");
+
         // Controllers that only exist in the tests, to reach paths no real endpoint has yet.
         builder.ConfigureServices(services =>
         {
