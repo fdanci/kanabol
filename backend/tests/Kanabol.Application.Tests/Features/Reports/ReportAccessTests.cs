@@ -127,7 +127,7 @@ public sealed class ReportAccessTests(PostgresFixture postgres) : ReportsHandler
     public async Task Report_ForAnOutsider_ReturnsOwnerRequired(string report)
     {
         var team = await FinishedWork();
-        SignIn(await CreateUserNamed("Ion Străin", "ion@example.com"));
+        SignIn(await CreatePerson("Ion Străin", "ion@example.com"));
         HoldsInToken();
 
         ShouldBeRefusedWith(await Read(report, team.Kan.Id), "Project.OwnerRequired");

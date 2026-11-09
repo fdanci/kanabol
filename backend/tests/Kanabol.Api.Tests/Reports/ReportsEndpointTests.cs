@@ -2,11 +2,14 @@ using System.Net;
 using System.Text.Json;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Kanabol.Tests.Shared.Builders;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Kanabol.Api.Tests.Reports;
 
@@ -33,10 +36,8 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     /// </summary>
     private async Task<(User Ana, User Dan, Project Kan, Project Web)> OctobersWork()
     {
-        var (ana, _) = await SignedIn();
-        var (dan, _) = await SignedIn();
-        await Renamed(ana, "Ana Pop");
-        await Renamed(dan, "Dan Ionescu");
+        var ana = await Person("Ana Pop");
+        var dan = await Person("Dan Ionescu");
         var kan = await CreateProject(builder => builder.WithKey("KAN").WithName("Kanabol").OwnedBy(ana).WithMember(dan));
         var web = await CreateProject(builder => builder.WithKey("WEB").WithName("Site").OwnedBy(ana));
         BoardColumn Column(Project project, int position) => project.Columns.Single(column => column.Position == position);
@@ -63,15 +64,27 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         return (ana, dan, kan, web);
     }
 
-    private async Task Renamed(User user, string displayName)
+    /// <summary>A password hash computed once: PBKDF2 for every person of every test was most of their time.</summary>
+    private static string? _passwordHash;
+
+    /// <summary>A named person in a role of their own with these permissions, who signs in with Password.</summary>
+    private async Task<User> Person(string displayName, params string[] permissions)
     {
+        _passwordHash ??= Api.Factory.Services.GetRequiredService<IPasswordHasher>().Hash(Password);
         await using var db = Api.Postgres.CreateContext();
-        var stored = db.Users.Single(found => found.Id == user.Id);
-        stored.UpdateProfile(stored.Email, displayName);
+        var email = UnusedEmail();
+        var role = new Role($"Role of {email}", isSystem: false);
+        (await db.Permissions.Where(permission => permissions.Contains(permission.Name)).ToListAsync()).ForEach(permission => role.Grant(permission.Id));
+        var user = new User(email, displayName, _passwordHash, role.Id);
+        db.Roles.Add(role);
+        db.Users.Add(user);
         await db.SaveChangesAsync();
+        return user;
     }
 
-    private Task<string> ReportsToken() => TokenWith(Permissions.ReportsView);
+    private async Task<string> TokenOf(User user) => await AccessTokenFrom(await Login(user.Email));
+
+    private async Task<string> ReportsToken() => await TokenOf(await Person("Radu Rapoarte", Permissions.ReportsView));
 
     /// <summary>The fields a 400 names, after checking it's the Validation one.</summary>
     private static async Task<HashSet<string>> FieldErrorsFrom(HttpResponseMessage response)
@@ -182,8 +195,6 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         (await CodeFrom(response)).Should().Be("Project.NotFound");
     }
 
-    private async Task<string> TokenOf(User user) => await AccessTokenFrom(await Login(user.Email));
-
     // SPEC section 5.1.1: without reports.view, a report is for a project the caller manages.
     [Theory]
     [InlineData(Completed)]
@@ -226,7 +237,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     {
         var (_, _, _, web) = await OctobersWork();
 
-        (await Send(HttpMethod.Get, $"{Deadlines}?{October}&projectId={web.Id}", await TokenWith(Permissions.ProjectsManage))).StatusCode
+        (await Send(HttpMethod.Get, $"{Deadlines}?{October}&projectId={web.Id}", await TokenOf(await Person("Mara Manager", Permissions.ProjectsManage)))).StatusCode
             .Should().Be(HttpStatusCode.OK);
     }
 
@@ -235,7 +246,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     {
         var (_, _, kan, _) = await OctobersWork();
 
-        var response = await Send(HttpMethod.Get, $"{Completed}?{October}&projectId={kan.Id}", await TokenWith(Permissions.ProjectsViewAll));
+        var response = await Send(HttpMethod.Get, $"{Completed}?{October}&projectId={kan.Id}", await TokenOf(await Person("Vera Vede", Permissions.ProjectsViewAll)));
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await CodeFrom(response)).Should().Be("Project.OwnerRequired");

@@ -2,9 +2,12 @@ using System.Globalization;
 using System.Net;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
 using Kanabol.Domain.Users;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Kanabol.Api.Tests.Reports;
 
@@ -21,11 +24,32 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
     /// <summary>Ana owns REP, with tasks.create and tasks.archive, without reports.view; Dan is a member.</summary>
     private async Task<(User Ana, string AnaToken, User Dan, string DanToken, Project Rep)> ATeam()
     {
-        var (ana, anaToken) = await SignedIn(Permissions.TasksCreate, Permissions.TasksArchive);
-        var (dan, danToken) = await SignedIn();
+        var ana = await Person("Ana Pop", Permissions.TasksCreate, Permissions.TasksArchive);
+        var dan = await Person("Dan Ionescu");
+        var (anaToken, danToken) = (await TokenOf(ana), await TokenOf(dan));
         var rep = await CreateProject(builder => builder.WithKey("REP").WithName("Rapoarte").OwnedBy(ana).WithMember(dan));
         return (ana, anaToken, dan, danToken, rep);
     }
+
+    /// <summary>A password hash computed once: PBKDF2 for every person of every test was most of their time.</summary>
+    private static string? _passwordHash;
+
+    /// <summary>A named person in a role of their own with these permissions, who signs in with Password.</summary>
+    private async Task<User> Person(string displayName, params string[] permissions)
+    {
+        _passwordHash ??= Api.Factory.Services.GetRequiredService<IPasswordHasher>().Hash(Password);
+        await using var db = Api.Postgres.CreateContext();
+        var email = UnusedEmail();
+        var role = new Role($"Role of {email}", isSystem: false);
+        (await db.Permissions.Where(permission => permissions.Contains(permission.Name)).ToListAsync()).ForEach(permission => role.Grant(permission.Id));
+        var user = new User(email, displayName, _passwordHash, role.Id);
+        db.Roles.Add(role);
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return user;
+    }
+
+    private async Task<string> TokenOf(User user) => await AccessTokenFrom(await Login(user.Email));
 
     private async Task<Guid> CreateTask(string token, Project project, string title, Guid[] assigneeIds, DateTimeOffset? dueDate)
     {
@@ -172,7 +196,7 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
         var task = await CreateTask(anaToken, rep, "Raport", [ana.Id], DateTimeOffset.UtcNow.AddDays(1));
         await Move(anaToken, task, DoneColumnOf(rep));
 
-        (await NumbersOf(await TokenWith(Permissions.ReportsView), rep)).Should().Be(await NumbersOf(anaToken, rep));
+        (await NumbersOf(await TokenOf(await Person("Radu Rapoarte", Permissions.ReportsView)), rep)).Should().Be(await NumbersOf(anaToken, rep));
         var refused = await Send(HttpMethod.Get, $"/api/reports/completed?from={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddDays(-1).ToString("O"))}&to={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddDays(1).ToString("O"))}&projectId={rep.Id}", danToken);
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await CodeFrom(refused)).Should().Be("Project.OwnerRequired");

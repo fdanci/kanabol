@@ -5,6 +5,7 @@ using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Kanabol.Tests.Shared.Builders;
 using Kanabol.Tests.Shared.Database;
+using Microsoft.EntityFrameworkCore;
 
 namespace Kanabol.Application.Tests.Features.Reports;
 
@@ -53,9 +54,9 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
     /// </summary>
     protected async Task<Team> FinishedWork()
     {
-        var ana = await CreateUserNamed("Ana Pop", "ana.pop@example.com");
-        var dan = await CreateUserNamed("Dan Ionescu", "dan@example.com");
-        var eva = await CreateUserNamed("Eva Marin", "eva@example.com");
+        var ana = await CreatePerson("Ana Pop", "ana.pop@example.com");
+        var dan = await CreatePerson("Dan Ionescu", "dan@example.com");
+        var eva = await CreatePerson("Eva Marin", "eva@example.com");
         var kan = await CreateProject(builder => builder.WithKey("KAN").WithName("Kanabol").OwnedBy(ana).WithMember(dan));
         var web = await CreateProject(builder => builder.WithKey("WEB").WithName("Site").OwnedBy(ana).WithMember(dan).WithMember(eva));
         var old = await CreateProject(builder => builder.WithKey("OLD").WithName("Vechi").OwnedBy(ana).WithMember(dan));
@@ -100,10 +101,25 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
         return new Team(ana, dan, eva, kan, web, old);
     }
 
+    /// <summary>
+    /// Someone of a role without permissions, named, and without a password: the handlers take the caller from
+    /// CurrentUser and nobody signs in, so no test pays for PBKDF2, which made these tests most of their time.
+    /// </summary>
+    protected async Task<User> CreatePerson(string displayName, string email)
+    {
+        await using var db = Postgres.CreateContext();
+        var role = new Role($"Role of {email}", isSystem: false);
+        var user = new User(email, displayName, "no password: nobody signs in here", role.Id);
+        db.Roles.Add(role);
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return await db.Users.AsNoTracking().SingleAsync(found => found.Id == user.Id);
+    }
+
     /// <summary>Someone in no project, with reports.view in the token, as the reports read it (SPEC section 5.1.1).</summary>
     protected async Task<User> SignInWithReports()
     {
-        var viewer = await CreateUserNamed("Radu Rapoarte", "radu@example.com");
+        var viewer = await CreatePerson("Radu Rapoarte", "radu@example.com");
         SignIn(viewer);
         HoldsInToken(Permissions.ReportsView);
         return viewer;
