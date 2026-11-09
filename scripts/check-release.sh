@@ -15,6 +15,15 @@
 #      project, a file and the admin's password changed after the backup are gone), the file comes back
 #      byte for byte and the API still saves new ones; restore.sh --yes fills a new stack whose database
 #      and volume are empty. Docker.
+#   2  release.sh on a clean clone as the server has it after git pull (main, origin/main on it): it
+#      refuses a version not vX.Y.Z, changes git doesn't have (tracked or not), another branch, a commit
+#      origin/main lacks, a tag of that version on another commit and a missing .env, each before
+#      building, tagging or changing anything; then it builds kanabol-api and kanabol-web with the tag and
+#      the commit in their labels, puts the annotated tag on HEAD, writes KANABOL_VERSION in .env, once,
+#      leaving the rest of it as it was, prints the compose up command and no password, and does the same
+#      again for the same version; compose.yaml and compose.prod.yaml then run those images from the
+#      KANABOL_VERSION in .env alone, without pulling, the app answering on HTTPS and the API signing in
+#      the first admin. Docker.
 #
 # Docker builds the images and runs the stacks; everything is removed at the end.
 
@@ -33,6 +42,10 @@ scratch=$(mktemp -d)
 run_id="kanabol-release-$$"
 check_tag="check-$$"
 probe="$scratch/probe"
+server="$scratch/server"
+server_project="$run_id-release"
+server_started=
+release_version="v0.0.$$"
 compose_projects=
 
 # The probe stack's secrets, which this script makes up. None of them may show in what the scripts print.
@@ -48,7 +61,9 @@ cleanup() {
   for project in $compose_projects; do
     (cd "$probe" 2>/dev/null && probe_compose "$project" down -v --remove-orphans >/dev/null 2>&1)
   done
-  images=$(docker images -q --filter "reference=kanabol-*:$check_tag")
+  [ -z "$server_started" ] || (cd "$server" && server_compose down -v --remove-orphans >/dev/null 2>&1)
+  images=$(docker images -q --filter "reference=kanabol-*:$check_tag"
+    docker images -q --filter "reference=kanabol-*:$release_version")
   [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
   rm -rf "$scratch"
 }
@@ -140,6 +155,13 @@ images_are_built() {
   }
 }
 
+seq_hash=
+seq_hash_is_known() {
+  [ -n "$seq_hash" ] && return 0
+  seq_hash=$(echo "$seq_password" | docker run --rm -i datalust/seq config hash | tr -d '\r')
+  [ -n "$seq_hash" ]
+}
+
 # The files the server's clone needs for the stack and its scripts, with its own .env and certificates.
 probe_folder_is_ready() {
   [ -f "$probe/.env" ] && return 0
@@ -154,8 +176,7 @@ services:
     ports: !override
       - "127.0.0.1::443"
 EOF
-  seq_hash=$(echo "$seq_password" | docker run --rm -i datalust/seq config hash | tr -d '\r')
-  [ -n "$seq_hash" ] || return 1
+  seq_hash_is_known || return 1
   cat >"$probe/.env" <<EOF
 POSTGRES_PASSWORD=$database_password
 JWT_SECRET=$jwt_secret
@@ -545,10 +566,249 @@ task_1() {
     "$scratch/restore-new.log" "$scratch/restore-no.log"
 }
 
-tasks=${*:-1}
+
+# ---- Task 2: release.sh.
+
+# A clone as the server has it after git pull: main at this checkout's commit, origin/main on it, and the
+# release.sh of this checkout's working tree, committed in the clone if it differs.
+server_clone_is_ready() {
+  [ -f "$scratch/server.env" ] && return 0
+  git clone -q "$PWD" "$server" || return 1
+  (
+    cd "$server" || exit 1
+    git checkout -q -B main HEAD || exit 1
+    git config user.email release-check@kanabol.local && git config user.name 'Release check' || exit 1
+    cp "$OLDPWD/scripts/release.sh" scripts/release.sh || exit 1
+    if [ -n "$(git status --porcelain)" ]; then
+      git add -A && git commit -q --no-verify -m 'test: the release.sh of the working tree' || exit 1
+    fi
+    git update-ref refs/remotes/origin/main HEAD
+  ) || return 1
+  seq_hash_is_known || return 1
+  # .env as docs/deploy.md has it made: .env.example, filled in.
+  sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$database_password|" \
+    -e "s|^JWT_SECRET=.*|JWT_SECRET=$jwt_secret|" \
+    -e "s|^SEQ_ADMIN_HASH=.*|SEQ_ADMIN_HASH=$seq_hash|" \
+    -e "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=$initial_password|" .env.example >"$server/.env" || return 1
+  grep -q '^# KANABOL_VERSION=' "$server/.env" || return 1
+  cp "$server/.env" "$scratch/server.env"
+}
+
+release() { # release <arguments...>: release.sh in the clone, its output in release.log
+  (cd "$server" && env -u KANABOL_VERSION dash scripts/release.sh "$@") >"$scratch/release.log" 2>&1
+}
+
+nothing_released() { # Neither image, nor a changed .env.
+  if docker image inspect "kanabol-api:$release_version" >/dev/null 2>&1 ||
+    docker image inspect "kanabol-web:$release_version" >/dev/null 2>&1; then
+    echo "an image was built"
+    return 1
+  fi
+  cmp -s "$server/.env" "$scratch/server.env" || {
+    echo ".env changed"
+    return 1
+  }
+}
+
+refuses() { # refuses <expected text> <arguments...>: release.sh exits non-zero, saying so, and does nothing
+  expected=$1
+  shift
+  release "$@" && {
+    echo "release.sh $* exited 0"
+    cat "$scratch/release.log"
+    return 1
+  }
+  grep -qF -- "$expected" "$scratch/release.log" || {
+    cat "$scratch/release.log"
+    return 1
+  }
+  nothing_released || return 1
+  # The only tag of that version allowed is the one refuses_a_tag_elsewhere put on the commit before.
+  if git -C "$server" rev-parse -q --verify "refs/tags/$release_version" >/dev/null; then
+    is "$(git -C "$server" rev-parse HEAD~1)" "$(git -C "$server" rev-list -n 1 "refs/tags/$release_version")" || {
+      echo "a tag was made"
+      return 1
+    }
+  fi
+}
+
+refuses_bad_versions() {
+  for version in 0.1.0 v1.2 v01.2.3 v1.2.3-rc1 'v1.2.3 x'; do
+    refuses Usage "$version" || return 1
+  done
+  refuses Usage
+}
+
+refuses_changes() {
+  echo '# a change on the server' >>"$server/compose.yaml"
+  refuses "changes git doesn't have" "$release_version"
+  status=$?
+  git -C "$server" checkout -q -- compose.yaml
+  [ "$status" -eq 0 ] || return 1
+  echo stray >"$server/backend/stray.txt"
+  refuses "changes git doesn't have" "$release_version"
+  status=$?
+  rm -f "$server/backend/stray.txt"
+  return "$status"
+}
+
+refuses_another_branch() {
+  git -C "$server" checkout -q -b elsewhere || return 1
+  refuses "not main" "$release_version"
+  status=$?
+  git -C "$server" checkout -q main
+  return "$status"
+}
+
+refuses_an_unpushed_commit() {
+  git -C "$server" commit -q --allow-empty --no-verify -m 'test: only on the server' || return 1
+  refuses "origin/main doesn't" "$release_version"
+  status=$?
+  git -C "$server" reset -q --hard HEAD~1
+  return "$status"
+}
+
+refuses_a_tag_elsewhere() {
+  git -C "$server" tag -a "$release_version" -m elsewhere HEAD~1 || return 1
+  refuses "is on" "$release_version"
+  status=$?
+  git -C "$server" tag -d "$release_version" >/dev/null
+  return "$status"
+}
+
+refuses_without_env() {
+  mv "$server/.env" "$scratch/env-aside" || return 1
+  release "$release_version"
+  status=$?
+  mv "$scratch/env-aside" "$server/.env"
+  [ "$status" -ne 0 ] && grep -qF 'no .env' "$scratch/release.log" || {
+    cat "$scratch/release.log"
+    return 1
+  }
+  nothing_released
+}
+
+release_builds() {
+  release "$release_version" || {
+    tail -n 25 "$scratch/release.log"
+    return 1
+  }
+  cp "$scratch/release.log" "$scratch/release-first.log"
+}
+
+images_carry_the_release() {
+  head=$(git -C "$server" rev-parse HEAD)
+  for part in api web; do
+    is "$release_version $head" "$(docker image inspect -f \
+      '{{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}' \
+      "kanabol-$part:$release_version" | tr -d '\r')" || return 1
+  done
+}
+
+tag_is_annotated_on_head() {
+  is tag "$(git -C "$server" cat-file -t "refs/tags/$release_version")" || return 1
+  is "$(git -C "$server" rev-parse HEAD)" "$(git -C "$server" rev-list -n 1 "refs/tags/$release_version")"
+}
+
+env_has_the_version_once() {
+  is 1 "$(grep -c '^KANABOL_VERSION=' "$server/.env")" || return 1
+  grep -qx "KANABOL_VERSION=$release_version" "$server/.env" || return 1
+  grep -v '^KANABOL_VERSION=' "$server/.env" >"$scratch/env-now"
+  diff "$scratch/server.env" "$scratch/env-now"
+}
+
+release_says_how_to_start() {
+  grep -qF 'docker compose -f compose.yaml -f compose.prod.yaml up -d' "$scratch/release-first.log" || {
+    cat "$scratch/release-first.log"
+    return 1
+  }
+}
+
+release_again_changes_nothing() {
+  tag_object=$(git -C "$server" rev-parse "refs/tags/$release_version")
+  cp "$server/.env" "$scratch/env-before-again"
+  release "$release_version" || {
+    tail -n 25 "$scratch/release.log"
+    return 1
+  }
+  is "$tag_object" "$(git -C "$server" rev-parse "refs/tags/$release_version")" || return 1
+  cmp "$scratch/env-before-again" "$server/.env"
+}
+
+server_compose() {
+  env -u KANABOL_VERSION docker compose -p "$server_project" -f compose.yaml -f compose.prod.yaml \
+    -f release-ports.yaml "$@"
+}
+
+release_stack_comes_up() {
+  (cd "$server" && sh scripts/make-certs.sh localhost 127.0.0.1) >"$scratch/server-certs.log" 2>&1 || {
+    cat "$scratch/server-certs.log"
+    return 1
+  }
+  cat >"$server/release-ports.yaml" <<'EOF'
+services:
+  web:
+    ports: !override
+      - "127.0.0.1::443"
+EOF
+  server_started=1
+  # --pull never: the images are the ones release.sh built here, or the start fails.
+  (cd "$server" && server_compose up -d --pull never --wait --wait-timeout 240) >"$scratch/server-up.log" 2>&1 || {
+    tail -n 20 "$scratch/server-up.log"
+    return 1
+  }
+  web_url="https://$(cd "$server" && server_compose port web 443 | tr -d '\r')"
+}
+
+stack_runs_the_release() {
+  is "api kanabol-api:$release_version
+web kanabol-web:$release_version" \
+    "$(cd "$server" && server_compose ps --format '{{.Service}} {{.Image}}' api web | tr -d '\r' | sort)"
+}
+
+release_serves_the_app() {
+  curl -sSk --max-time 30 "$web_url/projects" | grep -q '<kb-root' || return 1
+  login "$admin_email" "$initial_password" || return 1
+  grep -q '"mustChangePassword":true' "$scratch/body"
+}
+
+docs_explain_the_deploy() {
+  file_has docs/deploy.md 'cp .env.example .env' POSTGRES_PASSWORD JWT_SECRET SEQ_ADMIN_HASH ADMIN_INITIAL_PASSWORD \
+    scripts/make-certs.sh 'scripts/release.sh v0.1.0' 'docker compose -f compose.yaml -f compose.prod.yaml up -d' \
+    scripts/seq-retention.sh scripts/backup.sh docs/backup.md ca.crt docs/tls.md 'git pull' \
+    'scripts/release.sh v0.2.0' KANABOL_VERSION
+}
+
+task_2() {
+  echo "19b.2 release.sh"
+  check "release.sh is tracked as executable" tracked_and_executable scripts/release.sh
+  check "dash, the server's /bin/sh, reads it" parses_as_posix_sh scripts/release.sh
+  check "docs/deploy.md gives the server's steps and the update" docs_explain_the_deploy
+  check "Docker is running" docker_is_running
+  check "a clean clone is on main, with origin/main on it and a .env from .env.example" server_clone_is_ready
+  check "it refuses a version that isn't vX.Y.Z" refuses_bad_versions
+  check "it refuses changes git doesn't have, tracked or not" refuses_changes
+  check "it refuses another branch" refuses_another_branch
+  check "it refuses a commit origin/main doesn't have" refuses_an_unpushed_commit
+  check "it refuses a tag of that version on another commit" refuses_a_tag_elsewhere
+  check "it refuses without .env" refuses_without_env
+  check "release.sh $release_version builds both images" release_builds
+  check "they carry the version and the commit" images_carry_the_release
+  check "the annotated tag is on HEAD" tag_is_annotated_on_head
+  check ".env has KANABOL_VERSION once, the rest as it was" env_has_the_version_once
+  check "it prints the compose up command" release_says_how_to_start
+  check "and no password" no_password_in "$scratch/release-first.log"
+  check "the same version again changes nothing else" release_again_changes_nothing
+  check "compose.prod.yaml starts them from .env, without pulling" release_stack_comes_up
+  check "api and web run the release's images" stack_runs_the_release
+  check "the app answers on HTTPS and the first admin signs in" release_serves_the_app
+}
+
+tasks=${*:-1 2}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
+    2) task_2 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
