@@ -8,6 +8,7 @@ The frontend calls `/api` and `/hubs` on its own origin, in development and in p
 
 - In development, `npm start` uses `proxy.conf.json` to send both to the API on http://localhost:5200, with WebSockets for `/hubs`. Start the API first: `backend/CLAUDE.md` says how.
 - In Docker and production, `nginx.conf` and `nginx.prod.conf` do the same, sending them to the `api` service.
+- nginx sends the security headers of `docs/SPEC.md` §13.2 from `nginx-app.conf`, at server level and with `always`: an `add_header` inside a `location` would drop them all there. `nginx.prod.conf` adds HSTS on 443 only. The CSP allows scripts from this origin only, so `index.html` holds no inline script: the production build doesn't inline critical CSS (`inlineCritical: false` in `angular.json`), whose stylesheet waits on `media="print"` for an inline script to switch it. Styles may be inline (`style-src 'unsafe-inline'`), as Angular and Material put them. `scripts/check-hardening.sh 1` checks all of it on the image.
 - Feature code calls the API through `ApiClient` (`core/api`), in a `<feature>-api.ts`, never through `HttpClient` directly.
 
 ## Commands

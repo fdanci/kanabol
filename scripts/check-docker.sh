@@ -343,6 +343,36 @@ web_sends_header() { # web_sends_header <header line>
   curl -sSI "$web_url/" | tr -d '\r' | grep -qi "^$1\$"
 }
 
+# docs/SPEC.md §13.2 (group 19), as the spec writes them. Names in lower case: Git Bash's grep aborts on
+# some of these lines with -i and -x together.
+security_headers="x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+
+headers_of() { # headers_of <url>: its answer's headers, names in lower case
+  curl -sSk -o /dev/null -D - "$1" | tr -d '\r' | sed 's/^\([^: ]*\):/\L\1:/'
+}
+
+# Each once, with its value: twice would mean a location added its own on top of the server's.
+sends_the_security_headers() { # sends_the_security_headers <url>
+  headers_of "$1" >"$scratch/headers.txt" || return 1
+  printf '%s\n' "$security_headers" | while IFS= read -r expected; do
+    if [ "$(grep -cF -- "${expected%%:*}:" "$scratch/headers.txt")" != 1 ] || ! grep -qxF -- "$expected" "$scratch/headers.txt"; then
+      echo "wanted once: ${expected%%:*}"
+      exit 1
+    fi
+  done
+}
+
+sends_no_hsts() { # sends_no_hsts <url>
+  headers_of "$1" >"$scratch/headers.txt" || return 1
+  if grep '^strict-transport-security:' "$scratch/headers.txt"; then
+    return 1
+  fi
+}
+
 api_stub_saw() { # api_stub_saw <text>: looks in what reached the stub for /api/orders?page=1
   curl -sS -H 'Host: kanabol.example' "$web_url/api/orders?page=1" | grep -qF -- "$1"
 }
@@ -412,6 +442,9 @@ task_2() {
   check "it compresses scripts" web_compresses_scripts
   check "it sends X-Content-Type-Options" web_sends_header 'X-Content-Type-Options: nosniff'
   check "it sends X-Frame-Options" web_sends_header 'X-Frame-Options: DENY'
+  check "it sends the five security headers of docs/SPEC.md §13.2, once each" sends_the_security_headers "$web_url/"
+  check "and on what the API answers" sends_the_security_headers "$web_url/api/orders?page=1"
+  check "the development server sends no HSTS" sends_no_hsts "$web_url/"
   check "/api goes to the API, path and query intact" api_stub_saw '"url":"/api/orders?page=1"'
   check "the API gets the client's address" api_stub_saw '"x-forwarded-for"'
   check "the API gets the host the client asked for" api_stub_saw '"host":"kanabol.example"'
@@ -709,6 +742,9 @@ task_3() {
   check "the whole stack comes up, with a healthy API" stack_comes_up
   check "nginx serves the app" web_serves_the_app /
   check "nginx reaches the real API" api_through_web_is_real
+  check "the stack's nginx sends the security headers" sends_the_security_headers "$web_url/"
+  check "and on the real API's 404" sends_the_security_headers "$web_url/api/no-such-thing"
+  check "and no HSTS, without TLS" sends_no_hsts "$web_url/"
   check "the first admin signs in through nginx, with the cookie the spec asks" web_login_sets_the_cookie
   check "nginx lets one client log in 5 times a minute, whatever X-Forwarded-For it sends" web_limits_a_client_whatever_it_claims
   check "a login sent through the hubs path gets no way around the limit" web_limits_a_login_sent_through_hubs
@@ -723,6 +759,16 @@ task_3() {
   check "prod sends port 80 to HTTPS" http_redirects_to_https
   check "prod serves the app over HTTPS" https_serves_the_app
   check "prod reaches the API over HTTPS" https_reaches_the_api
+  check "prod sends the security headers over HTTPS" sends_the_security_headers "https://127.0.0.1:$https_port/"
+  check "and on the real API's 404" sends_the_security_headers "https://127.0.0.1:$https_port/api/no-such-thing"
+  check "prod sends HSTS on 443, a year, without preload" https_sends_hsts
+  check "port 80's redirect sends no HSTS" sends_no_hsts "http://127.0.0.1:$http_port/projects"
+}
+
+https_sends_hsts() {
+  headers_of "https://127.0.0.1:$https_port/" >"$scratch/headers.txt" || return 1
+  is 1 "$(grep -c '^strict-transport-security:' "$scratch/headers.txt")" || return 1
+  grep -qxF 'strict-transport-security: max-age=31536000' "$scratch/headers.txt"
 }
 
 stop_host_processes() {
