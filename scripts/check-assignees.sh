@@ -550,6 +550,7 @@ only_active_members_each_once() {
   in_file '"assigneeIds":' "$scratch/body" || return 1
   code_is 400 Validation "$(as "$admin_token" POST "/api/projects/$asg_id/tasks" "{\"title\":\"Cu cineva din afara\",\"priority\":\"Low\",\"assigneeIds\":[\"$eva_id\"]}")" || return 1
   in_file '"assigneeIds":' "$scratch/body" || return 1
+  # upper() of display_name follows its ro-x-icu collation, as the API's sorts do (docs/SPEC.md §5.3).
   is 'ioana Pop,Radu Ene' "$(in_db "SELECT string_agg(u.display_name, ',' ORDER BY upper(u.display_name)) FROM task_assignees a JOIN users u ON u.id = a.user_id WHERE a.task_id = '$shared_task'")"
 }
 

@@ -37,6 +37,12 @@
 #      and 3 overdue, 6 comments, a file, and the admin's notifications of 6 assignments and 4 comments;
 #      run again it makes nothing, and after the file was deleted it uploads that alone; nothing it prints
 #      holds a password. PostgreSQL.
+#   5  (group 20; docs/SPEC.md §16) every command of the Application project, found by reflection and as
+#      many as the records named ...Command in its code: those with anything but ids, nothing or a
+#      deadline have a FluentValidation validator in that project, as the ones the tests know to take
+#      text, numbers or lists do; those without one have only ids (Guid ...Id), the refresh token the
+#      cookie brings (a key looked up by its hash), a deadline (DueDate), or nothing; the list of those is
+#      printed. Only the packages.
 #
 # Docker builds the images and runs the stacks; everything is removed at the end. PostgreSQL means one whose
 # user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
@@ -1211,13 +1217,109 @@ task_4() {
   stop_api
 }
 
-tasks=${*:-1 2 3 4}
+# ---- Task 5: a validator for every command with something to check (group 20; docs/SPEC.md §16).
+
+# Every command of the Application project, found by reflection, with or without a FluentValidation validator
+# in that project, and for those without one what their fields are: ids, the refresh token the cookie
+# brings (a key looked up by its hash), a deadline, or anything else, which fails.
+commands_of_the_application() {
+  probe_dir="$scratch/commands"
+  mkdir -p "$probe_dir"
+  cat >"$probe_dir/commands.csproj" <<XML
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(native "$PWD")/backend/src/Kanabol.Application/Kanabol.Application.csproj" />
+  </ItemGroup>
+</Project>
+XML
+  cat >"$probe_dir/Program.cs" <<'CS'
+using System.Reflection;
+using FluentValidation;
+using Kanabol.Application.Abstractions.Messaging;
+
+var application = typeof(ICommand<>).Assembly;
+var types = application.GetTypes().Where(type => type is { IsClass: true, IsAbstract: false }).ToList();
+var validated = types
+    .SelectMany(type => type.GetInterfaces())
+    .Where(contract => contract.IsGenericType && contract.GetGenericTypeDefinition() == typeof(IValidator<>))
+    .Select(contract => contract.GetGenericArguments()[0])
+    .ToHashSet();
+var commands = types
+    .Where(type => type.GetInterfaces().Any(contract => contract.IsGenericType && contract.GetGenericTypeDefinition() == typeof(ICommand<>)))
+    .OrderBy(type => type.Name, StringComparer.Ordinal);
+
+foreach (var command in commands)
+{
+    if (validated.Contains(command))
+    {
+        Console.WriteLine($"validated {command.Name}");
+        continue;
+    }
+
+    var fields = command.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Select(field => (field.PropertyType == typeof(Guid) || field.PropertyType == typeof(Guid?)) && field.Name.EndsWith("Id", StringComparison.Ordinal) ? $"{field.Name}:id"
+            : field.PropertyType == typeof(string) && field.Name == "RefreshToken" ? $"{field.Name}:token"
+            : field.PropertyType == typeof(DateTimeOffset?) && field.Name == "DueDate" ? $"{field.Name}:deadline"
+            : $"{field.Name}:OTHER {field.PropertyType.Name}")
+        .ToList();
+    Console.WriteLine($"unvalidated {command.Name} {(fields.Count == 0 ? "nothing" : string.Join(' ', fields))}");
+}
+CS
+  dotnet build "$probe_dir/commands.csproj" --nologo -v q >"$probe_dir/build.log" 2>&1 || {
+    tail -n 20 "$probe_dir/build.log"
+    return 1
+  }
+  dotnet "$probe_dir/bin/Debug/net10.0/commands.dll" | tr -d '\r' >"$scratch/commands.txt" || return 1
+  cat "$scratch/commands.txt"
+}
+
+every_command_is_found() {
+  commands_of_the_application >/dev/null || return 1
+  # As many as there are record ...Command( in the code, so the reflection can't have missed one.
+  in_code=$(grep -rhoE 'record [A-Za-z]+Command\b' backend/src/Kanabol.Application --include='*Command.cs' | sort -u | wc -l)
+  found=$(wc -l <"$scratch/commands.txt")
+  is "$in_code" "$found" || return 1
+  [ "$found" -ge 40 ] || {
+    echo "only $found commands"
+    return 1
+  }
+}
+
+commands_with_fields_have_a_validator() {
+  [ -s "$scratch/commands.txt" ] || commands_of_the_application >/dev/null || return 1
+  ! grep 'OTHER' "$scratch/commands.txt" || return 1
+  # Those the tests know take text, numbers or lists, each through its validator.
+  for command in CreateTaskCommand RenameTaskCommand AssignTaskCommand MoveTaskCommand CreateUserCommand CreateRoleCommand \
+    AddCommentCommand AddAttachmentCommand LoginUserCommand ChangePasswordCommand RecordClientLogsCommand MoveBoardColumnCommand; do
+    grep -qxF "validated $command" "$scratch/commands.txt" || {
+      echo "$command has no validator"
+      return 1
+    }
+  done
+  echo "$(grep -c '^validated ' "$scratch/commands.txt") with a validator, $(grep -c '^unvalidated ' "$scratch/commands.txt") without:"
+  grep '^unvalidated ' "$scratch/commands.txt"
+}
+
+task_5() {
+  echo "20.5 a validator for every command with more than ids"
+  check "reflection finds every command of the Application project" every_command_is_found
+  check "every command with more than ids, nothing or a deadline has a FluentValidation validator" commands_with_fields_have_a_validator
+}
+
+tasks=${*:-1 2 3 4 5}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
     3) task_3 ;;
     4) task_4 ;;
+    5) task_5 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

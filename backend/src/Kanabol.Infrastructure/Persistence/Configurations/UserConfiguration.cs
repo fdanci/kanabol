@@ -8,9 +8,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.Property(user => user.Email).HasMaxLength(User.MaxEmailLength);
+        builder.Property(user => user.Email).HasMaxLength(User.MaxEmailLength).UseCollation(Collations.Romanian);
         builder.HasIndex(user => user.Email).IsUnique().HasDatabaseName("ux_users_email");
-        builder.Property(user => user.DisplayName).HasMaxLength(User.MaxDisplayNameLength);
+        builder.Property(user => user.DisplayName).HasMaxLength(User.MaxDisplayNameLength).UseCollation(Collations.Romanian);
         builder.Property(user => user.PasswordHash).HasMaxLength(256);
 
         // A request that read someone in one role, or deactivated, must not write over a move or a

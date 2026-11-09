@@ -71,7 +71,8 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
-                        .HasColumnName("name");
+                        .HasColumnName("name")
+                        .UseCollation("ro-x-icu");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -246,7 +247,8 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
+                        .HasColumnName("name")
+                        .UseCollation("ro-x-icu");
 
                     b.Property<int>("NextTaskNumber")
                         .HasColumnType("integer")
@@ -547,7 +549,8 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)")
-                        .HasColumnName("title");
+                        .HasColumnName("title")
+                        .UseCollation("ro-x-icu");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -649,13 +652,15 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
-                        .HasColumnName("display_name");
+                        .HasColumnName("display_name")
+                        .UseCollation("ro-x-icu");
 
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)")
-                        .HasColumnName("email");
+                        .HasColumnName("email")
+                        .UseCollation("ro-x-icu");
 
                     b.Property<int>("FailedLoginAttempts")
                         .HasColumnType("integer")

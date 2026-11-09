@@ -10,7 +10,7 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
 {
     public void Configure(EntityTypeBuilder<TaskItem> builder)
     {
-        builder.Property(task => task.Title).HasMaxLength(TaskItem.MaxTitleLength);
+        builder.Property(task => task.Title).HasMaxLength(TaskItem.MaxTitleLength).UseCollation(Collations.Romanian);
         builder.Property(task => task.Description).HasColumnType("text");
         builder.Property(task => task.Priority).HasConversion<string>();
         builder.Property<uint>("Version").IsRowVersion();
