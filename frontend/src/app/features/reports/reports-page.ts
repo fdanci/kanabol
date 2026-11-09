@@ -17,6 +17,7 @@ import {
 import { MatSelect } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { map } from 'rxjs';
 import { Chart } from '../../shared/ui/chart';
 import type { ChartSeries } from '../../shared/ui/chart';
 import { EmptyState } from '../../shared/ui/empty-state';
@@ -73,6 +74,9 @@ interface DurationRow {
  * finalizate", "Lead time și cycle time" and "Deadline-uri", each read on its own with its tiles, its chart
  * (kb-chart, loaded with @defer, so chart.js stays out of the first bundle), the table of its data with
  * "Export CSV", its skeleton, its empty text and its error.
+ * The project's "Rapoarte" tab (§7.3) is the same page, which projects.routes.ts loads with
+ * `projectFixed` in its data: the project is the route's, without a title, a breadcrumb or a project
+ * select, and stays out of the address.
  */
 @Component({
   selector: 'kb-reports-page',
@@ -104,6 +108,14 @@ export class ReportsPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly today = new Date();
+  protected readonly projectFixed = this.route.snapshot.data['projectFixed'] === true;
+  private readonly projectRoute = this.route.parent ?? this.route;
+  private readonly routeProject = toSignal(
+    this.projectRoute.paramMap.pipe(map((params) => params.get('id'))),
+    {
+      initialValue: this.projectRoute.snapshot.paramMap.get('id'),
+    },
+  );
 
   protected readonly heading = $localize`Rapoarte`;
   protected readonly crumbs: Crumb[] = [
@@ -131,7 +143,9 @@ export class ReportsPage {
   private readonly params = toSignal(this.route.queryParamMap, {
     initialValue: convertToParamMap({}),
   });
-  private readonly read = computed(() => filtersFromQuery(this.params(), this.today, null));
+  private readonly read = computed(() =>
+    filtersFromQuery(this.params(), this.today, this.projectFixed ? this.routeProject() : null),
+  );
   protected readonly filters = computed(() => this.read().filters);
   protected readonly activePreset = computed(() => presetOf(this.filters(), this.today));
   protected readonly fromDate = computed(() => dateOf(this.filters().from));
@@ -217,7 +231,9 @@ export class ReportsPage {
   protected readonly formatHourTick = (value: number) => $localize`${HOURS.format(value)} h`;
 
   constructor() {
-    void this.store.loadProjects();
+    if (!this.projectFixed) {
+      void this.store.loadProjects();
+    }
 
     // Only the address starts a load. A wrong interval goes back to the last 30 days, in the address too.
     effect(() => {
@@ -336,7 +352,10 @@ export class ReportsPage {
   }
 
   private change(change: Partial<ReportFilters>): void {
-    void this.navigate(filtersToQuery({ ...this.filters(), ...change }, this.today, false), false);
+    void this.navigate(
+      filtersToQuery({ ...this.filters(), ...change }, this.today, this.projectFixed),
+      false,
+    );
   }
 
   private navigate(

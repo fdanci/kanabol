@@ -11,6 +11,12 @@
   padding: 0 var(--kb-space-6) var(--kb-space-6);
 }
 
+// In a project's tab, the project's page gives the width and the margins.
+.content.in-project {
+  max-width: none;
+  padding: 0;
+}
+
 // The flat cards of 6.0.10, as the main panel's.
 .card {
   min-width: 0;

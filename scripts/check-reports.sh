@@ -22,8 +22,9 @@
 #      projects.manage (any project), a plain member, projects.view_all and an outsider (403
 #      Project.OwnerRequired), a project that doesn't exist (404), the permission's name only in the log,
 #      and an owner deactivated since, whose token still holds (403). Docker, PostgreSQL.
-#   3  the page and kb-chart: specs, lint, formatting, the production build without warnings but the
-#      budget's, the texts of docs/UI_UX_SPEC.md §7.8, the filters in the address, durations as "2 z 4 h",
+#   3  the page, the project's tab and kb-chart: specs, lint, formatting, the production build without
+#      warnings but the budget's, the texts of docs/UI_UX_SPEC.md §7.8, the filters in the address, the tab
+#      loading the page with its project fixed (§7.3) and no placeholder left, durations as "2 z 4 h",
 #      CSV with commas, quotes and a BOM, chart.js 4 with only the bar's controllers, the colors from the
 #      tokens, no other feature imported, chart.js in a chunk of its own, loaded by @defer, and neither it
 #      nor the page in the files index.html loads; prints the Initial total. Only the packages that
@@ -952,6 +953,38 @@ reports_is_its_route() {
     lacks "placeholder\('reports'|PlaceholderPage" "$app/app.routes.ts"
 }
 
+# docs/SPEC.md §6.1: the one feature another's route loads, the page with its project fixed (UI §7.3).
+the_projects_tab_loads_the_page() {
+  routes="$app/features/projects/projects.routes.ts"
+  in_file "loadComponent: () => import('../reports/reports-page').then((page) => page.ReportsPage)," "$routes" &&
+    in_file "data: { projectFixed: true }," "$routes" &&
+    lacks "ProjectPlaceholder|project-placeholder" "$routes" &&
+    [ ! -e "$app/features/projects/project-placeholder.ts" ] &&
+    lacks "from '\.\./reports/" "$app"/features/projects/*.ts
+}
+
+the_tab_specs_name_the_rules() {
+  spec_names "$reports_web/reports-page.spec.ts" \
+    'reads the project of the route, whatever the address says, without a title, a breadcrumb or a project select' \
+    'keeps the project out of the address' \
+    "reads the project's members for the user select, and no list of projects" \
+    'follows the route to another project' &&
+    spec_names "$reports_web/report-filters.spec.ts" \
+      'keeps the project fixed by the route, whatever the address says' \
+      'leaves the project out of the address when the route fixes it'
+}
+
+# The page is in a chunk of its own, which both routes load, not in the projects' chunk.
+the_tab_keeps_the_page_in_its_chunk() {
+  built || return 1
+  page=$(grep -lE 'kb-reports-page' "$scratch"/dist/browser/*.js | sed 's|.*/||')
+  projects=$(grep -lE 'kb-project-page' "$scratch"/dist/browser/*.js | sed 's|.*/||')
+  [ "$(printf '%s\n' $page | wc -l)" -eq 1 ] && [ -n "$projects" ] && [ "$page" != "$projects" ] || {
+    echo "the page is in: ${page:-no file}; the project page in: ${projects:-no file}"
+    return 1
+  }
+}
+
 # The initial bundle is what index.html loads: its scripts and the chunks it preloads.
 initial_files() {
   grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/dist/browser/index.html" |
@@ -992,7 +1025,7 @@ chart_js_stays_out_of_the_first_bundle() {
 }
 
 task_3() {
-  echo "18.3 The reports page and kb-chart"
+  echo "18.3 The reports page, the project's tab and kb-chart"
   for file in models.ts reports-api.ts reports-store.ts reports-page.ts reports-page.html reports-page.scss \
     reports.routes.ts report-filters.ts durations.ts report-csv.ts reports-testing.ts reports-api.spec.ts \
     reports-page.spec.ts report-filters.spec.ts durations.spec.ts report-csv.spec.ts; do
@@ -1001,20 +1034,25 @@ task_3() {
   check "shared/ui/chart.ts, its spec and shared/section.ts are tracked" eval \
     'tracked "$app/shared/ui/chart.ts" && tracked "$app/shared/ui/chart.spec.ts" && tracked "$app/shared/section.ts"'
   check "the specs name the rules: the filters, the sections, the charts, CSV, skeletons, errors" the_page_specs_name_the_rules
-  check "the page's specs pass, with its filters, durations, CSV and API" specs_pass 'src/app/features/reports/*.spec.ts' 57
+  check "the specs name the tab's rules: the project fixed, out of the address, its members" the_tab_specs_name_the_rules
+  check "the page's specs pass, with its tab, filters, durations, CSV and API" specs_pass 'src/app/features/reports/*.spec.ts' 61
+  check "the projects' specs still pass, the tab among the views" specs_pass 'src/app/features/projects/*.spec.ts' 63
   check "kb-chart's and kb-stat-tile's specs pass" specs_pass 'src/app/shared/ui/{chart,stat-tile}.spec.ts' 12
   check "the main panel's specs still pass, its sections on the shared Section" specs_pass 'src/app/features/dashboard/*.spec.ts' 25
   check "the texts follow docs/UI_UX_SPEC.md §7.8, each chart with @defer, nothing unsafe" the_page_texts_follow_the_ui_spec
   check "kb-chart is chart.js 4 with only the bars, colored from the tokens" the_chart_is_chart_js_4_with_only_the_bars
   check "the page imports no other feature" the_page_imports_no_other_feature
   check "/reports is the page, not a placeholder" reports_is_its_route
+  check "the project's Rapoarte tab loads the page with its project fixed, the placeholder gone" the_projects_tab_loads_the_page
   check "the lint is clean" frontend_lint_is_clean
   check "the formatting is clean" frontend_formatting_is_clean
   check "the production build passes" built
   check "the build warns only of the budget" the_build_warns_only_of_the_budget
   check "chart.js is in a chunk of its own, and neither it nor the page is in the initial bundle" chart_js_stays_out_of_the_first_bundle
+  check "the tab keeps the page in its own chunk, out of the projects' one" the_tab_keeps_the_page_in_its_chunk
   [ -f "$scratch/build.log" ] && printf '        %s\n' "$(plain "$scratch/build.log" | grep -F 'Initial total' | tr -s ' ')"
-  check "frontend/CLAUDE.md says how the reports work" in_file '`ReportsStore`' frontend/CLAUDE.md
+  check "frontend/CLAUDE.md says how the reports work, and the project's tab" eval \
+    "in_file '\`ReportsStore\`' frontend/CLAUDE.md && in_file '\`projectFixed\`' frontend/CLAUDE.md"
 }
 
 if [ "$#" -eq 0 ]; then

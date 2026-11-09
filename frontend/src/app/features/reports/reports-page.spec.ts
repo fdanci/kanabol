@@ -11,7 +11,7 @@ import {
   MatDatepickerToggleHarness,
 } from '@angular/material/datepicker/testing';
 import { MatSelectHarness } from '@angular/material/select/testing';
-import { Router, provideRouter } from '@angular/router';
+import { Router, RouterOutlet, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import type { ChartConfiguration } from 'chart.js';
 import { NEVER, Observable, of, throwError } from 'rxjs';
@@ -30,6 +30,14 @@ import { aCompletedReport, aCycleTimeReport, aDeadlinesReport } from './reports-
 
 @Component({ changeDetection: ChangeDetectionStrategy.OnPush, template: `` })
 class Elsewhere {}
+
+/** The project's page, as far as its tabs go: an outlet under /projects/:id. */
+@Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterOutlet],
+  template: `<router-outlet />`,
+})
+class ProjectLike {}
 
 type Read<T> = ReturnType<typeof vi.fn<(filters: ReportFilters) => Observable<T>>>;
 
@@ -76,6 +84,11 @@ describe('ReportsPage', () => {
         provideRouter([
           { path: '', component: Elsewhere },
           { path: 'reports', component: ReportsPage },
+          {
+            path: 'projects/:id',
+            component: ProjectLike,
+            children: [{ path: 'reports', component: ReportsPage, data: { projectFixed: true } }],
+          },
         ]),
         { provide: ReportsApi, useValue: api },
         {
@@ -502,5 +515,60 @@ describe('ReportsPage', () => {
     expect(tiles(section(page, 'deadlines'))[0]).toBe(
       'Întârziate acum | 2 | deschise, după deadline',
     );
+  });
+
+  // docs/UI_UX_SPEC.md §7.3: the project's "Rapoarte" tab is the same page, its project fixed.
+  describe('in a project', () => {
+    it('reads the project of the route, whatever the address says, without a title, a breadcrumb or a project select', async () => {
+      const page = await open('/projects/p1/reports?project=p9');
+
+      expect(api.completed).toHaveBeenLastCalledWith({
+        ...last30,
+        project: 'p1',
+        user: null,
+        granularity: 'week',
+      });
+      expect(api.cycleTime).toHaveBeenLastCalledWith({
+        ...last30,
+        project: 'p1',
+        user: null,
+        granularity: 'week',
+      });
+      expect(page.querySelector('kb-page-header')).toBeNull();
+      expect(page.querySelector('h1')).toBeNull();
+      expect(page.querySelector('.project')).toBeNull();
+      expect(page.querySelectorAll('section.report')).toHaveLength(3);
+    });
+
+    it('keeps the project out of the address', async () => {
+      await open('/projects/p1/reports');
+
+      await (
+        await loader.getHarness(MatSelectHarness.with({ selector: '.user' }))
+      ).clickOptions({ text: 'Ioana Rus' });
+      await settle();
+      expect(url()).toBe('/projects/p1/reports?user=u4');
+    });
+
+    it("reads the project's members for the user select, and no list of projects", async () => {
+      await open('/projects/p1/reports');
+
+      expect(api.members).toHaveBeenCalledWith('p1');
+      expect(api.projects).not.toHaveBeenCalled();
+    });
+
+    it('follows the route to another project', async () => {
+      await open('/projects/p1/reports');
+
+      await harness.navigateByUrl('/projects/p2/reports');
+      await settle();
+
+      expect(api.completed).toHaveBeenLastCalledWith({
+        ...last30,
+        project: 'p2',
+        user: null,
+        granularity: 'week',
+      });
+    });
   });
 });

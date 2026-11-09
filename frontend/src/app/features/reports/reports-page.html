@@ -1,6 +1,8 @@
-<kb-page-header [title]="heading" [crumbs]="crumbs" />
+@if (!projectFixed) {
+  <kb-page-header [title]="heading" [crumbs]="crumbs" />
+}
 
-<div class="content">
+<div class="content" [class.in-project]="projectFixed">
   <section class="card filters" i18n-aria-label aria-label="Filtrele rapoartelor">
     <div class="presets" role="group" i18n-aria-label aria-label="Intervalul">
       @for (preset of presets; track preset.value) {
@@ -51,24 +53,26 @@
     </div>
 
     <div class="selects">
-      <mat-select
-        class="kb-field kb-select project"
-        panelClass="kb-menu"
-        i18n-aria-label
-        aria-label="Proiect"
-        [value]="filters().project ?? every"
-        (selectionChange)="chooseProject($event.value)"
-      >
-        <mat-option [value]="every" i18n>Toate proiectele</mat-option>
-        @for (project of store.projects(); track project.id) {
-          <mat-option [value]="project.id">
-            {{ project.name }}
-            @if (archived(project.archivedAt)) {
-              <ng-container i18n>(arhivat)</ng-container>
-            }
-          </mat-option>
-        }
-      </mat-select>
+      @if (!projectFixed) {
+        <mat-select
+          class="kb-field kb-select project"
+          panelClass="kb-menu"
+          i18n-aria-label
+          aria-label="Proiect"
+          [value]="filters().project ?? every"
+          (selectionChange)="chooseProject($event.value)"
+        >
+          <mat-option [value]="every" i18n>Toate proiectele</mat-option>
+          @for (project of store.projects(); track project.id) {
+            <mat-option [value]="project.id">
+              {{ project.name }}
+              @if (archived(project.archivedAt)) {
+                <ng-container i18n>(arhivat)</ng-container>
+              }
+            </mat-option>
+          }
+        </mat-select>
+      }
       <mat-select
         class="kb-field kb-select user"
         panelClass="kb-menu"

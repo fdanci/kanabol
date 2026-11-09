@@ -729,7 +729,7 @@ task_3() {
   for file in models.ts projects-api.ts projects-store.ts project-store.ts project-fields.ts projects-page.ts \
     projects-page.html project-sheet.ts project-sheet.html project-page.ts project-page.html \
     project-members.ts project-members.html member-sheet.ts member-sheet.html project-settings.ts \
-    project-settings.html project-placeholder.ts sheet.scss projects.routes.ts; do
+    project-settings.html sheet.scss projects.routes.ts; do
     check "features/projects/$file is tracked" tracked "$projects/$file"
   done
   check "shared/ui/segmented-nav.ts is tracked" tracked "$app/shared/ui/segmented-nav.ts"
