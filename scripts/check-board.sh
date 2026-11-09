@@ -317,19 +317,20 @@ dan_is_ready() {
 numbers=backend/src/Kanabol.Infrastructure/Persistence/TaskNumbers.cs
 create_handler=backend/src/Kanabol.Application/Features/Tasks/Commands/CreateTask/CreateTaskCommandHandler.cs
 
-# The UPDATE comes after the transaction begins, and the save and the commit after it.
+# The UPDATE comes after the transaction begins, and the save and the commit after it. Since group 20 the
+# transaction runs inside the execution strategy (docs/SPEC.md §5.3), which hands it its own token.
 the_counter_moves_in_the_transaction() {
   node -e "
     const s = require('fs').readFileSync('$numbers', 'utf8');
-    const at = (text) => { const i = s.indexOf(text); if (i < 0) { console.log('missing: ' + text); process.exit(1); } return i; };
-    const begin = at('BeginTransactionAsync(ct)');
-    const update = at('UPDATE projects SET next_task_number = next_task_number + 1');
-    at('WHERE id = {projectId} AND archived_at IS NULL');
-    at('RETURNING next_task_number - 1');
-    const save = s.indexOf('SaveChangesAsync(ct)', update);
-    const commit = at('transaction.CommitAsync(ct)');
-    if (!(begin < update && update < save && save < commit)) { console.log('not begin, UPDATE, save, commit, in that order'); process.exit(1); }
-    if (s.indexOf('SaveChangesAsync(ct)', commit) < 0) { console.log('no save after the commit, which sends the held events'); process.exit(1); }
+    const at = (text, from = 0) => { const i = s.indexOf(text, from); if (i < 0) { console.log('missing: ' + text); process.exit(1); } return i; };
+    const strategy = at('CreateExecutionStrategy().ExecuteAsync(');
+    const begin = at('BeginTransactionAsync(', strategy);
+    const update = at('UPDATE projects SET next_task_number = next_task_number + 1', begin);
+    at('AND archived_at IS NULL', update);
+    at('RETURNING next_task_number - 1', update);
+    const save = at('SaveChangesAsync(', update);
+    const commit = at('transaction.CommitAsync(', save);
+    if (s.indexOf('SaveChangesAsync(', commit) < 0) { console.log('no save after the commit, which sends the held events'); process.exit(1); }
   "
 }
 
