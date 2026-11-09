@@ -58,22 +58,24 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 - Shared values are in `appsettings.json`, and values for one environment in `appsettings.Development.json` and `appsettings.Production.json`.
 - Development secrets go in user secrets, never in a file.
 - Local overrides that aren't secret go in `src/Kanabol.Api/appsettings.Development.local.json`, which git ignores. It's only read in Development, and it wins over everything else.
-- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day.
+- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day, or if `Auth:RefreshTokenCleanupInterval` is under an hour or over 30 days.
 
 In Docker and production, settings come from environment variables:
 
-| Variable                               | Value                                                                                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                                                               |
-| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                                                                      |
-| `Jwt__Secret`                          | The key that signs JWTs                                                                                                               |
-| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                                                            |
-| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                                                                |
-| `Storage__AllowedExtensions`           | The extensions a file may have, one value separated by commas, `pdf,png`, which replaces the whole default list in `appsettings.json` |
-| `Database__MigrateOnStartup`           | `true` by default                                                                                                                     |
-| `Alerts__OverdueCheckInterval`         | How often the API looks for overdue tasks, `00:15:00` by default, at least `00:01:00` and at most a day                               |
-| `Alerts__OverdueCheckEnabled`          | `true` by default; `false` stops the overdue check, as the API's tests do                                                             |
-| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                           |
+| Variable                               | Value                                                                                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                                                                                      |
+| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                                                                                             |
+| `Jwt__Secret`                          | The key that signs JWTs                                                                                                                                      |
+| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                                                                                   |
+| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                                                                                       |
+| `Storage__AllowedExtensions`           | The extensions a file may have, one value separated by commas, `pdf,png`, which replaces the whole default list in `appsettings.json`                        |
+| `Database__MigrateOnStartup`           | `true` by default                                                                                                                                            |
+| `Alerts__OverdueCheckInterval`         | How often the API looks for overdue tasks, `00:15:00` by default, at least `00:01:00` and at most a day                                                      |
+| `Alerts__OverdueCheckEnabled`          | `true` by default; `false` stops the overdue check, as the API's tests do                                                                                    |
+| `Auth__RefreshTokenCleanupInterval`    | How often the API deletes the refresh tokens that expired or were revoked over 30 days ago, `1.00:00:00` by default, at least `01:00:00` and at most 30 days |
+| `Auth__RefreshTokenCleanupEnabled`     | `true` by default; `false` stops the cleanup, as the API's tests do                                                                                          |
+| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                                                  |
 
 ## Access rules
 
@@ -272,4 +274,5 @@ In Docker and production, settings come from environment variables:
 - `POST /api/auth/login`, `refresh`, `logout` and `change-password`, and `GET /api/auth/me`. Access tokens go in the body and refresh tokens only in the `refresh_token` cookie, which is `Secure`, so tests have to call over `https://localhost` and browsers accept it on `http://localhost`.
 - Every controller needs a signed-in user unless it says `[AllowAnonymous]`.
 - While `MustChangePassword` is on, the API answers 403 `Auth.PasswordChangeRequired` everywhere except the public endpoints and those marked `[AllowedBeforePasswordChange]`.
+- `RefreshTokensCleanupWorker` (Infrastructure, like `OverdueTasksWorker`, registered after it) runs `DeleteOldRefreshTokensCommand` at start and then every `Auth:RefreshTokenCleanupInterval`, each run in a scope of its own; a run that fails is logged and the next one still comes. The command deletes, in one `DELETE`, the rows that expired or were revoked over 30 days ago, and logs how many: a token revoked lately stays, so using it again still ends its family as a theft. `ApiFactory` turns it off, since tests make old rows of their own.
 - Logins are limited to 5 per minute per client address, which comes from `X-Forwarded-For` on connections from private networks. Tests that log in give each attempt its own address: `AuthApiTest.Login` does it by itself.

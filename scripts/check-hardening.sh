@@ -31,6 +31,11 @@
 #      board's negotiation and WebSocket with the whole address: access_token=[hidden], no token. Nothing
 #      the real API takes in reaches its log as a structured value yet, so those are the tests'.
 #      Docker, PostgreSQL.
+#   4  the refresh tokens' cleanup: the tests (the command's one DELETE and its rows, the worker, its
+#      settings, the API's tests with it off), then the real API in Production on a database holding rows
+#      made straight in it: turned off, it keeps every one and says so; at start it deletes those expired or
+#      revoked over 30 days ago, 3 of 6, with one log line giving the count, and the admin's live sessions
+#      stay; Auth__RefreshTokenCleanupInterval=00:30:00 stops the start. Docker, PostgreSQL.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. PostgreSQL means one whose
 # user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
@@ -1154,12 +1159,131 @@ task_3() {
   check "the redaction passes its tests: lists, objects, dictionaries, a Uri, at any depth, and the API's own log" redaction_tests_pass
   check "the real API in Development logs a board's address without its token" real_log_hides_the_token
 }
-tasks=${*:-1 2 3}
+
+# ---- 19.4: the refresh tokens' cleanup.
+
+cleanup_tests_pass() {
+  named_tests_pass Kanabol.Application.Tests \
+    DeleteOldRefreshTokensCommandHandlerTests.Handle_DeletesWhatExpiredOrWasRevokedOverThirtyDaysAgo_AndKeepsTheRest \
+    DeleteOldRefreshTokensCommandHandlerTests.Handle_WithNothingOld_DeletesNothing \
+    DeleteOldRefreshTokensCommandHandlerTests.Handle_IsOneDeleteInTheDatabase_AndLogsHowManyWent \
+    RefreshTokensCleanupWorkerTests.Start_RunsTheCleanupAtOnce \
+    RefreshTokensCleanupWorkerTests.Start_ThenRunsItEveryIntervalEachInAScopeOfItsOwn \
+    RefreshTokensCleanupWorkerTests.Run_ThatThrows_IsLoggedAndTheNextOneStillComes \
+    RefreshTokensCleanupWorkerTests.Run_ThatFails_IsLoggedWithItsCode \
+    RefreshTokensCleanupWorkerTests.Start_WhenTurnedOff_RunsNothing \
+    RefreshTokensCleanupWorkerTests.Stop_WhileItWaits_EndsTheWorker \
+    AuthOptionsTests.Cleanup_WithoutSettings_RunsOnceADay \
+    AuthOptionsTests.Cleanup_FromTheEnvironment_TakesTheIntervalAndTheSwitch \
+    AuthOptionsTests.Cleanup_WithAnIntervalOfAnHour_IsAccepted \
+    AuthOptionsTests.Cleanup_WithAnIntervalUnderAnHour_StopsTheStart \
+    AuthOptionsTests.Cleanup_WithAnIntervalOverThirtyDays_StopsTheStart \
+    AuthOptionsTests.Worker_StartsAfterTheDatabaseIsReady
+}
+
+api_tests_turn_the_cleanup_off() {
+  named_tests_pass Kanabol.Api.Tests ApiFactoryTests.RefreshTokenCleanup_InTheseTests_IsOffWithTheDefaultInterval
+}
+
+# Rows of the admin's, made straight in the database while the API is stopped, each named by what it is:
+# the old ones go at the next start, the others stay.
+old_rows_are_in_the_database() {
+  admin_is_ready || return 1
+  stop_api
+  in_db "DELETE FROM refresh_tokens WHERE token_hash LIKE 'check-%'" >/dev/null
+  in_db "INSERT INTO refresh_tokens (id, user_id, family_id, token_hash, expires_at, created_at, revoked_at)
+    SELECT gen_random_uuid(), id, gen_random_uuid(), row.hash, now() + row.expires, now() - interval '60 days', now() - row.revoked
+    FROM users, (VALUES
+      ('check-live', interval '3 days', NULL::interval),
+      ('check-expired-29-days-ago', interval '-29 days', NULL),
+      ('check-expired-31-days-ago', interval '-31 days', NULL),
+      ('check-revoked-29-days-ago', interval '3 days', interval '29 days'),
+      ('check-revoked-31-days-ago', interval '3 days', interval '31 days'),
+      ('check-both-long-ago', interval '-40 days', interval '45 days')) AS row(hash, expires, revoked)
+    WHERE email = '$admin_email'" >/dev/null || return 1
+  is 6 "$(in_db "SELECT count(*) FROM refresh_tokens WHERE token_hash LIKE 'check-%'")"
+}
+
+rows_left() {
+  in_db "SELECT string_agg(token_hash, ' ' ORDER BY token_hash) FROM refresh_tokens WHERE token_hash LIKE 'check-%'"
+}
+
+# The log's line of the run at start, which may come a moment after /health answers.
+cleanup_logged() { # cleanup_logged <deleted count>
+  attempts=0
+  until api_logged 'Deleted {DeletedCount} refresh tokens expired or revoked over {KeptDays} days ago' "\"DeletedCount\":$1" >/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -le 40 ] || {
+      api_logged 'Deleted {DeletedCount} refresh tokens expired or revoked over {KeptDays} days ago' "\"DeletedCount\":$1"
+      return 1
+    }
+    sleep 0.25
+  done
+}
+
+cleanup_turned_off_keeps_them() {
+  old_rows_are_in_the_database || return 1
+  start_api Production Alerts__OverdueCheckEnabled=false Auth__RefreshTokenCleanupEnabled=false || return 1
+  sleep 2
+  grep -qF "The refresh tokens' cleanup is turned off" "$api_log" || {
+    echo "no line saying the cleanup is off"
+    return 1
+  }
+  is 'check-both-long-ago check-expired-29-days-ago check-expired-31-days-ago check-live check-revoked-29-days-ago check-revoked-31-days-ago' "$(rows_left)"
+}
+
+cleanup_at_start_deletes_the_old_ones() {
+  old_rows_are_in_the_database || return 1
+  api_is_up || return 1
+  cleanup_logged 3 || return 1
+  is 'check-expired-29-days-ago check-live check-revoked-29-days-ago' "$(rows_left)"
+}
+
+# The admin's own sessions, days from their end, are still there.
+live_sessions_stay() {
+  [ "$(in_db "SELECT count(*) FROM refresh_tokens r JOIN users u ON u.id = r.user_id
+    WHERE u.email = '$admin_email' AND r.token_hash NOT LIKE 'check-%' AND r.revoked_at IS NULL AND r.expires_at > now()")" -ge 1 ]
+}
+
+cleanup_interval_under_an_hour_stops_the_start() {
+  stop_api
+  need_database || return 1
+  launch_api "$scratch/short-interval.log" Production Auth__RefreshTokenCleanupInterval=00:30:00
+  pid=$started_pid
+  attempts=0
+  while kill -0 "$pid" 2>/dev/null && [ "$attempts" -lt 60 ]; do
+    attempts=$((attempts + 1))
+    sleep 0.5
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid"
+    echo "the API kept running with a cleanup every 30 minutes"
+    return 1
+  fi
+  grep -q 'Auth:RefreshTokenCleanupInterval must be at least 01:00:00' "$scratch/short-interval.log" || {
+    tail -n 5 "$scratch/short-interval.log"
+    return 1
+  }
+}
+
+task_4() {
+  echo "19.4 the refresh tokens' cleanup"
+  check "Docker is running" docker_is_running
+  check "the solution builds without warnings" solution_builds
+  check "the cleanup, its worker and its settings pass their tests" cleanup_tests_pass
+  check "the API's tests run with the cleanup off" api_tests_turn_the_cleanup_off
+  check "turned off, the real API keeps every old row, and says so" cleanup_turned_off_keeps_them
+  check "at start, the real API deletes what ended over 30 days ago, one log line with the count" cleanup_at_start_deletes_the_old_ones
+  check "the admin's live sessions stay" live_sessions_stay
+  check "the API refuses to start with a cleanup every 30 minutes" cleanup_interval_under_an_hour_stops_the_start
+}
+tasks=${*:-1 2 3 4}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
     3) task_3 ;;
+    4) task_4 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
