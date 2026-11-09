@@ -34,7 +34,11 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<BoardOutbox>();
 builder.Services.AddSingleton<IBoardNotifier, HubBoardNotifier>();
+
+// Registered before the workers, so it stops after them and sends what they left.
+builder.Services.AddHostedService<BoardSender>();
 builder.Services.AddSingleton<RealtimeConnections>();
 builder.Services.AddSingleton<IRealtimeAccess>(services => services.GetRequiredService<RealtimeConnections>());
 builder.Services.AddJwtAuthentication();

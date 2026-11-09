@@ -5,6 +5,7 @@ using System.Text.Json;
 using Kanabol.Api.Realtime;
 using Kanabol.Api.Tests.Realtime;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Notifications;
 using Kanabol.Domain.Projects;
@@ -50,8 +51,9 @@ public sealed class CommentsAndAttachmentsFlowTests(ApiFixture api) : RealtimeAp
         return heard;
     }
 
+    // Through the queue the events take, so it comes after whatever the requests before it sent.
     private Task Probe(Guid userId) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>().Clients.Group(BoardGroups.User(userId)).SendAsync("Probe", new { marker = "the end" });
+        Api.Factory.Services.GetRequiredService<IBoardNotifier>().NotifyUserAsync(userId, "Probe", new { marker = "the end" }, CancellationToken.None);
 
     private async Task<HttpResponseMessage> Upload(Heard? tab, Guid taskId, string token, string fileName, byte[] content)
     {

@@ -1,10 +1,9 @@
 using System.Text.Json;
 using System.Threading.Channels;
-using Kanabol.Api.Realtime;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Microsoft.AspNetCore.Http.Connections;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -68,13 +67,12 @@ public abstract class RealtimeApiTest(ApiFixture api) : ProjectApiTest(api)
         return heard;
     }
 
+    // Through the queue the hub's events take (BoardOutbox), so a probe comes after whatever a request sent before it.
     protected Task SendToProject(Guid projectId, string marker) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>()
-            .Clients.Group(BoardGroups.Project(projectId)).SendAsync(ProbeEvent, new { marker });
+        Api.Factory.Services.GetRequiredService<IBoardNotifier>().NotifyProjectAsync(projectId, ProbeEvent, new { marker }, CancellationToken.None);
 
     protected Task SendToUser(Guid userId, string marker) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>()
-            .Clients.Group(BoardGroups.User(userId)).SendAsync(ProbeEvent, new { marker });
+        Api.Factory.Services.GetRequiredService<IBoardNotifier>().NotifyUserAsync(userId, ProbeEvent, new { marker }, CancellationToken.None);
 
     protected static async Task<string?> MarkerOf(Heard heard) =>
         (await heard.NextIs(ProbeEvent)).GetProperty("marker").GetString();

@@ -20,6 +20,12 @@
 #      the log, a member taken out of a project hearing nothing more of it while another still does, and a
 #      change of role and a deactivation closing every connection of that person and nobody else's, the token
 #      they still hold joining no project. Docker, PostgreSQL.
+#   3  the hub's sends: the tests (BoardSenderTests, and every test listening to the hub, whose probes go
+#      through the same queue), then the real API in Production: a board hears a task created, moved,
+#      renamed, archived and restored in that order, and while a board that joined a project stops reading
+#      its socket, 20 workers move tasks for 40 seconds and none of their requests takes 3 seconds; the
+#      server closes that board meanwhile, which proves its writes blocked (the old notifier, which sent
+#      inside the request, made one wait 9.3 s). Docker, PostgreSQL.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. PostgreSQL means one whose
 # user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
@@ -935,11 +941,186 @@ task_2() {
   check "a deactivation closes them, and the token still held joins no project" deactivation_closes_their_connections
 }
 
-tasks=${*:-1 2}
+
+# ---- 19.3: the hub's sends go through a channel, and the logs hide tokens in structured values.
+
+# A board that joins its project and then stops reading its socket, so the hub's writes to it pile up
+# and block, as a frozen tab's would. It reads again at the end, to see whether the server closed it.
+stalled_client() {
+  [ -f "$scratch/stalled.mjs" ] && return 0
+  cat >"$scratch/stalled.mjs" <<'JS'
+// node stalled.mjs <API address> <token> <project id> <seconds>: prints "joined" once it stops reading,
+// then, after the seconds, "closed" if the server closed the connection meanwhile, or "open".
+import net from 'node:net';
+import { randomBytes } from 'node:crypto';
+
+const [base, token, projectId, seconds] = process.argv.slice(2);
+const { hostname, port } = new URL(base);
+const RS = '\x1e';
+const query = `access_token=${encodeURIComponent(token)}`;
+const negotiated = await fetch(`${base}/hubs/board/negotiate?negotiateVersion=1&${query}`, { method: 'POST' });
+const { connectionToken } = await negotiated.json();
+
+const socket = net.connect(Number(port), hostname);
+await new Promise((resolve) => socket.once('connect', resolve));
+let buffer = Buffer.alloc(0);
+let ended = false;
+socket.on('data', (chunk) => (buffer = Buffer.concat([buffer, chunk])));
+socket.on('end', () => (ended = true));
+socket.on('close', () => (ended = true));
+socket.on('error', () => (ended = true));
+
+const until = async (test) => {
+  for (let i = 0; i < 200 && !test(); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+  if (!test()) throw new Error('no answer');
+};
+
+function frame(text) { // a masked text frame, as a client sends
+  const payload = Buffer.from(text);
+  const mask = randomBytes(4);
+  const header = payload.length < 126
+    ? Buffer.from([0x81, 0x80 | payload.length])
+    : Buffer.from([0x81, 0x80 | 126, payload.length >> 8, payload.length & 0xff]);
+  return Buffer.concat([header, mask, payload.map((byte, i) => byte ^ mask[i % 4])]);
+}
+
+socket.write(`GET /hubs/board?id=${encodeURIComponent(connectionToken)}&${query} HTTP/1.1\r\nHost: ${hostname}:${port}\r\n` +
+  `Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+await until(() => buffer.includes('\r\n\r\n'));
+if (!buffer.toString().startsWith('HTTP/1.1 101')) throw new Error(buffer.toString().split('\r\n')[0]);
+buffer = Buffer.alloc(0);
+socket.write(frame(JSON.stringify({ protocol: 'json', version: 1 }) + RS));
+await until(() => buffer.includes(`{}${RS}`));
+socket.write(frame(JSON.stringify({ type: 1, invocationId: '1', target: 'JoinProject', arguments: [projectId] }) + RS));
+await until(() => buffer.includes('"invocationId":"1"'));
+if (!buffer.includes('"result":null')) throw new Error(`not joined: ${buffer}`);
+
+socket.pause();
+console.log('joined');
+await new Promise((resolve) => setTimeout(resolve, Number(seconds) * 1000));
+// Whatever the server wrote before closing is read first, then the end.
+socket.resume();
+for (let i = 0; i < 100 && !ended; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+console.log(ended ? 'closed' : 'open');
+socket.destroy();
+JS
+}
+
+# Requests from several workers at once, each moving its own task between two columns for the seconds
+# given: prints how many went through, their statuses and the slowest, in milliseconds.
+mover() {
+  [ -f "$scratch/mover.mjs" ] && return 0
+  cat >"$scratch/mover.mjs" <<'JS'
+// node mover.mjs <API address> <token> <seconds> <task:column:column...>
+const [base, token, seconds, ...moves] = process.argv.slice(2);
+const end = Date.now() + Number(seconds) * 1000;
+const times = [];
+const statuses = {};
+await Promise.all(moves.map(async (move) => {
+  const [task, ...columns] = move.split(':');
+  for (let i = 1; Date.now() < end; i++) {
+    const started = Date.now();
+    const answer = await fetch(`${base}/api/tasks/${task}/position`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ columnId: columns[i % 2] }),
+    });
+    await answer.arrayBuffer();
+    times.push(Date.now() - started);
+    statuses[answer.status] = (statuses[answer.status] ?? 0) + 1;
+  }
+}));
+console.log(JSON.stringify({ count: times.length, slowest: Math.max(...times), statuses }));
+JS
+}
+
+# MOV is the admin's, with 20 tasks to move. A board stops reading while the admin moves them for 40
+# seconds: the hub's writes to it block, and the server closes it once its send timeout passes, which
+# proves the block was real. No request waits for it meanwhile.
+requests_dont_wait_for_a_stalled_board() {
+  admin_is_ready || return 1
+  stalled_client && mover || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Mutari","key":"MOV"}')" || return 1
+  mov=$(body_field id)
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$mov/board")" || return 1
+  first_column=$(json 'b.columns[0].id')
+  second_column=$(json 'b.columns[1].id')
+  moves=
+  for i in $(seq 1 20); do
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$mov/tasks" "{\"title\":\"Mutare $i\",\"description\":\"\",\"priority\":\"Low\"}")" || return 1
+    moves="$moves $(body_field id):$first_column:$second_column"
+  done
+  node "$(native "$scratch/stalled.mjs")" "$API_URL" "$admin_token" "$mov" 50 >"$scratch/stalled.txt" 2>&1 &
+  stalled_pid=$!
+  attempts=0
+  until grep -q joined "$scratch/stalled.txt" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -le 100 ] && kill -0 "$stalled_pid" 2>/dev/null || {
+      cat "$scratch/stalled.txt"
+      return 1
+    }
+    sleep 0.1
+  done
+  # shellcheck disable=SC2086 # the moves are meant to split
+  node "$(native "$scratch/mover.mjs")" "$API_URL" "$admin_token" 40 $moves >"$scratch/moves.json" || return 1
+  wait "$stalled_pid"
+  cat "$scratch/moves.json" "$scratch/stalled.txt"
+  grep -qx closed "$scratch/stalled.txt" || {
+    echo "the stalled board was never closed: its writes never blocked, which proves nothing"
+    return 1
+  }
+  [ "$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).slowest)" "$(native "$scratch/moves.json")")" -lt 3000 ] || {
+    echo "a request waited 3 seconds or more"
+    return 1
+  }
+}
+
+sender_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests     BoardSenderTests.Notify_WhileTheHubHangs_ReturnsAtOnce     BoardSenderTests.Sender_SendsToTheRightGroups_InTheOrderTheyCame     BoardSenderTests.Sender_WhileTheHubHangs_KeepsTheRestInOrder_AndSendsThemOnceItFrees     BoardSenderTests.Sender_WhenASendFails_LogsItAndSendsTheNext     BoardSenderTests.Stop_SendsWhatIsLeft_BeforeItReturns     BoardSenderTests.Stop_WhileTheHubHangs_GivesUpAfterFiveSeconds_AndSaysHowManyWereLeft     BoardSenderTests.Notify_AfterStop_IsDropped
+}
+
+# Every test that listens to the hub, now that the sends come after the request.
+realtime_flow_tests_pass() {
+  tests_pass Kanabol.Api.Tests "FullyQualifiedName~Kanabol.Api.Tests.Realtime|FullyQualifiedName~FlowTests" 120
+}
+
+# ORD is the admin's, with a task made before the board opens. The board hears five changes in the order
+# the requests made them.
+board_hears_in_order() {
+  admin_is_ready || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Ordine","key":"ORD"}')" || return 1
+  ord=$(body_field id)
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$ord/board")" || return 1
+  last_column=$(json 'b.columns[b.columns.length - 1].id')
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$ord/tasks" '{"title":"Primul","description":"","priority":"Low"}')" || return 1
+  task=$(body_field id)
+  hub "[{\"connect\":\"board\",\"token\":\"$admin_token\"},{\"join\":\"board\",\"project\":\"$ord\"},
+    {\"request\":\"/api/projects/$ord/tasks\",\"method\":\"POST\",\"token\":\"$admin_token\",\"body\":{\"title\":\"Al doilea\",\"description\":\"\",\"priority\":\"Low\"}},
+    {\"request\":\"/api/tasks/$task/position\",\"method\":\"PATCH\",\"token\":\"$admin_token\",\"body\":{\"columnId\":\"$last_column\"}},
+    {\"request\":\"/api/tasks/$task/title\",\"method\":\"PUT\",\"token\":\"$admin_token\",\"body\":{\"title\":\"Primul, redenumit\"}},
+    {\"request\":\"/api/tasks/$task\",\"method\":\"DELETE\",\"token\":\"$admin_token\"},
+    {\"request\":\"/api/tasks/$task/restore\",\"method\":\"POST\",\"token\":\"$admin_token\"},
+    {\"until\":\"board\",\"event\":\"TaskRestored\",\"count\":1,\"timeout\":10000},{\"wait\":500}]" || return 1
+  steps_were 'connected|null|201|200|200|204|200|heard' || return 1
+  is 'TaskCreated TaskMoved TaskUpdated TaskArchived TaskRestored' "$(heard "r.heard.board.map((m) => m.event).join(' ')")"
+}
+
+task_3() {
+  echo "19.3 the hub's sends through a channel, and tokens hidden in structured values"
+  check "Docker is running" docker_is_running
+  check "the solution builds without warnings" solution_builds
+  check "the sends pass their tests: queued, in order, a failure logged, 5 seconds at stop" sender_tests_pass
+  check "every test listening to the hub still passes" realtime_flow_tests_pass
+  check "the real API starts in Production on a database of this run" api_is_up
+  check "a board hears the changes in the order they were made" board_hears_in_order
+  check "no request waits for a board that stopped reading, which the server closes" requests_dont_wait_for_a_stalled_board
+}
+tasks=${*:-1 2 3}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
+    3) task_3 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
