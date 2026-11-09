@@ -1,0 +1,483 @@
+<kb-page-header [title]="heading" [crumbs]="crumbs" />
+
+<div class="content">
+  <section class="card filters" i18n-aria-label aria-label="Filtrele rapoartelor">
+    <div class="presets" role="group" i18n-aria-label aria-label="Intervalul">
+      @for (preset of presets; track preset.value) {
+        <button
+          type="button"
+          class="kb-filter-chip"
+          [attr.aria-pressed]="activePreset() === preset.value"
+          (click)="choosePreset(preset.value)"
+        >
+          {{ preset.label }}
+        </button>
+      }
+    </div>
+
+    <div class="dates">
+      <span class="date from">
+        <span id="kb-report-from" class="label" i18n>De la</span>
+        <input
+          class="kb-field"
+          readonly
+          aria-labelledby="kb-report-from"
+          [matDatepicker]="fromPicker"
+          [value]="fromDate()"
+          [min]="earliestFromDate()"
+          [max]="toDate()"
+          (click)="fromPicker.open()"
+          (dateChange)="chooseFrom($event.value)"
+        />
+        <mat-datepicker-toggle [for]="fromPicker" />
+        <mat-datepicker #fromPicker panelClass="kb-menu" />
+      </span>
+      <span class="date to">
+        <span id="kb-report-to" class="label" i18n>Până la</span>
+        <input
+          class="kb-field"
+          readonly
+          aria-labelledby="kb-report-to"
+          [matDatepicker]="toPicker"
+          [value]="toDate()"
+          [min]="fromDate()"
+          [max]="latestToDate()"
+          (click)="toPicker.open()"
+          (dateChange)="chooseTo($event.value)"
+        />
+        <mat-datepicker-toggle [for]="toPicker" />
+        <mat-datepicker #toPicker panelClass="kb-menu" />
+      </span>
+    </div>
+
+    <div class="selects">
+      <mat-select
+        class="kb-field kb-select project"
+        panelClass="kb-menu"
+        i18n-aria-label
+        aria-label="Proiect"
+        [value]="filters().project ?? every"
+        (selectionChange)="chooseProject($event.value)"
+      >
+        <mat-option [value]="every" i18n>Toate proiectele</mat-option>
+        @for (project of store.projects(); track project.id) {
+          <mat-option [value]="project.id">
+            {{ project.name }}
+            @if (archived(project.archivedAt)) {
+              <ng-container i18n>(arhivat)</ng-container>
+            }
+          </mat-option>
+        }
+      </mat-select>
+      <mat-select
+        class="kb-field kb-select user"
+        panelClass="kb-menu"
+        i18n-aria-label
+        aria-label="Utilizator"
+        [value]="filters().user ?? every"
+        (selectionChange)="chooseUser($event.value)"
+      >
+        <mat-option [value]="every" i18n>Oricine</mat-option>
+        @for (person of people(); track person.userId) {
+          <mat-option [value]="person.userId">{{ person.displayName }}</mat-option>
+        }
+      </mat-select>
+      <mat-select
+        class="kb-field kb-select granularity"
+        panelClass="kb-menu"
+        i18n-aria-label
+        aria-label="Perioada"
+        [value]="filters().granularity"
+        (selectionChange)="chooseGranularity($event.value)"
+      >
+        @for (granularity of granularities; track granularity.value) {
+          <mat-option [value]="granularity.value">{{ granularity.label }}</mat-option>
+        }
+      </mat-select>
+    </div>
+  </section>
+
+  <section class="card report completed" aria-labelledby="kb-report-completed">
+    <header>
+      <h2 id="kb-report-completed" class="kb-title" i18n>Task-uri finalizate</h2>
+      @if (store.completed.value(); as report) {
+        <button
+          matButton="outlined"
+          class="kb-bezel kb-regular"
+          type="button"
+          [disabled]="report.total === 0"
+          (click)="exportCompleted(report)"
+          i18n
+        >
+          Export CSV
+        </button>
+      }
+    </header>
+    @if (store.completed.state() === 'error') {
+      <kb-empty-state icon="error" [title]="loadFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.completed.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else {
+      <div class="tiles">
+        <kb-stat-tile
+          i18n-label
+          label="Finalizate"
+          [value]="store.completed.value()?.total ?? null"
+          i18n-caption
+          caption="în interval"
+        />
+        <kb-stat-tile
+          i18n-label
+          label="Pe om"
+          [value]="perPerson()"
+          i18n-caption
+          caption="un task cu mai mulți asignați se numără la fiecare"
+        />
+      </div>
+      @if (store.completed.value(); as report) {
+        @if (report.total === 0) {
+          <kb-empty-state icon="task_alt" [title]="noneFinished">
+            <p i18n>Alege alt interval, alt proiect sau alt om.</p>
+          </kb-empty-state>
+        } @else {
+          <div class="data" [attr.aria-busy]="store.completed.state() === 'loading'">
+            @defer (on idle) {
+              <kb-chart
+                i18n-label
+                label="Task-uri finalizate pe perioadă"
+                [labels]="completedLabels()"
+                [series]="completedChart()"
+              />
+            } @placeholder {
+              <kb-skeleton class="chart-placeholder" height="240px" />
+            }
+            <table
+              mat-table
+              class="kb-table"
+              [dataSource]="completedPeriods()"
+              i18n-aria-label
+              aria-label="Task-uri finalizate pe perioadă"
+            >
+              <ng-container matColumnDef="period">
+                <th mat-header-cell *matHeaderCellDef i18n>Perioada</th>
+                <td mat-cell *matCellDef="let period">{{ period.row }}</td>
+              </ng-container>
+              <ng-container matColumnDef="count">
+                <th mat-header-cell *matHeaderCellDef class="number" i18n>Finalizate</th>
+                <td mat-cell *matCellDef="let period; let index = index" class="number">
+                  {{ report.series[index].count }}
+                </td>
+              </ng-container>
+              <tr mat-header-row *matHeaderRowDef="periodColumns"></tr>
+              <tr mat-row *matRowDef="let period; columns: periodColumns" class="kb-table-row"></tr>
+            </table>
+            <div class="breakdown">
+              <table
+                mat-table
+                class="kb-table people"
+                [dataSource]="report.byUser"
+                i18n-aria-label
+                aria-label="Pe om"
+              >
+                <ng-container matColumnDef="name">
+                  <th mat-header-cell *matHeaderCellDef i18n>Pe om</th>
+                  <td mat-cell *matCellDef="let person">{{ person.name }}</td>
+                </ng-container>
+                <ng-container matColumnDef="count">
+                  <th mat-header-cell *matHeaderCellDef class="number" i18n>Finalizate</th>
+                  <td mat-cell *matCellDef="let person" class="number">{{ person.count }}</td>
+                </ng-container>
+                <tr mat-header-row *matHeaderRowDef="peopleColumns"></tr>
+                <tr
+                  mat-row
+                  *matRowDef="let person; columns: peopleColumns"
+                  class="kb-table-row"
+                ></tr>
+              </table>
+              <table
+                mat-table
+                class="kb-table projects"
+                [dataSource]="report.byProject"
+                i18n-aria-label
+                aria-label="Pe proiect"
+              >
+                <ng-container matColumnDef="name">
+                  <th mat-header-cell *matHeaderCellDef i18n>Pe proiect</th>
+                  <td mat-cell *matCellDef="let project">
+                    {{ project.name }} <span class="key">{{ project.key }}</span>
+                  </td>
+                </ng-container>
+                <ng-container matColumnDef="count">
+                  <th mat-header-cell *matHeaderCellDef class="number" i18n>Finalizate</th>
+                  <td mat-cell *matCellDef="let project" class="number">{{ project.count }}</td>
+                </ng-container>
+                <tr mat-header-row *matHeaderRowDef="peopleColumns"></tr>
+                <tr
+                  mat-row
+                  *matRowDef="let project; columns: peopleColumns"
+                  class="kb-table-row"
+                ></tr>
+              </table>
+            </div>
+          </div>
+        }
+      } @else {
+        <div class="placeholder" aria-busy="true">
+          <kb-skeleton height="240px" />
+          @for (row of [1, 2, 3]; track row) {
+            <kb-skeleton width="60%" />
+          }
+        </div>
+      }
+    }
+  </section>
+
+  <section class="card report durations" aria-labelledby="kb-report-durations">
+    <header>
+      <h2 id="kb-report-durations" class="kb-title" i18n>Lead time și cycle time</h2>
+      @if (store.cycleTime.value(); as report) {
+        <button
+          matButton="outlined"
+          class="kb-bezel kb-regular"
+          type="button"
+          [disabled]="report.count === 0"
+          (click)="exportDurations(report)"
+          i18n
+        >
+          Export CSV
+        </button>
+      }
+    </header>
+    @if (store.cycleTime.state() === 'error') {
+      <kb-empty-state icon="error" [title]="loadFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.cycleTime.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else {
+      <div class="tiles">
+        <kb-stat-tile
+          i18n-label
+          label="Lead time mediu"
+          [value]="
+            store.cycleTime.value()
+              ? duration(store.cycleTime.value()!.leadTime.averageSeconds)
+              : null
+          "
+          [caption]="median(store.cycleTime.value()?.leadTime?.medianSeconds ?? null)"
+        />
+        <kb-stat-tile
+          i18n-label
+          label="Cycle time mediu"
+          [value]="
+            store.cycleTime.value()
+              ? duration(store.cycleTime.value()!.cycleTime.averageSeconds)
+              : null
+          "
+          [caption]="median(store.cycleTime.value()?.cycleTime?.medianSeconds ?? null)"
+        />
+      </div>
+      @if (store.cycleTime.value(); as report) {
+        @if (report.count === 0) {
+          <kb-empty-state icon="task_alt" [title]="noneFinished">
+            <p i18n>Alege alt interval, alt proiect sau alt om.</p>
+          </kb-empty-state>
+        } @else {
+          <div class="data" [attr.aria-busy]="store.cycleTime.state() === 'loading'">
+            @defer (on idle) {
+              <kb-chart
+                i18n-label
+                label="Media și mediana duratelor"
+                [labels]="durationLabels()"
+                [series]="durationChart()"
+                [formatValue]="formatHours"
+                [formatTick]="formatHourTick"
+              />
+            } @placeholder {
+              <kb-skeleton class="chart-placeholder" height="240px" />
+            }
+            <table
+              mat-table
+              class="kb-table"
+              [dataSource]="durationRows()"
+              i18n-aria-label
+              aria-label="Media și mediana duratelor"
+            >
+              <ng-container matColumnDef="name">
+                <th mat-header-cell *matHeaderCellDef>
+                  @if (report.perColumn) {
+                    <ng-container i18n>Coloana</ng-container>
+                  } @else {
+                    <ng-container i18n>Măsura</ng-container>
+                  }
+                </th>
+                <td mat-cell *matCellDef="let row">{{ row.name }}</td>
+              </ng-container>
+              <ng-container matColumnDef="average">
+                <th mat-header-cell *matHeaderCellDef class="number" i18n>Media</th>
+                <td mat-cell *matCellDef="let row" class="number">
+                  {{ duration(row.averageSeconds) }}
+                </td>
+              </ng-container>
+              <ng-container matColumnDef="median">
+                <th mat-header-cell *matHeaderCellDef class="number" i18n>Mediana</th>
+                <td mat-cell *matCellDef="let row" class="number">
+                  {{ duration(row.medianSeconds) }}
+                </td>
+              </ng-container>
+              <tr mat-header-row *matHeaderRowDef="durationColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: durationColumns" class="kb-table-row"></tr>
+            </table>
+          </div>
+        }
+      } @else {
+        <div class="placeholder" aria-busy="true">
+          <kb-skeleton height="240px" />
+          @for (row of [1, 2]; track row) {
+            <kb-skeleton width="60%" />
+          }
+        </div>
+      }
+    }
+  </section>
+
+  <section class="card report deadlines" aria-labelledby="kb-report-deadlines">
+    <header>
+      <h2 id="kb-report-deadlines" class="kb-title" i18n>Deadline-uri</h2>
+      @if (store.deadlines.value(); as report) {
+        <button
+          matButton="outlined"
+          class="kb-bezel kb-regular"
+          type="button"
+          [disabled]="report.completedOnTime + report.completedLate === 0"
+          (click)="exportDeadlines(report)"
+          i18n
+        >
+          Export CSV
+        </button>
+      }
+    </header>
+    @if (store.deadlines.state() === 'error') {
+      <kb-empty-state icon="error" [title]="loadFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="store.deadlines.load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    } @else {
+      <div class="tiles four">
+        <kb-stat-tile
+          i18n-label
+          label="Întârziate acum"
+          [value]="store.deadlines.value()?.overdue ?? null"
+          i18n-caption
+          caption="deschise, după deadline"
+        />
+        <kb-stat-tile
+          i18n-label
+          label="La timp"
+          [value]="store.deadlines.value()?.completedOnTime ?? null"
+          i18n-caption
+          caption="finalizate până la deadline"
+        />
+        <kb-stat-tile
+          i18n-label
+          label="După termen"
+          [value]="store.deadlines.value()?.completedLate ?? null"
+          i18n-caption
+          caption="finalizate după deadline"
+        />
+        <kb-stat-tile
+          i18n-label
+          label="Rata de respectare"
+          [value]="rate(store.deadlines.value())"
+          i18n-caption
+          caption="la timp, din cele cu deadline"
+        />
+      </div>
+      @if (store.deadlines.value(); as report) {
+        @if (report.completedOnTime + report.completedLate === 0) {
+          <kb-empty-state icon="event_available" [title]="noneWithDeadline">
+            <p i18n>Alege alt interval, alt proiect sau alt om.</p>
+          </kb-empty-state>
+        } @else {
+          <div class="data" [attr.aria-busy]="store.deadlines.state() === 'loading'">
+            @defer (on idle) {
+              <kb-chart
+                i18n-label
+                label="Task-uri finalizate la timp și după termen, pe perioadă"
+                [labels]="deadlineLabels()"
+                [series]="deadlineChart()"
+                [stacked]="true"
+              />
+            } @placeholder {
+              <kb-skeleton class="chart-placeholder" height="240px" />
+            }
+            <table
+              mat-table
+              class="kb-table"
+              [dataSource]="deadlinePeriods()"
+              i18n-aria-label
+              aria-label="Task-uri finalizate la timp și după termen, pe perioadă"
+            >
+              <ng-container matColumnDef="period">
+                <th mat-header-cell *matHeaderCellDef i18n>Perioada</th>
+                <td mat-cell *matCellDef="let period">{{ period.row }}</td>
+              </ng-container>
+              <ng-container matColumnDef="onTime">
+                <th mat-header-cell *matHeaderCellDef class="number" i18n>La timp</th>
+                <td mat-cell *matCellDef="let period; let index = index" class="number">
+                  {{ report.series[index].onTime }}
+                </td>
+              </ng-container>
+              <ng-container matColumnDef="late">
+                <th mat-header-cell *matHeaderCellDef class="number" i18n>După termen</th>
+                <td mat-cell *matCellDef="let period; let index = index" class="number">
+                  {{ report.series[index].late }}
+                </td>
+              </ng-container>
+              <tr mat-header-row *matHeaderRowDef="deadlineColumns"></tr>
+              <tr
+                mat-row
+                *matRowDef="let period; columns: deadlineColumns"
+                class="kb-table-row"
+              ></tr>
+            </table>
+          </div>
+        }
+      } @else {
+        <div class="placeholder" aria-busy="true">
+          <kb-skeleton height="240px" />
+          @for (row of [1, 2, 3]; track row) {
+            <kb-skeleton width="60%" />
+          }
+        </div>
+      }
+    }
+  </section>
+</div>

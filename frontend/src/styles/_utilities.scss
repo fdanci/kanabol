@@ -380,3 +380,24 @@ textarea.kb-field {
   align-items: center;
   cursor: pointer;
 }
+
+// A chart's tooltip (UI spec 7.8), in the snackbar's and the tooltip's style: on ink at 90%, white text,
+// 12px. kb-chart writes it as text and moves it over the bar; there is no token for white, so it is global,
+// like kb-badge. Its display is left alone, so the hidden attribute still hides it.
+.kb-chart-tooltip {
+  position: absolute;
+  z-index: 1;
+  padding: 6px var(--kb-space-2);
+  border-radius: var(--kb-radius-sm);
+  background: color-mix(in srgb, var(--kb-ink) 90%, transparent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 8px));
+
+  .title {
+    font-weight: 600;
+  }
+}

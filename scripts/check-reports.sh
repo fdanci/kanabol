@@ -22,6 +22,12 @@
 #      projects.manage (any project), a plain member, projects.view_all and an outsider (403
 #      Project.OwnerRequired), a project that doesn't exist (404), the permission's name only in the log,
 #      and an owner deactivated since, whose token still holds (403). Docker, PostgreSQL.
+#   3  the page and kb-chart: specs, lint, formatting, the production build without warnings but the
+#      budget's, the texts of docs/UI_UX_SPEC.md §7.8, the filters in the address, durations as "2 z 4 h",
+#      CSV with commas, quotes and a BOM, chart.js 4 with only the bar's controllers, the colors from the
+#      tokens, no other feature imported, chart.js in a chunk of its own, loaded by @defer, and neither it
+#      nor the page in the files index.html loads; prints the Initial total. Only the packages that
+#      scripts/setup.sh installs.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -784,8 +790,235 @@ task_2() {
   check "backend/CLAUDE.md says who reads them" in_file '`reports.view`, or an owner or `projects.manage` of `projectId`' backend/CLAUDE.md
 }
 
+# ---- 18.3: the page and kb-chart.
+
+web=frontend
+app=$web/src/app
+reports_web=$app/features/reports
+
+plain() { # plain <file>: without the terminal's colors
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*{},' '______').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+spec_names() { # spec_names <spec file> <name...>: each is there, so a filter can't run nothing
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "$name" "$file" || {
+      echo "no spec '$name' in $file"
+      return 1
+    }
+  done
+}
+
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$(native "$scratch/dist")") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+# The build's own warnings: a // comment in a component's inline CSS breaks the rule after it.
+the_build_warns_only_of_the_budget() {
+  built || return 1
+  warnings=$(plain "$scratch/build.log" | grep -F 'WARNING' | grep -vF 'exceeded maximum budget')
+  [ -z "$warnings" ] || {
+    echo "$warnings"
+    return 1
+  }
+}
+
+the_page_specs_name_the_rules() {
+  spec_names "$reports_web/reports-page.spec.ts" \
+    'is titled "Rapoarte", under Acasă' \
+    'opens on the last 30 days, by the week, for every project and everyone' \
+    'takes the filters from the address: from, to, project, user and granularity' \
+    'sends a wrong interval in the address back to the last 30 days' \
+    'puts a preset in the address, and the last 30 days out of it' \
+    'bounds the dates to each other and to 366 days' \
+    'puts a day chosen in a datepicker in the address' \
+    'chooses a project, a person and the month through the address, the person going with the project' \
+    'offers every project the person sees, the archived ones said so' \
+    "offers the project's members, and without a project the report's people" \
+    'shows the finished tasks: the total, by person with its note, by period, person and project' \
+    'shows lead and cycle time as "2 z 4 h", with the median in the caption' \
+    "shows the time in each of the project's columns with a project" \
+    'shows the deadlines: overdue now, on time, late and the rate as a percent' \
+    'draws the three charts: by period, the times with mean and median, and on time stacked on late' \
+    'exports the data of a section as CSV, named by what it holds and its days' \
+    'says "Niciun task finalizat în interval." and "Niciun task cu deadline în interval."' \
+    'shows a skeleton in each section while it reads' \
+    'says a section could not be read, and tries that one again' &&
+    spec_names "$reports_web/report-filters.spec.ts" \
+      'opens on the last 30 days, today included, by the week' \
+      'takes $query as a wrong interval: $reason' \
+      'gives this week from Monday to Sunday, this month from the first to the last day' \
+      'sends midnight where the person is, with its offset, and the day after to' \
+      'bounds the datepickers to 366 days either way' &&
+    spec_names "$reports_web/reports-api.spec.ts" \
+      'sends the offset with its + encoded' \
+      'reads every project the person sees, archived ones too' &&
+    spec_names "$reports_web/durations.spec.ts" 'writes days and hours' 'writes minutes under an hour' &&
+    spec_names "$reports_web/report-csv.spec.ts" \
+      'starts with a BOM and quotes every field, a row to a line' \
+      'doubles the quotes in a field, and keeps its commas and diacritics' &&
+    spec_names "$app/shared/ui/chart.spec.ts" \
+      'colors the main series brand-800 and the second sky-300, from the tokens' \
+      'draws a recessive grid in border-200, the labels in text-600, and no grid across the bars' \
+      'shows a legend only for two series or more' \
+      'stacks the bars when asked, with a gap in the surface between the pieces' \
+      'writes its tooltip as text, the period and each series with its value' &&
+    spec_names "$app/shared/ui/stat-tile.spec.ts" 'shows a text as it is, in place of a number'
+}
+
+# docs/UI_UX_SPEC.md §7.8, word for word where it gives the words.
+the_page_texts_follow_the_ui_spec() {
+  for words in 'Rapoarte' 'Săptămâna asta' 'Luna asta' 'Ultimele 30 de zile' 'Săptămână' 'Lună' \
+    'Nu am putut încărca raportul.' 'Niciun task finalizat în interval.' 'Niciun task cu deadline în interval.' \
+    "'finalizate'" 'mediana'; do
+    in_file "$words" "$reports_web/reports-page.ts" || {
+      echo "no '$words' in reports-page.ts"
+      return 1
+    }
+  done
+  for words in '>Task-uri finalizate<' '>Lead time și cycle time<' '>Deadline-uri<' 'Export CSV' 'Reîncearcă' \
+    'label="Finalizate"' 'label="Pe om"' 'caption="un task cu mai mulți asignați se numără la fiecare"' \
+    'label="Lead time mediu"' 'label="Cycle time mediu"' 'label="Întârziate acum"' 'label="La timp"' \
+    'label="După termen"' 'label="Rata de respectare"' 'mat-datepicker' 'kb-filter-chip' '[stacked]="true"'; do
+    in_file "$words" "$reports_web/reports-page.html" || {
+      echo "no '$words' in reports-page.html"
+      return 1
+    }
+  done
+  [ "$(grep -c '@defer (on idle)' "$reports_web/reports-page.html")" -eq 3 ] || {
+    echo "the three charts don't each come with @defer"
+    return 1
+  }
+  in_file '`${days} z ${hours} h`' "$reports_web/durations.ts" &&
+    in_file '`${minutes} min`' "$reports_web/durations.ts" &&
+    in_file "const BOM = '\\uFEFF';" "$reports_web/report-csv.ts" &&
+    in_file "replaceAll('\"', '\"\"')" "$reports_web/report-csv.ts" &&
+    in_file "export const MAX_REPORT_DAYS = 366;" "$reports_web/report-filters.ts" &&
+    lacks '#[0-9a-fA-F]{3,8}\b|::ng-deep|\.mat-mdc-|\.mdc-|innerHTML|bypassSecurityTrust' \
+      "$reports_web"/*.ts "$reports_web"/*.html "$reports_web"/*.scss "$app/shared/ui/chart.ts"
+}
+
+# docs/SPEC.md §5.1.1: chart.js 4, only what the bars use, the colors from the theme's tokens.
+the_chart_is_chart_js_4_with_only_the_bars() {
+  in_file '"chart.js": "^4.' "$web/package.json" &&
+    node -e "const lock = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); const v = lock.packages['node_modules/chart.js'].version; if (!/^4\./.test(v)) { console.log('chart.js ' + v); process.exit(1); }" "$(native "$web/package-lock.json")" &&
+    in_file 'ChartJs.register(BarController, BarElement, CategoryScale, LinearScale, Legend, Tooltip);' "$app/shared/ui/chart.ts" &&
+    lacks "chart\.js/auto|registerables" "$app"/shared/ui/*.ts "$reports_web"/*.ts &&
+    in_file "'--kb-brand-800'" "$app/shared/ui/chart.ts" &&
+    in_file "'--kb-sky-300'" "$app/shared/ui/chart.ts" &&
+    in_file "token('--kb-border-200')" "$app/shared/ui/chart.ts" &&
+    in_file '.kb-chart-tooltip {' "$web/src/styles/_utilities.scss" &&
+    [ "$(grep -rlF "from 'chart.js'" "$app" --include='*.ts' | grep -v '\.spec\.ts$')" = "$app/shared/ui/chart.ts" ]
+}
+
+# docs/SPEC.md §6.1: a feature imports no other feature; what they share is in shared/ or core/.
+the_page_imports_no_other_feature() {
+  lacks "from '\.\./(auth|users|roles|projects|board|tasks|notifications|dashboard)/" "$reports_web"/*.ts
+}
+
+reports_is_its_route() {
+  in_file "import('./features/reports/reports.routes')" "$app/app.routes.ts" &&
+    lacks "placeholder\('reports'|PlaceholderPage" "$app/app.routes.ts"
+}
+
+# The initial bundle is what index.html loads: its scripts and the chunks it preloads.
+initial_files() {
+  grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/dist/browser/index.html" |
+    sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# chart.js's own names, which the minifier keeps, and the page's selector and texts.
+chart_markers='datasetElementType|_getStackCount|getLabelAndValue'
+page_markers='kb-reports-page|Nu am putut încărca raportul|Niciun task cu deadline în interval'
+
+# docs/SPEC.md §5.1.1: chart.js in no file index.html loads, in a chunk of its own that @defer loads,
+# not even the page's; and none of the page in the initial bundle.
+chart_js_stays_out_of_the_first_bundle() {
+  built || return 1
+  initial=$(initial_files)
+  [ -n "$initial" ] || {
+    echo "index.html loads nothing"
+    return 1
+  }
+  for file in $initial; do
+    if grep -qE "$chart_markers|$page_markers" "$scratch/dist/browser/$file"; then
+      echo "$file, in the initial bundle, holds: $(grep -oE "$chart_markers|$page_markers" "$scratch/dist/browser/$file" | sort -u | tr '\n' ' ')"
+      return 1
+    fi
+  done
+  chart=$(grep -lE "$chart_markers" "$scratch"/dist/browser/*.js | sed 's|.*/||')
+  page=$(grep -lE 'kb-reports-page' "$scratch"/dist/browser/*.js | sed 's|.*/||')
+  [ "$(printf '%s\n' $chart | wc -l)" -eq 1 ] && [ "$(printf '%s\n' $page | wc -l)" -eq 1 ] || {
+    echo "chart.js is in: ${chart:-no file}; the page in: ${page:-no file}"
+    return 1
+  }
+  [ "$chart" != "$page" ] || {
+    echo "chart.js is in the page's own chunk, $page: @defer didn't split it"
+    return 1
+  }
+  initial_total=$(plain "$scratch/build.log" | sed -n 's/.*Initial total *| *\([0-9.]* kB\).*/\1/p')
+  echo "initial total $initial_total, chart.js in $chart, the page in $page" >&2
+}
+
+task_3() {
+  echo "18.3 The reports page and kb-chart"
+  for file in models.ts reports-api.ts reports-store.ts reports-page.ts reports-page.html reports-page.scss \
+    reports.routes.ts report-filters.ts durations.ts report-csv.ts reports-testing.ts reports-api.spec.ts \
+    reports-page.spec.ts report-filters.spec.ts durations.spec.ts report-csv.spec.ts; do
+    check "features/reports/$file is tracked" tracked "$reports_web/$file"
+  done
+  check "shared/ui/chart.ts, its spec and shared/section.ts are tracked" eval \
+    'tracked "$app/shared/ui/chart.ts" && tracked "$app/shared/ui/chart.spec.ts" && tracked "$app/shared/section.ts"'
+  check "the specs name the rules: the filters, the sections, the charts, CSV, skeletons, errors" the_page_specs_name_the_rules
+  check "the page's specs pass, with its filters, durations, CSV and API" specs_pass 'src/app/features/reports/*.spec.ts' 57
+  check "kb-chart's and kb-stat-tile's specs pass" specs_pass 'src/app/shared/ui/{chart,stat-tile}.spec.ts' 12
+  check "the main panel's specs still pass, its sections on the shared Section" specs_pass 'src/app/features/dashboard/*.spec.ts' 25
+  check "the texts follow docs/UI_UX_SPEC.md §7.8, each chart with @defer, nothing unsafe" the_page_texts_follow_the_ui_spec
+  check "kb-chart is chart.js 4 with only the bars, colored from the tokens" the_chart_is_chart_js_4_with_only_the_bars
+  check "the page imports no other feature" the_page_imports_no_other_feature
+  check "/reports is the page, not a placeholder" reports_is_its_route
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "the build warns only of the budget" the_build_warns_only_of_the_budget
+  check "chart.js is in a chunk of its own, and neither it nor the page is in the initial bundle" chart_js_stays_out_of_the_first_bundle
+  [ -f "$scratch/build.log" ] && printf '        %s\n' "$(plain "$scratch/build.log" | grep -F 'Initial total' | tr -s ' ')"
+  check "frontend/CLAUDE.md says how the reports work" in_file '`ReportsStore`' frontend/CLAUDE.md
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2
+  set -- 1 2 3
 fi
 for task in "$@"; do
   "task_$task"

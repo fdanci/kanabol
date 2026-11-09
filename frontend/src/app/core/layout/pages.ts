@@ -1,38 +1,7 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { MatButton } from '@angular/material/button';
-import { ActivatedRoute, RouterLink } from '@angular/router';
-import { map } from 'rxjs';
+import { RouterLink } from '@angular/router';
 import { EmptyState } from '../../shared/ui/empty-state';
-import { PageHeader } from '../../shared/ui/page-header';
-
-/** A page the sidebar links to, whose group in Tasks.md hasn't been built yet. */
-@Component({
-  selector: 'kb-placeholder-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, EmptyState],
-  template: `
-    <kb-page-header [title]="title()" />
-    <kb-empty-state class="content" icon="construction" i18n-title title="Pagina e în lucru">
-      <p i18n>Apare aici într-o versiune viitoare.</p>
-    </kb-empty-state>
-  `,
-  styles: `
-    :host {
-      display: block;
-    }
-
-    .content {
-      margin: 0 var(--kb-space-6);
-    }
-  `,
-})
-export class PlaceholderPage {
-  protected readonly title = toSignal(
-    inject(ActivatedRoute).data.pipe(map((data) => (data['title'] as string | undefined) ?? '')),
-    { initialValue: '' },
-  );
-}
 
 /** Where permissionGuard sends a page opened without its permission, at the same address (UI §6.8). */
 @Component({
