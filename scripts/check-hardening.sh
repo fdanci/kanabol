@@ -41,7 +41,9 @@
 #      with no warning, its budget included, the budget at what remained plus 5% (750 kB, the error at
 #      1 MB), the Initial total under it and under 800 kB, printed; none of the paginator, mat-select, the
 #      slide toggle, the forms they bring, chart.js or SignalR in the files index.html loads, each in some
-#      lazy chunk; every component with a mat-paginator providing its labels. Only the packages.
+#      lazy chunk; every component with a mat-paginator providing its labels; then the charts' colors:
+#      --kb-chart-1 and --kb-chart-2 in the built CSS (#122d94 and #135bf7, and #91c4fb and #3d6fc9 in both
+#      dark rules), and kb-chart reading them instead of brand-800 and sky-300. Only the packages.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. 5 needs only the packages that
 # scripts/setup.sh installs. PostgreSQL means one whose
@@ -1422,6 +1424,28 @@ lacks() { # lacks <extended regex> <file...>
   ! grep -nE -- "$@" || return 1
 }
 
+# docs/UI_UX_SPEC.md §2.1, §2.3, §2.4: the charts' tokens in the built CSS, the light ones once and the dark
+# ones in both dark rules (the media query and data-theme), and kb-chart reading them, not brand-800 and sky-300.
+the_chart_tokens_are_in_the_css() {
+  built || return 1
+  tr -d ' \n\r' <"$(ls "$scratch"/dist/browser/styles-*.css | head -n 1)" >"$scratch/styles.min.css"
+  for expected in '--kb-chart-1:#122d94:1' '--kb-chart-2:#135bf7:1' '--kb-chart-1:#91c4fb:2' '--kb-chart-2:#3d6fc9:2'; do
+    token=${expected%:*}
+    count=$(grep -oF -- "$token;" "$scratch/styles.min.css" | wc -l | tr -d ' ')
+    [ "$count" = "${expected##*:}" ] || {
+      echo "$token is in the built CSS $count times, not ${expected##*:}"
+      return 1
+    }
+  done
+}
+
+the_chart_reads_its_tokens() {
+  chart="$app/shared/ui/chart.ts"
+  in_file "token(one.tone === 'primary' ? '--kb-chart-1' : '--kb-chart-2')" "$chart" &&
+    lacks "kb-brand-800|kb-sky-300" "$chart" &&
+    lacks "#[0-9a-fA-F]{3,8}\b" "$chart"
+}
+
 task_5() {
   echo "19.5 the first bundle, and the charts' colors"
   check "the specs pass, the paginators in Romanian from their own pages, the theme's switch deferred" specs_pass 736
@@ -1434,6 +1458,8 @@ task_5() {
   [ -f "$scratch/build.log" ] && printf '        %s\n' "$(plain "$scratch/build.log" | grep -F 'Initial total' | tr -s ' ')"
   check "the paginator, mat-select, the slide toggle, the forms, chart.js and SignalR are out of it" none_of_it_is_in_the_first_bundle
   check "their providers are where they're used, and the navbar defers the theme's switch" the_moved_providers_are_where_they_are_used
+  check "the charts' tokens are in the built CSS, light and dark" the_chart_tokens_are_in_the_css
+  check "kb-chart reads --kb-chart-1 and --kb-chart-2, and no hex" the_chart_reads_its_tokens
 }
 tasks=${*:-1 2 3 4 5}
 for task in $tasks; do

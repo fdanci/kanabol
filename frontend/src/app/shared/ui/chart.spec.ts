@@ -28,8 +28,9 @@ class Host {
 type BarConfig = ChartConfiguration<'bar'>;
 
 /**
- * docs/UI_UX_SPEC.md §7.8: bars over a canvas, the main series brand-800 and the second sky-300, the grid
- * border-200, no 3D or gradient, tooltips in the snackbar's style; the colors come from the theme's tokens.
+ * docs/UI_UX_SPEC.md §7.8: bars over a canvas, the main series --kb-chart-1 and the second --kb-chart-2 (§2.1,
+ * §2.3; group 19), the grid border-200, no 3D or gradient, tooltips in the snackbar's style; the colors come
+ * from the theme's tokens.
  */
 describe('Chart', () => {
   let drawn: { canvas: HTMLCanvasElement; config: BarConfig }[];
@@ -41,8 +42,11 @@ describe('Chart', () => {
     updates = [];
     destroyed = 0;
     const root = document.documentElement.style;
-    root.setProperty('--kb-brand-800', 'rgb(18, 45, 148)');
-    root.setProperty('--kb-sky-300', 'rgb(145, 196, 251)');
+    root.setProperty('--kb-chart-1', 'rgb(18, 45, 148)');
+    root.setProperty('--kb-chart-2', 'rgb(19, 91, 247)');
+    // What the charts read before group 19, set apart so a chart still reading them shows.
+    root.setProperty('--kb-brand-800', 'rgb(1, 2, 3)');
+    root.setProperty('--kb-sky-300', 'rgb(4, 5, 6)');
     root.setProperty('--kb-border-200', 'rgb(229, 232, 238)');
     root.setProperty('--kb-text-600', 'rgb(97, 105, 113)');
     root.setProperty('--kb-surface-0', 'rgb(255, 255, 255)');
@@ -84,7 +88,7 @@ describe('Chart', () => {
     expect(drawn[0].config.data.datasets[0].data).toEqual([2, 3]);
   });
 
-  it('colors the main series brand-800 and the second sky-300, from the tokens', async () => {
+  it('colors the main series --kb-chart-1 and the second --kb-chart-2, from the tokens', async () => {
     const { fixture, host } = await render();
     host.series.set([
       { label: 'Media', values: [1, 2], tone: 'primary' },
@@ -94,7 +98,7 @@ describe('Chart', () => {
     const config = await latest(fixture);
     expect(config.data.datasets.map((dataset) => dataset.backgroundColor)).toEqual([
       'rgb(18, 45, 148)',
-      'rgb(145, 196, 251)',
+      'rgb(19, 91, 247)',
     ]);
   });
 

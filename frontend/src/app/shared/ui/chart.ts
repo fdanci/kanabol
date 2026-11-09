@@ -27,7 +27,7 @@ import {
 // Only what the reports' bars use, so the rest of chart.js stays out of the bundle (docs/SPEC.md §5.1.1).
 ChartJs.register(BarController, BarElement, CategoryScale, LinearScale, Legend, Tooltip);
 
-/** The main series is brand-800, the second sky-300 (docs/UI_UX_SPEC.md §7.8). */
+/** The main series is --kb-chart-1, the second --kb-chart-2 (docs/UI_UX_SPEC.md §2.1, §7.8). */
 export type ChartTone = 'primary' | 'secondary';
 
 export interface ChartSeries {
@@ -74,11 +74,12 @@ const NUMBER = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 1 });
 const BAR_END = 4;
 
 /**
- * A bar chart over a canvas (docs/UI_UX_SPEC.md §7.8), with chart.js 4: the main series brand-800, the second
- * sky-300, a recessive grid in border-200, no 3D, no gradient, a legend only for two series or more, and a
- * tooltip in the snackbar's style, written as text in an element of its own (`kb-chart-tooltip`, global for
- * its white text). The colors come from the theme's tokens, read again when the theme changes. It is loaded
- * with @defer, so chart.js stays out of the first bundle; the table under it is what a screen reader reads.
+ * A bar chart over a canvas (docs/UI_UX_SPEC.md §7.8), with chart.js 4: the main series --kb-chart-1, the
+ * second --kb-chart-2, over 3:1 on the card in both themes (§2.2), a recessive grid in border-200, no 3D,
+ * no gradient, a legend only for two series or more, and a tooltip in the snackbar's style, written as text
+ * in an element of its own (`kb-chart-tooltip`, global for its white text). The colors come from the theme's
+ * tokens, read again when the theme changes. It is loaded with @defer, so chart.js stays out of the first
+ * bundle; the table under it is what a screen reader reads.
  */
 @Component({
   selector: 'kb-chart',
@@ -157,7 +158,7 @@ export class Chart {
         datasets: series.map((one, index) => ({
           label: one.label,
           data: [...one.values],
-          backgroundColor: token(one.tone === 'primary' ? '--kb-brand-800' : '--kb-sky-300'),
+          backgroundColor: token(one.tone === 'primary' ? '--kb-chart-1' : '--kb-chart-2'),
           // A 2px gap in the card's own color between pieces of a stack, and between bars side by side.
           borderColor: surface,
           borderWidth: stacked && index < series.length - 1 ? { top: 2 } : 0,
