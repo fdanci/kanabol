@@ -9,7 +9,7 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 {
     public void Configure(EntityTypeBuilder<Project> builder)
     {
-        builder.Property(project => project.Name).HasMaxLength(Project.MaxNameLength);
+        builder.Property(project => project.Name).HasMaxLength(Project.MaxNameLength).UseCollation(Collations.Romanian);
         builder.Property(project => project.Key).HasMaxLength(Project.MaxKeyLength);
         builder.Property(project => project.Description).HasColumnType("text");
         builder.Property<uint>("Version").IsRowVersion();

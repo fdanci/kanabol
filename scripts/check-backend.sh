@@ -836,8 +836,10 @@ Has("CREATE TABLE role_permissions (");
 Has("CREATE TABLE refresh_tokens (");
 Has("CONSTRAINT pk_users PRIMARY KEY (id)");
 Has("CONSTRAINT pk_role_permissions PRIMARY KEY (role_id, permission_id)");
-Has("email character varying(320) NOT NULL");
-Has("display_name character varying(200) NOT NULL");
+// The ro-x-icu collation on the columns the lists sort by (docs/SPEC.md §5.3, group 20).
+Has("email character varying(320) COLLATE \"ro-x-icu\" NOT NULL");
+Has("display_name character varying(200) COLLATE \"ro-x-icu\" NOT NULL");
+Has("name character varying(100) COLLATE \"ro-x-icu\" NOT NULL");
 Has("password_hash character varying(256) NOT NULL");
 Has("is_active boolean NOT NULL");
 Has("is_system boolean NOT NULL");
@@ -961,7 +963,9 @@ Has("CREATE TABLE notifications (");
 Has("CONSTRAINT pk_task_items PRIMARY KEY (id)");
 Has("CONSTRAINT pk_project_members PRIMARY KEY (project_id, user_id)");
 Has("CONSTRAINT pk_task_assignees PRIMARY KEY (task_id, user_id)");
-Has("title character varying(300) NOT NULL");
+// The ro-x-icu collation on the columns the lists sort by (docs/SPEC.md §5.3, group 20).
+Has("title character varying(300) COLLATE \"ro-x-icu\" NOT NULL");
+Has("name character varying(200) COLLATE \"ro-x-icu\" NOT NULL");
 Has("description text");
 Has("body text NOT NULL");
 Has("priority text NOT NULL");
@@ -1148,8 +1152,9 @@ no_line_in_sql() { # no_line_in_sql <extended regex>
   [ -s "$scratch/schema.sql" ] && ! grep -E "$1" "$scratch/schema.sql"
 }
 
+# The ro-x-icu collation's name has to be quoted, and it's PostgreSQL's, not a table's or a column's (§5.3).
 only_ef_identifiers_are_quoted() {
-  actual=$(grep -oE '"[^"]+"' "$scratch/schema.sql" | sort -u | paste -sd, -)
+  actual=$(sed 's/ COLLATE "ro-x-icu"//g' "$scratch/schema.sql" | grep -oE '"[^"]+"' | sort -u | paste -sd, -)
   [ "$actual" = '"__EFMigrationsHistory"' ] || {
     echo "quoted identifiers: $actual"
     return 1
