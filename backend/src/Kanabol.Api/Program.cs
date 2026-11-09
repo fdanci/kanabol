@@ -35,6 +35,8 @@ builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IBoardNotifier, HubBoardNotifier>();
+builder.Services.AddSingleton<RealtimeConnections>();
+builder.Services.AddSingleton<IRealtimeAccess>(services => services.GetRequiredService<RealtimeConnections>());
 builder.Services.AddJwtAuthentication();
 builder.Services.AddPermissionAuthorization();
 builder.Services.AddLoginRateLimit();

@@ -25,6 +25,7 @@ Run from `backend/`:
 - Run the checks of the deadline alerts, from the repo root: `scripts/check-alerts.sh [task-number...]`, under the same conditions.
 - Run the checks of the main panel and "Task-urile mele", from the repo root: `scripts/check-dashboard.sh [task-number...]`, under the same conditions.
 - Run the checks of the reports, from the repo root: `scripts/check-reports.sh [task-number...]`, under the same conditions.
+- Run the checks of the hardening, from the repo root: `scripts/check-hardening.sh [task-number...]`, under the same conditions; 1, nginx's headers, needs only Docker.
 
 ## Migrations
 
@@ -237,14 +238,16 @@ In Docker and production, settings come from environment variables:
 
 ## Real time
 
-| Hub           | Does                                                                                                                                                     | Needs                                         |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `/hubs/board` | Every connection joins `user:{id}` by itself. `JoinProject(projectId)` joins `project:{id}`, and `LeaveProject(projectId)` leaves it. The hub only sends | signed in; joining as for the project's `GET` |
+| Hub           | Does                                                                                                                                                                                                             | Needs                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `/hubs/board` | Every connection joins `user:{id}` by itself. `JoinProject(projectId)` joins `project:{id}`, at most 8 projects on a connection, and `LeaveProject(projectId)` leaves it and frees the place. The hub only sends | signed in; joining as for the project's `GET` |
 
 - The token comes from `access_token` in the query string, since a browser can't put a header on a WebSocket, and only on `/hubs`: under `/api` it opens nothing (`JwtAuthenticationExtensions`). The name has to be in the address as sent, once: ASP.NET decodes `access%5Ftoken` into the same name, which the logs' redaction wouldn't see. The forced password change closes the hub too (403 `Auth.PasswordChangeRequired`).
 - The hub speaks WebSockets only. A long poll, or a send of Server-Sent Events, may bring a fresh token and push the connection's expiry back, so a user who lost a project would keep hearing it for ever.
 - `JoinProject` asks `IProjectAccess.EnsureMemberAsync`, so a member, `projects.view_all` or `projects.manage`, and an active account. It answers null for a join, and the code for a refusal, `Project.MemberRequired`, with a warning in the log: a refusal is an ordinary answer, and SignalR would log a method that throws as an `Error`. Joins and refusals are logged with `UserId`, `ProjectId` and `ConnectionId`.
-- A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`), so someone who lost access stops hearing a project within 15 minutes; the browser opens another with a fresh token.
+- A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`); the browser opens another with a fresh token.
+- `RealtimeConnections` (Api, a singleton: there's one API) keeps each user's open connections and the projects each joined. A ninth project answers `Hub.TooManyProjects` (`HubErrors`) before any read of the database, a project joined already is joined again without one, and the fifth refusal on a connection, of either kind, closes it (`Context.Abort()`) with a warning: a board joins one project, and only again when it reconnects. Joins, leaves and removals on one connection take turns, so a removal that comes while a join reads the database waits for it and takes the connection out after.
+- The handlers that take access away call `IRealtimeAccess` (Application), which `RealtimeConnections` implements, once their change is saved: removing a member takes every connection of theirs out of the project's group, unless `projects.view_all` or `projects.manage` still shows them the project (`IProjectAccess.EnsureMemberAsync`), and a change of role or a deactivation closes every connection of theirs (`DisconnectAsync`). The browser reconnects with a fresh token, which the new role decides, or with the one it still holds, which joins nothing once the account is deactivated. A role's own permissions changing closes nothing: the token holds them up to 15 minutes, as for the API.
 - Tokens never reach a log: `AccessTokenRedaction` hides the value of `access_token` in every log entry, such as ASP.NET's "Request starting", which Development shows with the whole address, and nginx keeps no access log for `/hubs/`.
 - `IRequestContext` (Application, next to `ICurrentUser`) gives the connection id the browser sends in `X-Connection-Id`, read by `HttpRequestContext`: only an id SignalR could make, letters, digits, `-` and `_`, at most 64, sent once; otherwise null.
 - What the hub sends comes from the domain event handlers in `Features/Realtime`, after the commit, through `IBoardNotifier` (`HubBoardNotifier` in Api, over `IHubContext<BoardHub>`):
@@ -258,7 +261,7 @@ In Docker and production, settings come from environment variables:
 | `NotificationCreated`                         | `NotificationCreatedEvent`                                                                                                        | `notificationId`                                                                                 | `user:{id}`    |
 
 - `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
-- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. Handler tests read what was sent from the `BoardNotifier` substitute, and set the connection through `RequestContext`.
+- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. `StartAsync` ends with the handshake, before the server's `OnConnectedAsync` puts the connection in its user's group, so `Connect` makes one call that joins nothing, which the server handles only after it: a message sent to the user's group right after connecting got lost otherwise. Handler tests read what was sent from the `BoardNotifier` substitute, what they asked of the hub from `RealtimeAccess`, and set the connection through `RequestContext`.
 
 ## Browser logs
 

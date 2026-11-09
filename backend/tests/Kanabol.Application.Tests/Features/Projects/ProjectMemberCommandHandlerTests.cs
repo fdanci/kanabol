@@ -269,6 +269,47 @@ public sealed class ProjectMemberCommandHandlerTests(PostgresFixture postgres) :
         (await MembersOf(project.Id)).Should().HaveCount(2);
     }
 
+    // Their boards stop hearing the project at once, not when their token expires (SPEC section 9).
+    [Fact]
+    public async Task Remove_ByAnOwner_TakesTheirConnectionsOutOfTheProject()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        SignIn(owner);
+
+        (await Remove(project.Id, member.Id)).IsSuccess.Should().BeTrue();
+
+        await RealtimeAccess.Received(1).RemoveFromProjectAsync(member.Id, project.Id, Arg.Any<CancellationToken>());
+        await RealtimeAccess.DidNotReceive().DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Remove_OfSomeoneWhoSeesEveryProject_LeavesThemOnItsBoard()
+    {
+        var owner = await CreateUser();
+        var auditor = await CreateUser("vera@example.com", permissions: [Permissions.ProjectsViewAll]);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(auditor));
+        SignIn(owner);
+
+        (await Remove(project.Id, auditor.Id)).IsSuccess.Should().BeTrue();
+
+        await RealtimeAccess.DidNotReceive().RemoveFromProjectAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Remove_WhenRefused_TakesNobodyOut()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        SignIn(owner);
+
+        (await Remove(project.Id, owner.Id)).Error.Should().Be(ProjectErrors.LastOwner);
+
+        await RealtimeAccess.DidNotReceive().RemoveFromProjectAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Remove_OfSomeoneNotInTheProject_ReturnsMemberNotFound()
     {

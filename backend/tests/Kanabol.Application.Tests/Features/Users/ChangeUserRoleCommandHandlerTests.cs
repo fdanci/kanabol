@@ -46,6 +46,33 @@ public sealed class ChangeUserRoleCommandHandlerTests(PostgresFixture postgres) 
 
         result.IsSuccess.Should().BeTrue();
         (await RefreshTokensOf(user)).Should().OnlyContain(token => !token.IsRevoked);
+        await RealtimeAccess.DidNotReceive().DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    // Their boards reconnect with a fresh token, which their new role decides, or not at all (SPEC section 9).
+    [Fact]
+    public async Task Handle_WhenAllowed_ClosesOnlyThatUsersConnections()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var user = await CreateUser();
+        var role = await CreateRole("Analist");
+
+        (await Handler.Handle(new ChangeUserRoleCommand(user.Id, role.Id), CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        await RealtimeAccess.Received(1).DisconnectAsync(user.Id, Arg.Any<CancellationToken>());
+        await RealtimeAccess.Received(1).DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenRefused_ClosesNoConnection()
+    {
+        await SignInWith(Permissions.RolesManage);
+        var user = await CreateUser();
+        var role = await CreateRole("Analist");
+
+        (await Handler.Handle(new ChangeUserRoleCommand(user.Id, role.Id), CancellationToken.None)).IsFailure.Should().BeTrue();
+
+        await RealtimeAccess.DidNotReceive().DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
