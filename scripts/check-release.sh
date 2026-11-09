@@ -28,7 +28,7 @@
 #      gives its usage and asks nothing; while the admin still has the first password it stops and makes
 #      nothing; then it makes 3 users (Ana and Dan sign in with the demo password, Ioana has to change
 #      it), 2 projects with their columns (PORT with "În review"), 15 tasks, 14 with a deadline, 4 finished
-#      and 3 overdue, 6 comments, a file, and the admin's notifications of 5 assignments and 4 comments;
+#      and 3 overdue, 6 comments, a file, and the admin's notifications of 6 assignments and 4 comments;
 #      run again it makes nothing, and after the file was deleted it uploads that alone; nothing it prints
 #      holds a password. PostgreSQL.
 #
@@ -1018,10 +1018,10 @@ attachments|1" "$(grep -E '^(users|roles|projects|columns|members|tasks|finished
   is 'PORT|4|De făcut,În lucru,În review,Gata
 TER|3|De făcut,În lucru,Gata' "$(in_db "select p.key, count(*), string_agg(c.name, ',' order by c.position)
     from projects p join board_columns c on c.project_id = p.id group by p.key order by p.key")" || return 1
-  # Deadlines on all but one, and the admin told of five assignments and four comments.
+  # Deadlines on all but one, and the admin told of six assignments and four comments.
   is 14 "$(in_db 'select count(*) from task_items where due_date is not null')" || return 1
   is 'CommentAdded|4
-TaskAssigned|5' "$(in_db "select n.type, count(*) from notifications n join users u on u.id = n.user_id
+TaskAssigned|6' "$(in_db "select n.type, count(*) from notifications n join users u on u.id = n.user_id
     where u.email = '$admin_email' group by n.type order by n.type")"
 }
 

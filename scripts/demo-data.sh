@@ -374,7 +374,7 @@ email=$task_id
 task PORT-5 ana "$portal" 0 Low -6 yes "$ioana_id" "Corectură pe textele paginii de start" "Diacriticele și titlurile secțiunilor."
 task PORT-6 ana "$portal" 1 Critical -1 no "$me" "Migrare la noul server de baze de date" "Fereastra de mentenanță e sâmbătă, între 22:00 și 02:00."
 migration=$task_id
-task PORT-7 ana "$portal" 1 Medium 3 yes "$dan_id" "Formular de contact cu protecție anti-spam" "Fără captcha vizibil: un câmp ascuns și o limită pe adresă."
+task PORT-7 ana "$portal" 1 Medium 3 yes "$me,$dan_id" "Formular de contact cu protecție anti-spam" "Fără captcha vizibil: un câmp ascuns și o limită pe adresă."
 task PORT-8 admin "$portal" 0 Medium 20 no "$dan_id,$ioana_id" "Istoricul comenzilor: paginare" "Câte 25 pe pagină, cu căutare după număr."
 task PORT-9 ana "$portal" 0 High 8 no "$me" "Audit de accesibilitate" "Contrast, ordinea focusului și etichetele formularelor."
 task TER-1 ana "$field_app" 1 Critical 4 no "$dan_id" "Sincronizare offline a intervențiilor" "Datele se păstrează pe telefon și pleacă la prima conexiune."
