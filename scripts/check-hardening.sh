@@ -49,10 +49,10 @@
 #      check-pipeline.sh 6, whose merge into main, with the whole suite and the real hooks in a throwaway
 #      copy of the repo, takes under 180 s; prints the time. Docker.
 #
-# Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. 5 needs only the packages that
-# scripts/setup.sh installs. PostgreSQL means one whose
-# user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
-# secrets (ConnectionStrings:Default); each run works in its own database and drops it.
+# Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL; 5 needs only the packages that
+# scripts/setup.sh installs. PostgreSQL means one whose user may create databases, with its connection string
+# in KANABOL_CHECK_DB or else in the API's user secrets (ConnectionStrings:Default); each run works in its own
+# database, kanabol_hardening_check_<pid>, and drops it. The real API listens on port 5284.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -1479,8 +1479,8 @@ nobody_hashes_per_person() {
     backend/tests/Kanabol.Api.Tests/Support/*.cs backend/tests/Kanabol.Api.Tests/Reports/*.cs \
     backend/tests/Kanabol.Application.Tests/Features/Auth/AuthHandlerTest.cs \
     backend/tests/Kanabol.Application.Tests/Features/ManagementHandlerTest.cs &&
-    in_file 'new Lazy<string>(() => new PasswordHasher().Hash(Password))' backend/tests/Kanabol.Api.Tests/Support/AuthApiTest.cs &&
-    in_file 'new Lazy<string>(() => new PasswordHasher().Hash(Password))' backend/tests/Kanabol.Application.Tests/Features/Auth/AuthHandlerTest.cs
+    in_file 'Lazy<string> _passwordHash = new(() => new PasswordHasher().Hash(Password));' backend/tests/Kanabol.Api.Tests/Support/AuthApiTest.cs &&
+    in_file 'Lazy<string> _passwordHash = new(() => new PasswordHasher().Hash(Password));' backend/tests/Kanabol.Application.Tests/Features/Auth/AuthHandlerTest.cs
 }
 
 # docs/SPEC.md §14.6: check-pipeline.sh 6 makes a throwaway repo from this one, with its real hooks, and
