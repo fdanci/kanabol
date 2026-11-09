@@ -59,7 +59,9 @@ public static class DependencyInjection
         services.AddScoped<DomainEventsInterceptor>();
 
         services.AddDbContext<AppDbContext>((provider, options) => options
-            .UseNpgsql(configuration.GetConnectionString("Default"))
+            // A restart of PostgreSQL leaves the pool's connections dead, and the first command on each failed
+            // with 57P01: the strategy runs the operation again on another one (SPEC section 5.3).
+            .UseNpgsql(configuration.GetConnectionString("Default"), npgsql => npgsql.EnableRetryOnFailure())
             .UseSnakeCaseNamingConvention()
             .AddInterceptors(
                 provider.GetRequiredService<AuditingInterceptor>(),
