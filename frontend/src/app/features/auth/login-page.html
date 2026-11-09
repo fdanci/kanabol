@@ -15,7 +15,7 @@
         formControlName="email"
         autocomplete="username"
         [attr.aria-invalid]="submitted() && form.controls.email.invalid"
-        aria-describedby="email-error"
+        [attr.aria-describedby]="submitted() && form.controls.email.invalid ? 'email-error' : null"
       />
     </label>
     @if (submitted() && form.controls.email.invalid) {
@@ -31,7 +31,9 @@
           formControlName="password"
           autocomplete="current-password"
           [attr.aria-invalid]="submitted() && form.controls.password.invalid"
-          aria-describedby="password-error"
+          [attr.aria-describedby]="
+            submitted() && form.controls.password.invalid ? 'password-error' : null
+          "
         />
         <button
           matButton

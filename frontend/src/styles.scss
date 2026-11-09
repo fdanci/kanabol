@@ -451,3 +451,15 @@ a:hover {
   box-shadow: var(--kb-focus-ring);
   border-radius: var(--kb-radius-sm);
 }
+
+// docs/UI_UX_SPEC.md §8: under reduced motion every transition takes 0 ms, Material's and the fields' too,
+// which kept their 120 ms (group 19b). Material skips its own animations then, and nothing here waits for a
+// transitionend. The shimmer stops in kb-skeleton, and the board doesn't slide or pulse (board-page.ts).
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+  }
+}

@@ -185,6 +185,22 @@ describe('BoardPage', () => {
     return TestBed.inject(Router).url;
   }
 
+  // axe-core (group 19b): the columns' names are the headings under the page's h1, and the count is said in
+  // words, from text a screen reader reads rather than an aria-label on a span.
+  it('heads each column with an h2, its count said as words', async () => {
+    await visit();
+
+    const todo = column('De făcut');
+    expect(todo.querySelector('h2.name')?.textContent.trim()).toBe('De făcut');
+    expect(todo.querySelector('h3')).toBeNull();
+    const count = todo.querySelector('.count')!;
+    expect(count.getAttribute('aria-hidden')).toBe('true');
+    expect(count.hasAttribute('aria-label')).toBe(false);
+    expect(todo.querySelector('.count + .kb-visually-hidden')?.textContent.trim()).toBe(
+      '3 task-uri',
+    );
+  });
+
   // docs/UI_UX_SPEC.md §7.4: the columns from the left, each with its cards from the top.
   it('shows the columns from the left, each with its cards in their places and how many they are', async () => {
     board.tasks = [

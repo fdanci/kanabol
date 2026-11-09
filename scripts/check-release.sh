@@ -24,6 +24,12 @@
 #      again for the same version; compose.yaml and compose.prod.yaml then run those images from the
 #      KANABOL_VERSION in .env alone, without pulling, the app answering on HTTPS and the API signing in
 #      the first admin. Docker.
+#   3  the documents and the screenshots: docs/deploy.md, docs/backup.md and docs/ui-review.md tracked; each
+#      of the 16 screens of docs/UI_UX_SPEC.md §7 (at least one per section) a tracked PNG of 1440x900 in
+#      docs/screens/, light and dark, the two unlike each other, and nothing else there; docs/ui-review.md
+#      naming each, axe-core, both themes and the motion; axe-core a dev dependency of the frontend, which
+#      the app doesn't import; and the production build's CSS turning every transition to 0 and the
+#      skeleton's shimmer off under prefers-reduced-motion (docs/UI_UX_SPEC.md §8). Only the packages.
 #   4  demo-data.sh on the real API in Production, on a database of its own: without its passwords it
 #      gives its usage and asks nothing; while the admin still has the first password it stops and makes
 #      nothing; then it makes 3 users (Ana and Dan sign in with the demo password, Ioana has to change
@@ -816,6 +822,125 @@ task_2() {
   check "the app answers on HTTPS and the first admin signs in" release_serves_the_app
 }
 
+# ---- Task 3: the documents and the screenshots.
+
+# Every screen of docs/UI_UX_SPEC.md §7, as docs/ui-review.md lists them, each light and dark.
+screens='7.1-login 7.1-parola-noua 7.2-panou 7.2-task-urile-mele 7.3-proiecte 7.3-lista 7.3-membri 7.3-rapoarte
+7.3-setari 7.4-board 7.5-task 7.6-notificari-meniu 7.6-notificari 7.7-utilizatori 7.7-roluri 7.8-rapoarte'
+
+documents_are_tracked() {
+  for file in docs/deploy.md docs/backup.md docs/ui-review.md; do
+    [ -s "$file" ] && git ls-files --error-unmatch "$file" >/dev/null 2>&1 || {
+      echo "$file is missing or not tracked"
+      return 1
+    }
+  done
+}
+
+png_size() { # png_size <file>: its width x height, from the IHDR chunk
+  node -e "const b = require('fs').readFileSync(process.argv[1]);
+    if (b.toString('latin1', 1, 4) !== 'PNG' || b.toString('latin1', 12, 16) !== 'IHDR') process.exit(1);
+    console.log(b.readUInt32BE(16) + 'x' + b.readUInt32BE(20));" "$(native "$1")"
+}
+
+screenshots_are_there() {
+  for screen in $screens; do
+    for scheme in light dark; do
+      file="docs/screens/$screen-$scheme.png"
+      git ls-files --error-unmatch "$file" >/dev/null 2>&1 || {
+        echo "$file is missing or not tracked"
+        return 1
+      }
+      is 1440x900 "$(png_size "$file")" || {
+        echo "in $file"
+        return 1
+      }
+    done
+    if cmp -s "docs/screens/$screen-light.png" "docs/screens/$screen-dark.png"; then
+      echo "$screen is the same picture in both themes"
+      return 1
+    fi
+  done
+}
+
+nothing_else_in_screens() {
+  for file in docs/screens/*; do
+    name=${file#docs/screens/}
+    case " $(echo $screens) " in
+      *" ${name%-light.png} "* | *" ${name%-dark.png} "*) ;;
+      *)
+        echo "$file isn't a screen of the list"
+        return 1
+        ;;
+    esac
+  done
+}
+
+every_section_has_a_screen() { # Each "### 7.x" of the UI spec has at least one screen, so none is left out.
+  sections=$(sed -n 's/^### \(7\.[0-9][0-9]*\) .*/\1/p' docs/UI_UX_SPEC.md)
+  [ -n "$sections" ] || return 1
+  for section in $sections; do
+    case " $(echo $screens) " in
+      *" $section-"*) ;;
+      *)
+        echo "UI §$section has no screenshot"
+        return 1
+        ;;
+    esac
+  done
+}
+
+review_covers_every_screen() {
+  file_has docs/ui-review.md axe-core prefers-reduced-motion light dark Blocked || return 1
+  for screen in $screens; do
+    grep -qF -- "$screen-" docs/ui-review.md || {
+      echo "docs/ui-review.md doesn't name $screen"
+      return 1
+    }
+  done
+}
+
+axe_is_a_dev_dependency() {
+  node -e "const p = require('./frontend/package.json');
+    if (!p.devDependencies?.['axe-core'] || p.dependencies?.['axe-core']) process.exit(1);" || {
+    echo "axe-core isn't only in the devDependencies of frontend/package.json"
+    return 1
+  }
+  [ -f frontend/node_modules/axe-core/axe.min.js ] || return 1
+  # A tool for the review, never part of the app.
+  ! grep -rnE "(from|import\(|require\() *['\"]axe-core" frontend/src
+}
+
+# docs/UI_UX_SPEC.md §8, in the CSS the production build ships: under reduce every transition at 0, and the
+# skeleton's shimmer off.
+reduced_motion_is_built() {
+  (cd frontend && npx ng build --configuration production >"$scratch/build.log" 2>&1) || {
+    tail -n 20 "$scratch/build.log"
+    return 1
+  }
+  css=$(ls frontend/dist/kanabol/browser/styles-*.css 2>/dev/null | head -n 1)
+  [ -n "$css" ] || return 1
+  node -e "const css = require('fs').readFileSync(process.argv[1], 'utf8');
+    const rule = /@media ?\(prefers-reduced-motion: ?reduce\)\{\*,\*?::?before,\*?::?after\{transition-duration:0m?s!important;transition-delay:0m?s!important\}/;
+    if (!rule.test(css)) { console.log(css.match(/@media ?\(prefers-reduced-motion[^}]*\}[^}]*\}/g)); process.exit(1); }" "$(native "$css")" || return 1
+  # The skeleton's own rule, from its component's styles in the lazy chunks or main.
+  grep -lE 'prefers-reduced-motion: ?reduce\)\{\[_nghost-%COMP%\]\{animation:none;background:var\(' frontend/dist/kanabol/browser/*.js >/dev/null || {
+    echo "no skeleton rule stopping its animation under reduce"
+    return 1
+  }
+}
+
+task_3() {
+  echo "19b.3 the documents and the screenshots of every screen"
+  check "docs/deploy.md, docs/backup.md and docs/ui-review.md are tracked" documents_are_tracked
+  check "every screen has its PNG of 1440x900 in docs/screens/, light and dark, unlike each other" screenshots_are_there
+  check "docs/screens/ holds nothing else" nothing_else_in_screens
+  check "every section of UI §7 has a screenshot" every_section_has_a_screen
+  check "docs/ui-review.md names every screen, axe-core, both themes and the motion" review_covers_every_screen
+  check "axe-core is a dev dependency of the frontend, which the app doesn't import" axe_is_a_dev_dependency
+  check "the production CSS stops every transition and the shimmer under reduce" reduced_motion_is_built
+}
+
 # ---- Task 4: demo-data.sh, on the real API (as check-reports.sh starts it).
 
 check_db="kanabol_release_check_$$"
@@ -1086,11 +1211,12 @@ task_4() {
   stop_api
 }
 
-tasks=${*:-1 2 4}
+tasks=${*:-1 2 3 4}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
+    3) task_3 ;;
     4) task_4 ;;
     *)
       echo "No task $task."

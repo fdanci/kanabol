@@ -52,13 +52,13 @@ export interface NewCard {
     <section class="column" [attr.aria-labelledby]="'kb-column-' + column().id">
       <header class="head">
         <!-- Kept while renaming, out of sight, so the column keeps its name for screen readers. -->
-        <h3
+        <h2
           class="kb-subtitle name"
           [class.hidden-name]="renaming()"
           [id]="'kb-column-' + column().id"
         >
           {{ column().name }}
-        </h3>
+        </h2>
         @if (renaming()) {
           <input
             #renameField
@@ -82,7 +82,8 @@ export interface NewCard {
             >check_circle</span
           >
         }
-        <span class="count" [attr.aria-label]="countLabel()">{{ cards().length }}</span>
+        <span class="count" aria-hidden="true">{{ cards().length }}</span>
+        <span class="kb-visually-hidden">{{ countLabel() }}</span>
         @if (canManage()) {
           <button
             matIconButton

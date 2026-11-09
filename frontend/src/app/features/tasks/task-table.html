@@ -45,7 +45,11 @@
         <span class="column-name">
           {{ task.columnName }}
           @if (task.columnIsDone) {
-            <span class="material-symbols-outlined done" i18n-aria-label aria-label="Gata"
+            <span
+              class="material-symbols-outlined done"
+              role="img"
+              i18n-aria-label
+              aria-label="Gata"
               >check_circle</span
             >
           }
