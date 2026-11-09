@@ -25,7 +25,12 @@
 #      renamed, archived and restored in that order, and while a board that joined a project stops reading
 #      its socket, 20 workers move tasks for 40 seconds and none of their requests takes 3 seconds; the
 #      server closes that board meanwhile, which proves its writes blocked (the old notifier, which sent
-#      inside the request, made one wait 9.3 s). Docker, PostgreSQL.
+#      inside the request, made one wait 9.3 s); then the redaction: its tests on a token in a list, an
+#      object, a dictionary (keys too), a Uri, which goes as text, and deeper, values without one kept as
+#      they are, and the API host's own Serilog pipeline, then the real API in Development, which logs a
+#      board's negotiation and WebSocket with the whole address: access_token=[hidden], no token. Nothing
+#      the real API takes in reaches its log as a structured value yet, so those are the tests'.
+#      Docker, PostgreSQL.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. PostgreSQL means one whose
 # user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
@@ -1105,6 +1110,38 @@ board_hears_in_order() {
   is 'TaskCreated TaskMoved TaskUpdated TaskArchived TaskRestored' "$(heard "r.heard.board.map((m) => m.event).join(' ')")"
 }
 
+redaction_tests_pass() {
+  stop_api
+  dotnet build backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj --nologo -v q >/dev/null 2>&1 || return 1
+  for name in Enrich_OfAListHoldingAToken_HidesItAndKeepsTheOtherItems     Enrich_OfAnObjectHoldingAToken_HidesIt_AndKeepsItsTypeAndOtherProperties     Enrich_OfADictionaryHoldingAToken_HidesItInItsValuesAndKeys     Enrich_OfAUriHoldingAToken_WritesItAsTextWithoutTheToken     Enrich_OfAUriWithoutAToken_KeepsTheUri     Enrich_OfATokenDeepInside_HidesItAtAnyDepth     Enrich_OfStructuredValuesWithoutAToken_KeepsTheSameValues; do
+    test_exists Kanabol.Api.Tests "AccessTokenRedactionTests.$name" || return 1
+  done
+  test_exists Kanabol.Api.Tests ApiLogRedactionTests.Log_OfStructuredValuesHoldingAToken_ReachesTheSinkWithoutIt || return 1
+  tests_pass Kanabol.Api.Tests "FullyQualifiedName~AccessTokenRedactionTests|FullyQualifiedName~ApiLogRedactionTests" 11
+}
+
+# Development writes ASP.NET's "Request starting" with the whole address, query included: a board's
+# negotiation and WebSocket carry the token there, and the log keeps neither.
+real_log_hides_the_token() {
+  admin_is_ready || return 1
+  start_api Development Alerts__OverdueCheckEnabled=false || return 1
+  hub "[{\"connect\":\"board\",\"token\":\"$admin_token\"},{\"wait\":500}]" || return 1
+  steps_were 'connected' || return 1
+  sleep 1
+  token_part=$(printf '%s' "$admin_token" | cut -d. -f3)
+  if grep -qF -- "$token_part" "$api_log"; then
+    grep -F -- "$token_part" "$api_log" | head -n 3 | cut -c1-300
+    echo "the token is in the API's log"
+    return 1
+  fi
+  grep -F '/hubs/board' "$api_log" | grep -qF 'access_token=[hidden]' || {
+    echo "no hub request with access_token=[hidden] in the log, so it proves nothing:"
+    grep -F '/hubs/board' "$api_log" | head -n 5
+    return 1
+  }
+  api_is_up
+}
+
 task_3() {
   echo "19.3 the hub's sends through a channel, and tokens hidden in structured values"
   check "Docker is running" docker_is_running
@@ -1114,6 +1151,8 @@ task_3() {
   check "the real API starts in Production on a database of this run" api_is_up
   check "a board hears the changes in the order they were made" board_hears_in_order
   check "no request waits for a board that stopped reading, which the server closes" requests_dont_wait_for_a_stalled_board
+  check "the redaction passes its tests: lists, objects, dictionaries, a Uri, at any depth, and the API's own log" redaction_tests_pass
+  check "the real API in Development logs a board's address without its token" real_log_hides_the_token
 }
 tasks=${*:-1 2 3}
 for task in $tasks; do
