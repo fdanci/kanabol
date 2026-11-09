@@ -377,6 +377,7 @@ a_task_in() { # a_task_in <project id> <title> <JSON fields to add>
 }
 
 # Each person told that the task is overdue, by name, sorted, with the message: name:message|...
+# upper() of display_name follows its ro-x-icu collation, as the API's sorts do (docs/SPEC.md §5.3).
 overdue_alerts_of() { # overdue_alerts_of <task id>
   in_db "SELECT u.display_name || ':' || n.message FROM notifications n JOIN users u ON u.id = n.user_id
     WHERE n.task_id = '$1' AND n.type = 'TaskOverdue' ORDER BY upper(u.display_name)" | tr '\n' '|' | sed 's/|$//'

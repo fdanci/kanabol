@@ -518,6 +518,7 @@ view_all_sees_every_open_one() {
   is 50 "$(number_field pageSize)"
 }
 
+# upper() of name follows its ro-x-icu collation, as the API's sort does (docs/SPEC.md §5.3).
 pages_go_by_name() {
   expected=$(in_db "SELECT key FROM projects WHERE archived_at IS NULL ORDER BY upper(name), key OFFSET 1 LIMIT 1")
   status_is 200 "$(as "$admin_token" GET '/api/projects?page=2&pageSize=1')" || return 1
