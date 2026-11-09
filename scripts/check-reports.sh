@@ -29,6 +29,10 @@
 #      tokens, no other feature imported, chart.js in a chunk of its own, loaded by @defer, and neither it
 #      nor the page in the files index.html loads; prints the Initial total. Only the packages that
 #      scripts/setup.sh installs.
+#   4  the group's flows end to end: the API's tests (a task finished, moved back, finished again, archived
+#      and restored, its deadline moved, an assignee taken off, an open one archived), then the same changes
+#      on the real API in Production, in an interval around now, each changing the three reports' numbers
+#      as the rules say, for reports.view and for the project's owner. Docker, PostgreSQL.
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database and
 # drops it. Docker runs the tests' own PostgreSQL.
@@ -1055,8 +1059,84 @@ task_3() {
     "in_file '\`ReportsStore\`' frontend/CLAUDE.md && in_file '\`projectFixed\`' frontend/CLAUDE.md"
 }
 
+# ---- 18.4: the group's flows end to end.
+
+flow_tests_pass() {
+  tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ReportsFlowTests' 7
+}
+
+# A day either side of now: the work this task changes is finished now, unlike the October one.
+around_now="from=$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)"
+
+# finished measured overdue onTime late rate, of PAN around now.
+numbers_now() { # numbers_now <token> [query to add]
+  report "$1" completed "$around_now&projectId=$pan_id${2:-}" || return 1
+  finished=$(json b.total)
+  report "$1" cycle-time "$around_now&projectId=$pan_id${2:-}" || return 1
+  measured=$(json b.count)
+  report "$1" deadlines "$around_now&projectId=$pan_id${2:-}" || return 1
+  printf '%s %s %s\n' "$finished" "$measured" "$(json "[b.overdue, b.completedOnTime, b.completedLate, b.onTimeRate].map(String).join(' ')")"
+}
+
+# PAN-6, Dan's, due tomorrow: the task every later check of this task follows. Olga, from task 2, owns MEU only.
+a_live_task_is_ready() {
+  work_is_ready || return 1
+  [ -n "${live_task:-}" ] && return 0
+  is '0 0 1 0 0 null' "$(numbers_now "$admin_token")" || return 1
+  a_task_in "$pan_id" 'Raport viu' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)\"" || return 1
+  live_task=$new_task
+}
+
+finishing_it_counts_it_on_time() {
+  a_live_task_is_ready || return 1
+  moved "$live_task" "$pan_done" || return 1
+  is '1 1 1 1 0 1' "$(numbers_now "$admin_token")" &&
+    is '0 0 0 0 0 null' "$(numbers_now "$admin_token" "&userId=$admin_id")"
+}
+
+moving_it_back_takes_it_out() {
+  a_live_task_is_ready || return 1
+  moved "$live_task" "$pan_todo" || return 1
+  is '0 0 1 0 0 null' "$(numbers_now "$admin_token")" || return 1
+  moved "$live_task" "$pan_done" || return 1
+  is '1 1 1 1 0 1' "$(numbers_now "$admin_token")"
+}
+
+archiving_and_restoring_it_keeps_it() {
+  a_live_task_is_ready || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$live_task")" || return 1
+  is '1 1 1 1 0 1' "$(numbers_now "$admin_token")" || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/tasks/$live_task/restore")" || return 1
+  is '1 1 1 1 0 1' "$(numbers_now "$admin_token")"
+}
+
+a_deadline_moved_before_turns_it_late() {
+  a_live_task_is_ready || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$live_task/due-date" "{\"dueDate\":\"$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)\"}")" || return 1
+  is '1 1 1 0 1 0' "$(numbers_now "$admin_token")"
+}
+
+# Dan is a plain member of PAN: the admin makes him an owner, and he reads the same numbers without reports.view.
+an_owner_reads_the_same_numbers() {
+  a_live_task_is_ready || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" GET "/api/reports/completed?$around_now&projectId=$pan_id")" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/projects/$pan_id/members/$dan_id" '{"role":"Owner"}')" || return 1
+  is "$(numbers_now "$admin_token")" "$(numbers_now "$dan_token")"
+}
+
+task_4() {
+  echo "18.4 The group's flows end to end: a change to a task changes the reports"
+  check "Docker is running" docker_is_running
+  check "the flows' tests pass: finished, moved back, archived, restored, deadlines, assignees" flow_tests_pass
+  check "the real API counts a new task of Dan's, finished by its deadline, as finished on time" finishing_it_counts_it_on_time
+  check "moved back it leaves the reports, finished again it comes back" moving_it_back_takes_it_out
+  check "archived after it was finished it stays, and restored too" archiving_and_restoring_it_keeps_it
+  check "its deadline moved before its completion turns it late" a_deadline_moved_before_turns_it_late
+  check "Dan, made an owner, reads the same numbers without reports.view" an_owner_reads_the_same_numbers
+}
+
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3
+  set -- 1 2 3 4
 fi
 for task in "$@"; do
   "task_$task"
