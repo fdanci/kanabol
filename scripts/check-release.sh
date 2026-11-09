@@ -24,8 +24,18 @@
 #      again for the same version; compose.yaml and compose.prod.yaml then run those images from the
 #      KANABOL_VERSION in .env alone, without pulling, the app answering on HTTPS and the API signing in
 #      the first admin. Docker.
+#   4  demo-data.sh on the real API in Production, on a database of its own: without its passwords it
+#      gives its usage and asks nothing; while the admin still has the first password it stops and makes
+#      nothing; then it makes 3 users (Ana and Dan sign in with the demo password, Ioana has to change
+#      it), 2 projects with their columns (PORT with "În review"), 15 tasks, 14 with a deadline, 4 finished
+#      and 3 overdue, 6 comments, a file, and the admin's notifications of 5 assignments and 4 comments;
+#      run again it makes nothing, and after the file was deleted it uploads that alone; nothing it prints
+#      holds a password. PostgreSQL.
 #
-# Docker builds the images and runs the stacks; everything is removed at the end.
+# Docker builds the images and runs the stacks; everything is removed at the end. PostgreSQL means one whose
+# user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
+# secrets (ConnectionStrings:Default); each run works in its own database, kanabol_release_check_<pid>, and
+# drops it. The real API listens on port 5283.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -58,6 +68,8 @@ admin_password='parola adminului la backup'
 later_password='parola adminului dupa backup'
 
 cleanup() {
+  command -v stop_api >/dev/null 2>&1 && stop_api
+  command -v drop_database >/dev/null 2>&1 && drop_database
   for project in $compose_projects; do
     (cd "$probe" 2>/dev/null && probe_compose "$project" down -v --remove-orphans >/dev/null 2>&1)
   done
@@ -804,11 +816,282 @@ task_2() {
   check "the app answers on HTTPS and the first admin signs in" release_serves_the_app
 }
 
-tasks=${*:-1 2}
+# ---- Task 4: demo-data.sh, on the real API (as check-reports.sh starts it).
+
+check_db="kanabol_release_check_$$"
+api_dir=backend/src/Kanabol.Api
+api_port=5283
+API_URL="http://127.0.0.1:$api_port"
+api_log="$scratch/api.log"
+api_pid=
+admin_connection=
+base_connection=
+demo_password='parola colegilor de demonstratie'
+
+# Run a statement and print its rows, with columns separated by |. Built once, on first use.
+sql() { # sql <connection> <statement>
+  sql_dll="$scratch/sql/bin/Debug/net10.0/sql.dll"
+  if [ ! -f "$sql_dll" ]; then
+    mkdir -p "$scratch/sql"
+    cat >"$scratch/sql/sql.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.*" />
+  </ItemGroup>
+</Project>
+XML
+    cat >"$scratch/sql/Program.cs" <<'CS'
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+await using var connection = new Npgsql.NpgsqlConnection(args[0]);
+await connection.OpenAsync();
+await using var command = new Npgsql.NpgsqlCommand(args[1], connection);
+await using var reader = await command.ExecuteReaderAsync();
+while (await reader.ReadAsync())
+{
+    var values = Enumerable.Range(0, reader.FieldCount).Select(i => reader.GetValue(i)?.ToString());
+    Console.WriteLine(string.Join('|', values));
+}
+CS
+    dotnet build "$scratch/sql/sql.csproj" --nologo -v q >"$scratch/sql/build.log" 2>&1 || {
+      cat "$scratch/sql/build.log" >&2
+      return 1
+    }
+  fi
+  dotnet "$sql_dll" "$1" "$2"
+}
+
+need_database() {
+  [ -n "$admin_connection" ] && return 0
+  base_connection=${KANABOL_CHECK_DB:-$(dotnet user-secrets list --id kanabol-api 2>/dev/null |
+    tr -d '\r' | sed -n 's/^ConnectionStrings:Default = //p')}
+  if [ -z "$base_connection" ]; then
+    echo "No database: set KANABOL_CHECK_DB or the API's ConnectionStrings:Default user secret."
+    return 1
+  fi
+  admin_connection=$(printf '%s' "$base_connection" | sed 's/Database=[^;]*/Database=postgres/')
+  sql "$admin_connection" "CREATE DATABASE $check_db"
+}
+
+connection_to() { # connection_to <database>
+  printf '%s' "$base_connection" | sed "s/Database=[^;]*/Database=$1/"
+}
+
+in_db() { # in_db <statement>: its rows, as sql prints them
+  sql "$(connection_to "$check_db")" "$1" | tr -d '\r'
+}
+
+drop_database() {
+  [ -n "$admin_connection" ] || return 0
+  sql "$admin_connection" "DROP DATABASE IF EXISTS $check_db WITH (FORCE)" >/dev/null 2>&1
+}
+
+# The API in Production on this run's database, without the overdue check, which would add notifications.
+api_is_up() {
+  [ -n "$api_pid" ] && return 0
+  need_database || return 1
+  dotnet build "$api_dir/Kanabol.Api.csproj" --nologo -v q >"$scratch/api-build.log" 2>&1 || {
+    tail -n 20 "$scratch/api-build.log"
+    return 1
+  }
+  (
+    cd "$api_dir" || exit 1
+    # Seq's address leads nowhere, so a developer's own Seq gets nothing of these checks.
+    exec env ASPNETCORE_ENVIRONMENT=Production \
+      ConnectionStrings__Default="$(connection_to "$check_db")" \
+      Jwt__Secret="$jwt_secret" \
+      Storage__Root="$scratch/attachments" \
+      Admin__InitialPassword="$initial_password" \
+      Alerts__OverdueCheckEnabled=false \
+      Serilog__WriteTo__1__Args__serverUrl=http://127.0.0.1:9 \
+      dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls "$API_URL"
+  ) >"$api_log" 2>&1 &
+  api_pid=$!
+  attempts=0
+  until curl -s -o /dev/null "$API_URL/health"; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 120 ] || ! kill -0 "$api_pid" 2>/dev/null; then
+      api_pid=
+      tail -n 30 "$api_log"
+      return 1
+    fi
+    sleep 0.5
+  done
+}
+
+stop_api() {
+  [ -n "$api_pid" ] || return 0
+  kill "$api_pid" 2>/dev/null
+  wait "$api_pid" 2>/dev/null
+  api_pid=
+}
+
+demo_data() { # demo_data <log> [VARIABLE=value...]: demo-data.sh on the real API, never with a terminal
+  log=$1
+  shift
+  env -u KANABOL_ADMIN_EMAIL -u KANABOL_ADMIN_PASSWORD -u KANABOL_DEMO_PASSWORD -u KANABOL_CACERT "$@" \
+    dash scripts/demo-data.sh "$API_URL" </dev/null >"$log" 2>&1
+}
+
+demo_data_needs_its_passwords() {
+  demo_data "$scratch/demo-usage.log"
+  is 2 "$?" || return 1
+  grep -q '^Usage: ' "$scratch/demo-usage.log" || return 1
+  demo_data "$scratch/demo-usage.log" KANABOL_ADMIN_PASSWORD=x KANABOL_DEMO_PASSWORD=short
+  is 2 "$?"
+}
+
+demo_data_waits_for_the_first_admin() {
+  demo_data "$scratch/demo-first.log" KANABOL_ADMIN_PASSWORD="$initial_password" KANABOL_DEMO_PASSWORD="$demo_password"
+  is 1 "$?" || return 1
+  grep -q 'still has to change' "$scratch/demo-first.log" || {
+    cat "$scratch/demo-first.log"
+    return 1
+  }
+  is 1 "$(in_db 'select count(*) from users')"
+}
+
+# The check's own logins come from addresses of their own, so demo-data.sh keeps its five a minute.
+the_admin_changed_the_password() {
+  web_url=$API_URL
+  printf '{"email":"%s","password":"%s"}' "$admin_email" "$initial_password" >"$scratch/login.json"
+  status=$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.83.0.1' \
+    --data-binary "@$(native "$scratch/login.json")")
+  status_is 200 "$status" || return 1
+  printf '{"currentPassword":"%s","newPassword":"%s"}' "$initial_password" "$admin_password" >"$scratch/password.json"
+  status=$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
+    -H 'Content-Type: application/json' --data-binary "@$(native "$scratch/password.json")")
+  status_is 200 "$status" || return 1
+  admin_token=$(body_field accessToken)
+}
+
+demo_counts() { # What the demonstration data is made of, one line per table or rule.
+  in_db "select 'users', count(*) from users
+    union all select 'roles', count(*) from roles
+    union all select 'projects', count(*) from projects
+    union all select 'columns', count(*) from board_columns
+    union all select 'members', count(*) from project_members
+    union all select 'tasks', count(*) from task_items
+    union all select 'assignees', count(*) from task_assignees
+    union all select 'finished', count(*) from task_items where completed_at is not null
+    union all select 'overdue', count(*) from task_items where completed_at is null and due_date < now()
+    union all select 'comments', count(*) from comments
+    union all select 'attachments', count(*) from attachments
+    union all select 'notifications', count(*) from notifications
+    union all select 'history', count(*) from task_history_entries" >"$scratch/counts" || return 1
+  # Every line, so a statement that fails can't make two runs look the same.
+  is 13 "$(grep -c '|' "$scratch/counts")" || return 1
+  cat "$scratch/counts"
+}
+
+run_demo_data() { # run_demo_data <log>
+  demo_data "$1" KANABOL_ADMIN_PASSWORD="$admin_password" KANABOL_DEMO_PASSWORD="$demo_password" || {
+    tail -n 20 "$1"
+    return 1
+  }
+}
+
+first_run_makes_the_data() {
+  run_demo_data "$scratch/demo-1.log" || return 1
+  grep -q '^Done: [0-9]* new\.$' "$scratch/demo-1.log" || {
+    cat "$scratch/demo-1.log"
+    return 1
+  }
+  demo_counts >"$scratch/counts-1"
+}
+
+data_is_what_was_asked() {
+  is "users|4
+roles|3
+projects|2
+columns|7
+members|8
+tasks|15
+finished|4
+overdue|3
+comments|6
+attachments|1" "$(grep -E '^(users|roles|projects|columns|members|tasks|finished|overdue|comments|attachments)\|' "$scratch/counts-1")" || return 1
+  is 'PORT|4|De făcut,În lucru,În review,Gata
+TER|3|De făcut,În lucru,Gata' "$(in_db "select p.key, count(*), string_agg(c.name, ',' order by c.position)
+    from projects p join board_columns c on c.project_id = p.id group by p.key order by p.key")" || return 1
+  # Deadlines on all but one, and the admin told of five assignments and four comments.
+  is 14 "$(in_db 'select count(*) from task_items where due_date is not null')" || return 1
+  is 'CommentAdded|4
+TaskAssigned|5' "$(in_db "select n.type, count(*) from notifications n join users u on u.id = n.user_id
+    where u.email = '$admin_email' group by n.type order by n.type")"
+}
+
+demo_users_sign_in() {
+  is 'ana.popescu@kanabol.local|False
+dan.ionescu@kanabol.local|False
+ioana.marin@kanabol.local|True' "$(in_db "select email, must_change_password from users where email like '%.%@kanabol.local' order by email")" || return 1
+  for email in ana.popescu@kanabol.local dan.ionescu@kanabol.local; do
+    printf '{"email":"%s","password":"%s"}' "$email" "$demo_password" >"$scratch/login.json"
+    status=$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.83.0.2' \
+      --data-binary "@$(native "$scratch/login.json")")
+    status_is 200 "$status" || return 1
+  done
+}
+
+second_run_makes_nothing() {
+  run_demo_data "$scratch/demo-2.log" || return 1
+  grep -q '^Nothing new' "$scratch/demo-2.log" || {
+    cat "$scratch/demo-2.log"
+    return 1
+  }
+  demo_counts >"$scratch/counts-2"
+  diff "$scratch/counts-1" "$scratch/counts-2"
+}
+
+missing_piece_comes_back() {
+  status=$(as "$admin_token" GET /api/tasks/by-key/PORT-1)
+  status_is 200 "$status" || return 1
+  file=$(sed -n 's/.*"attachments":\[{"id":"\([^"]*\)".*/\1/p' "$scratch/body")
+  [ -n "$file" ] || return 1
+  status=$(as "$admin_token" DELETE "/api/attachments/$file")
+  status_is 204 "$status" || return 1
+  run_demo_data "$scratch/demo-3.log" || return 1
+  grep -q '^Done: 1 new\.$' "$scratch/demo-3.log" || {
+    cat "$scratch/demo-3.log"
+    return 1
+  }
+  demo_counts >"$scratch/counts-3"
+  diff "$scratch/counts-1" "$scratch/counts-3"
+}
+
+docs_explain_the_demo_data() {
+  file_has docs/deploy.md scripts/demo-data.sh KANABOL_ADMIN_PASSWORD KANABOL_DEMO_PASSWORD
+}
+
+task_4() {
+  echo "19b.4 demo-data.sh"
+  check "demo-data.sh is tracked as executable" tracked_and_executable scripts/demo-data.sh
+  check "dash reads it" parses_as_posix_sh scripts/demo-data.sh
+  check "docs/deploy.md tells how to run it" docs_explain_the_demo_data
+  check "without its passwords it gives its usage, asking nothing" demo_data_needs_its_passwords
+  check "the real API starts on a database of its own" api_is_up
+  check "it waits for the admin's first password change, making nothing" demo_data_waits_for_the_first_admin
+  check "the admin changes the first password" the_admin_changed_the_password
+  check "demo-data.sh makes the data" first_run_makes_the_data
+  check "3 users, 2 projects with columns, 15 tasks, comments, a file, notifications" data_is_what_was_asked
+  check "Ana and Dan sign in with the demo password, Ioana has to change it" demo_users_sign_in
+  check "run again, it makes nothing" second_run_makes_nothing
+  check "a file deleted since comes back, alone" missing_piece_comes_back
+  check "nothing it printed holds a password" no_password_in "$scratch/demo-1.log" "$scratch/demo-2.log" \
+    "$scratch/demo-3.log" "$scratch/demo-first.log"
+  stop_api
+}
+
+tasks=${*:-1 2 4}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
+    4) task_4 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

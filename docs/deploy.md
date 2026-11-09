@@ -120,3 +120,19 @@ Imaginile vechi rămân pe server (`docker images kanabol-api`). O versiune nou�
 2. `scripts/restore.sh backups/kanabol-AAAA-LL-ZZ`, cu folderul de dinainte de actualizare. Scriptul pornește stack-ul cu versiunea din `.env`.
 
 Imaginile de care nu mai e nevoie se șterg cu `docker rmi kanabol-api:v0.1.0 kanabol-web:v0.1.0`.
+
+## Date de demonstrație
+
+Pentru o instalare de probă sau o demonstrație, `scripts/demo-data.sh` umple Kanabol prin API: trei colegi (Ana Popescu, Dan Ionescu și Ioana Marin, cu adrese `@kanabol.local`), rolurile „Manager de proiect” și „Membru”, proiectele „Portal clienți” (`PORT`, cu o coloană „În review”) și „Aplicația de teren” (`TER`), 15 task-uri cu deadline-uri, unele întârziate și unele terminate, comentarii, un fișier și notificările pe care le fac. Nu e pentru un server cu munca reală a echipei.
+
+Contul de admin trebuie să-și fi schimbat deja prima parolă. Parolele vin din variabile de mediu, deci scriptul nu întreabă nimic și nu le scrie nicăieri:
+
+```sh
+read -rs KANABOL_ADMIN_PASSWORD && export KANABOL_ADMIN_PASSWORD
+read -rs KANABOL_DEMO_PASSWORD && export KANABOL_DEMO_PASSWORD
+KANABOL_CACERT=certs/ca.crt scripts/demo-data.sh https://kanabol.local
+```
+
+`KANABOL_DEMO_PASSWORD` (cel puțin 10 caractere) e parola cu care intră Ana și Dan. Ioana o primește ca parolă inițială și o schimbă la prima intrare. Fără adresă, scriptul merge la `http://localhost:4200`, aplicația pornită local cu `ng serve`.
+
+Rulat a doua oară, scriptul nu face nimic de două ori: găsește ce există după email, numele rolului, cheia proiectului și cheia task-ului, și adaugă doar ce lipsește.
