@@ -203,9 +203,14 @@ describe('layout', () => {
     });
 
     it('shows who is signed in, with the theme and the way out in their menu', async () => {
-      const { element, loader } = await navbar();
+      const { fixture, element, loader } = await navbar();
       expect(element.querySelector('.user')?.textContent).toContain('ana.pop@example.com');
       expect(element.querySelector('.user kb-avatar')?.textContent).toContain('AP');
+
+      // The theme's switch comes with @defer (on idle), before anyone opens the menu.
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await fixture.whenStable();
 
       const menu = await loader.getHarness(MatMenuHarness.with({ selector: '.user' }));
       await menu.open();

@@ -248,8 +248,11 @@ describe('MyTasksPage', () => {
       of({ items: rows, page: 1, pageSize: 50, totalCount: 120 }),
     );
     await visit();
+    const paginator = await loader.getHarness(MatPaginatorHarness);
 
-    await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
+    // The table provides the Romanian labels itself, so the paginator stays out of the first bundle.
+    expect(await paginator.getRangeLabel()).toBe('1 – 50 din 120');
+    await paginator.goToNextPage();
     await settle();
 
     expect(url()).toBe('/my-tasks?page=2');

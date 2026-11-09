@@ -25,6 +25,7 @@ import { Crumb, PageHeader } from '../../shared/ui/page-header';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { NotificationsStore } from './notifications-store';
+import { providePaginatorLabels } from '../../shared/ui/paginator-labels';
 
 const PAGE_SIZES = [25, 50, 100];
 const DEFAULT_PAGE_SIZE = 50;
@@ -40,7 +41,8 @@ const EVERY_TYPE = '';
 @Component({
   selector: 'kb-notifications-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [NotificationsStore],
+  // Its own Romanian labels, so the paginator stays out of the first bundle (docs/SPEC.md §6.2).
+  providers: [providePaginatorLabels(), NotificationsStore],
   imports: [
     MatButton,
     MatOption,

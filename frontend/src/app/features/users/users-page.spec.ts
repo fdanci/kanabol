@@ -5,14 +5,12 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
 import { MatMenuHarness } from '@angular/material/menu/testing';
-import { MatPaginatorIntl } from '@angular/material/paginator';
 import { MatPaginatorHarness } from '@angular/material/paginator/testing';
 import { MatSelectHarness } from '@angular/material/select/testing';
 import { provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
-import { PaginatorLabels } from '../../shared/ui/paginator-labels';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { NewUser, UserChanges, UserDto } from './models';
 import { UsersApi } from './users-api';
@@ -110,7 +108,6 @@ describe('UsersPage', () => {
         { provide: Confirmation, useValue: confirmation },
         { provide: Snackbar, useValue: snackbar },
         { provide: AuthStore, useValue: { user: signal({ id: 'u1' }) } },
-        { provide: MatPaginatorIntl, useClass: PaginatorLabels },
         // Sheets close at once, instead of after their animation.
         { provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } },
       ],

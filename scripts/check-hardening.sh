@@ -36,8 +36,15 @@
 #      made straight in it: turned off, it keeps every one and says so; at start it deletes those expired or
 #      revoked over 30 days ago, 3 of 6, with one log line giving the count, and the admin's live sessions
 #      stay; Auth__RefreshTokenCleanupInterval=00:30:00 stops the start. Docker, PostgreSQL.
+#   5  the first bundle: the specs (the four paginators in Romanian from their own pages, the slide toggle's
+#      defaults in ThemeToggle, the navbar's switch after @defer), lint, formatting, the production build
+#      with no warning, its budget included, the budget at what remained plus 5% (750 kB, the error at
+#      1 MB), the Initial total under it and under 800 kB, printed; none of the paginator, mat-select, the
+#      slide toggle, the forms they bring, chart.js or SignalR in the files index.html loads, each in some
+#      lazy chunk; every component with a mat-paginator providing its labels. Only the packages.
 #
-# Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. PostgreSQL means one whose
+# Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. 5 needs only the packages that
+# scripts/setup.sh installs. PostgreSQL means one whose
 # user may create databases, with its connection string in KANABOL_CHECK_DB or else in the API's user
 # secrets (ConnectionStrings:Default); each run works in its own database and drops it.
 
@@ -1277,13 +1284,165 @@ task_4() {
   check "the admin's live sessions stay" live_sessions_stay
   check "the API refuses to start with a cleanup every 30 minutes" cleanup_interval_under_an_hour_stops_the_start
 }
-tasks=${*:-1 2 3 4}
+
+# ---- 19.5: the first bundle, and the charts' colors.
+
+web=frontend
+app=$web/src/app
+
+plain() { # plain <file>: without the terminal's colors
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+specs_pass() { # specs_pass <minimum passed> [spec file or glob, from frontend/]
+  log="$scratch/specs.log"
+  (cd "$web" && npx ng test --no-watch ${2:+--include "$2"}) >"$log" 2>&1 || {
+    plain "$log" | tail -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$1" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $1"
+    return 1
+  }
+}
+
+frontend_lint_is_clean() {
+  (cd "$web" && npx ng lint) >"$scratch/lint.log" 2>&1 || {
+    plain "$scratch/lint.log" | tail -n 20
+    return 1
+  }
+}
+
+frontend_formatting_is_clean() {
+  (cd "$web" && npx prettier --check .)
+}
+
+built() {
+  [ -f "$scratch/built" ] && return 0
+  (cd "$web" && npx ng build --stats-json --output-path "$(native "$scratch/dist")") >"$scratch/build.log" 2>&1 || {
+    plain "$scratch/build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/built"
+}
+
+# Since group 19 the first bundle is under its budget: no warning at all, the budget's neither.
+the_build_warns_of_nothing() {
+  built || return 1
+  if plain "$scratch/build.log" | grep -F 'WARNING'; then
+    return 1
+  fi
+}
+
+# docs/SPEC.md §6.2: what remained plus 5%, rounded up to 10 kB (706.01 kB → 741.31 → 750), the error at 1 MB.
+the_budget_is_what_remained() {
+  node -e "
+    const build = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).projects.kanabol.architect.build;
+    const initial = build.configurations.production.budgets.find((budget) => budget.type === 'initial');
+    if (initial.maximumWarning !== '750kB' || initial.maximumError !== '1MB') {
+      console.log(JSON.stringify(initial));
+      process.exit(1);
+    }
+  " "$(native "$web/angular.json")"
+}
+
+initial_total() {
+  plain "$scratch/build.log" | sed -n 's/.*Initial total *| *\([0-9.]*\) kB.*/\1/p'
+}
+
+the_initial_total_is_under_the_budget() {
+  built || return 1
+  total=$(initial_total)
+  [ -n "$total" ] || {
+    echo "no Initial total in the build's output"
+    return 1
+  }
+  node -e "process.exit(Number(process.argv[1]) < 750 && Number(process.argv[1]) < 800 ? 0 : 1)" "$total" || {
+    echo "Initial total $total kB"
+    return 1
+  }
+}
+
+# The first bundle is what index.html loads: its scripts and the chunks it preloads.
+initial_files() {
+  grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/dist/browser/index.html" |
+    sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# Names the minifier keeps, of what the shell doesn't need at start: the paginator, mat-select, the slide
+# toggle, the forms they bring, chart.js and SignalR.
+moved_markers='mat-mdc-paginator mat-mdc-select mat-mdc-slide-toggle ng-untouched formControlName datasetElementType|_getStackCount|getLabelAndValue WebSocketTransport|HubConnectionBuilder|negotiateVersion'
+
+none_of_it_is_in_the_first_bundle() {
+  built || return 1
+  initial=$(initial_files)
+  [ -n "$initial" ] || {
+    echo "index.html loads nothing"
+    return 1
+  }
+  missing=0
+  for marker in $moved_markers; do
+    for file in $initial; do
+      if grep -qE "$marker" "$scratch/dist/browser/$file"; then
+        echo "$file, in the first bundle, holds $marker"
+        missing=1
+      fi
+    done
+    # The marker is real: some lazy chunk holds it.
+    grep -qlE "$marker" "$scratch"/dist/browser/*.js || {
+      echo "no file holds $marker at all"
+      missing=1
+    }
+  done
+  [ "$missing" = 0 ]
+}
+
+# Every component with a mat-paginator provides its Romanian labels, which app.config no longer does; the
+# only slide toggle sets its defaults, and the navbar loads it with @defer (on idle).
+the_moved_providers_are_where_they_are_used() {
+  for file in $(grep -rlE "MatPaginator[,} ]" "$app" --include='*.ts' | grep -v '\.spec\.ts$' | grep -v 'paginator-labels\.ts$'); do
+    in_file 'providePaginatorLabels()' "$file" || {
+      echo "$file shows a paginator without providePaginatorLabels()"
+      return 1
+    }
+  done
+  lacks "@angular/material/(paginator|slide-toggle)|PaginatorLabels" "$app/app.config.ts" &&
+    in_file 'provide: MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS,' "$app/shared/ui/theme-toggle.ts" &&
+    [ "$(grep -rlF "MatSlideToggle" "$app" --include='*.ts' | grep -v '\.spec\.ts$')" = "$app/shared/ui/theme-toggle.ts" ] &&
+    grep -A1 -F '@defer (on idle) {' "$app/core/layout/navbar.ts" | grep -qF '<kb-theme-toggle' &&
+    [ "$(grep -cF '<kb-theme-toggle' "$app/core/layout/navbar.ts")" -eq 1 ]
+}
+
+in_file() { # in_file <text> <file>
+  grep -qF -- "$1" "$2"
+}
+
+lacks() { # lacks <extended regex> <file...>
+  ! grep -nE -- "$@" || return 1
+}
+
+task_5() {
+  echo "19.5 the first bundle, and the charts' colors"
+  check "the specs pass, the paginators in Romanian from their own pages, the theme's switch deferred" specs_pass 736
+  check "the lint is clean" frontend_lint_is_clean
+  check "the formatting is clean" frontend_formatting_is_clean
+  check "the production build passes" built
+  check "the build warns of nothing, its budget included" the_build_warns_of_nothing
+  check "the budget is what remained plus 5%, 750 kB, the error at 1 MB" the_budget_is_what_remained
+  check "the Initial total is under the budget, and under 800 kB" the_initial_total_is_under_the_budget
+  [ -f "$scratch/build.log" ] && printf '        %s\n' "$(plain "$scratch/build.log" | grep -F 'Initial total' | tr -s ' ')"
+  check "the paginator, mat-select, the slide toggle, the forms, chart.js and SignalR are out of it" none_of_it_is_in_the_first_bundle
+  check "their providers are where they're used, and the navbar defers the theme's switch" the_moved_providers_are_where_they_are_used
+}
+tasks=${*:-1 2 3 4 5}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
     3) task_3 ;;
     4) task_4 ;;
+    5) task_5 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

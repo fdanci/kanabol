@@ -2,7 +2,9 @@ import { HarnessLoader } from '@angular/cdk/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatSlideToggle } from '@angular/material/slide-toggle';
 import { MatSlideToggleHarness } from '@angular/material/slide-toggle/testing';
+import { By } from '@angular/platform-browser';
 import { ThemeToggle } from './theme-toggle';
 
 @Component({
@@ -39,6 +41,17 @@ describe('ThemeToggle', () => {
     const toggle = await loader.getHarness(MatSlideToggleHarness);
 
     expect(await toggle.getLabelText()).toBe('Temă întunecată');
+  });
+
+  // docs/UI_UX_SPEC.md §6.0.6: a switch without the check mark, set here rather than in app.config.
+  it('shows no icon in its thumb', () => {
+    fixture.detectChanges();
+
+    const toggle = fixture.debugElement
+      .query(By.directive(MatSlideToggle))
+      .injector.get(MatSlideToggle);
+
+    expect(toggle.hideIcon).toBe(true);
   });
 
   it('tells its parent when it is toggled', async () => {
