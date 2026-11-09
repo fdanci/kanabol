@@ -9,7 +9,8 @@ namespace Kanabol.Application.Tests.Support;
 
 /// <summary>
 /// Handlers as the API gets them, with their decorators and the real AppDbContext. What can't
-/// come from a database is substituted: the user, the request, the clock and the board notifications.
+/// come from a database is substituted: the user, the request, the clock, the board notifications and the
+/// hub's connections.
 /// </summary>
 public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postgres)
 {
@@ -24,6 +25,9 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
 
     /// <summary>The request's X-Connection-Id, none unless a test says so.</summary>
     protected IRequestContext RequestContext { get; } = Substitute.For<IRequestContext>();
+
+    /// <summary>What the handlers ask of the hub's connections (SPEC section 9).</summary>
+    protected IRealtimeAccess RealtimeAccess { get; } = Substitute.For<IRealtimeAccess>();
 
     protected ListLoggerProvider Logs { get; } = new();
 
@@ -55,6 +59,7 @@ public abstract class HandlerTest(PostgresFixture postgres) : PostgresTest(postg
         services.AddSingleton(Clock);
         services.AddSingleton(BoardNotifier);
         services.AddSingleton(RequestContext);
+        services.AddSingleton(RealtimeAccess);
         ConfigureServices(services);
 
         _services = services.BuildServiceProvider(validateScopes: true);

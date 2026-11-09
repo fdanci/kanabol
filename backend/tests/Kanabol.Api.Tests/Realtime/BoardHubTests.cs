@@ -18,19 +18,6 @@ namespace Kanabol.Api.Tests.Realtime;
 /// </summary>
 public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
 {
-    private const string Probe = "Probe";
-
-    private Task SendToProject(Guid projectId, string marker) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>()
-            .Clients.Group(BoardGroups.Project(projectId)).SendAsync(Probe, new { marker });
-
-    private Task SendToUser(Guid userId, string marker) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>()
-            .Clients.Group(BoardGroups.User(userId)).SendAsync(Probe, new { marker });
-
-    private static async Task<string?> MarkerOf(Heard heard) =>
-        (await heard.NextIs(Probe)).GetProperty("marker").GetString();
-
     private Task<HttpResponseMessage> Negotiate(string query, string? bearer = null) =>
         Send(HttpMethod.Post, $"{BoardHub}/negotiate?negotiateVersion=1{query}", bearer);
 
@@ -159,8 +146,8 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
     {
         var ana = await CreateUser(UnusedEmail());
         var dan = await CreateUser(UnusedEmail());
-        var anaHears = await Connect(Api.Factory.CreateToken(ana.Id), Probe);
-        var danHears = await Connect(Api.Factory.CreateToken(dan.Id), Probe);
+        var anaHears = await Connect(Api.Factory.CreateToken(ana.Id), ProbeEvent);
+        var danHears = await Connect(Api.Factory.CreateToken(dan.Id), ProbeEvent);
 
         await SendToUser(ana.Id, "for Ana");
         await SendToUser(dan.Id, "for Dan");
@@ -175,7 +162,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var owner = await CreateUser(UnusedEmail());
         var dan = await CreateUser(UnusedEmail());
         var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(dan));
-        var heard = await Connect(Api.Factory.CreateToken(dan.Id), Probe);
+        var heard = await Connect(Api.Factory.CreateToken(dan.Id), ProbeEvent);
 
         (await heard.Connection.InvokeAsync<string?>("JoinProject", project.Id)).Should().BeNull("a join answers no code");
         await SendToProject(project.Id, "moved");
@@ -189,7 +176,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var owner = await CreateUser(UnusedEmail());
         var auditor = await CreateUser(UnusedEmail(), permissions: [Permissions.ProjectsViewAll]);
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var heard = await Connect(Api.Factory.CreateToken(auditor.Id, Permissions.ProjectsViewAll), Probe);
+        var heard = await Connect(Api.Factory.CreateToken(auditor.Id, Permissions.ProjectsViewAll), ProbeEvent);
 
         await heard.Connection.InvokeAsync("JoinProject", project.Id);
         await SendToProject(project.Id, "moved");
@@ -203,7 +190,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var owner = await CreateUser(UnusedEmail());
         var outsider = await CreateUser(UnusedEmail());
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var heard = await Connect(Api.Factory.CreateToken(outsider.Id), Probe);
+        var heard = await Connect(Api.Factory.CreateToken(outsider.Id), ProbeEvent);
 
         var refusal = await heard.Connection.InvokeAsync<string?>("JoinProject", project.Id);
 
@@ -219,7 +206,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
         var owner = await CreateUser(UnusedEmail());
         var dan = await CreateUser(UnusedEmail());
         var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(dan));
-        var heard = await Connect(Api.Factory.CreateToken(dan.Id), Probe);
+        var heard = await Connect(Api.Factory.CreateToken(dan.Id), ProbeEvent);
         await using (var db = Api.Postgres.CreateContext())
         {
             await db.Users.Where(stored => stored.Id == dan.Id).ExecuteUpdateAsync(set => set.SetProperty(stored => stored.IsActive, false));
@@ -233,7 +220,7 @@ public sealed class BoardHubTests(ApiFixture api) : RealtimeApiTest(api)
     {
         var owner = await CreateUser(UnusedEmail());
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var heard = await Connect(Api.Factory.CreateToken(owner.Id), Probe);
+        var heard = await Connect(Api.Factory.CreateToken(owner.Id), ProbeEvent);
         await heard.Connection.InvokeAsync("JoinProject", project.Id);
 
         await heard.Connection.InvokeAsync("LeaveProject", project.Id);

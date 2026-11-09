@@ -55,6 +55,16 @@ public sealed class ApiFactoryTests(ApiFixture api) : ApiTest(api)
         alerts.OverdueCheckInterval.Should().Be(TimeSpan.FromMinutes(15));
     }
 
+    /// <summary>The refresh tokens' cleanup is off too: tests make old rows of their own (SPEC section 4.5).</summary>
+    [Fact]
+    public void RefreshTokenCleanup_InTheseTests_IsOffWithTheDefaultInterval()
+    {
+        var auth = Api.Factory.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
+
+        auth.RefreshTokenCleanupEnabled.Should().BeFalse();
+        auth.RefreshTokenCleanupInterval.Should().Be(TimeSpan.FromDays(1));
+    }
+
     [Fact]
     public async Task Reset_BeforeEachTest_KeepsTheSeed()
     {

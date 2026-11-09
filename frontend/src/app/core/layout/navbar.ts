@@ -81,9 +81,13 @@ import { ThemeStore } from './theme-store';
           (click)="$event.stopPropagation()"
           (keydown)="$event.stopPropagation()"
         >
-          <kb-theme-toggle [dark]="theme.isDark()" (toggled)="theme.toggle()" i18n
-            >Temă întunecată</kb-theme-toggle
-          >
+          <!-- mat-menu makes its content with the navbar, so this loads once the page is idle, before
+            anyone opens the menu; slide-toggle and the forms it brings stay out of the first bundle. -->
+          @defer (on idle) {
+            <kb-theme-toggle [dark]="theme.isDark()" (toggled)="theme.toggle()" i18n
+              >Temă întunecată</kb-theme-toggle
+            >
+          }
         </div>
         <mat-divider />
         <button mat-menu-item type="button" (click)="signOut()">

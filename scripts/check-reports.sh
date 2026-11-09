@@ -894,7 +894,7 @@ the_page_specs_name_the_rules() {
       'starts with a BOM and quotes every field, a row to a line' \
       'doubles the quotes in a field, and keeps its commas and diacritics' &&
     spec_names "$app/shared/ui/chart.spec.ts" \
-      'colors the main series brand-800 and the second sky-300, from the tokens' \
+      'colors the main series --kb-chart-1 and the second --kb-chart-2, from the tokens' \
       'draws a recessive grid in border-200, the labels in text-600, and no grid across the bars' \
       'shows a legend only for two series or more' \
       'stacks the bars when asked, with a gap in the surface between the pieces' \
@@ -940,8 +940,8 @@ the_chart_is_chart_js_4_with_only_the_bars() {
     node -e "const lock = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); const v = lock.packages['node_modules/chart.js'].version; if (!/^4\./.test(v)) { console.log('chart.js ' + v); process.exit(1); }" "$(native "$web/package-lock.json")" &&
     in_file 'ChartJs.register(BarController, BarElement, CategoryScale, LinearScale, Legend, Tooltip);' "$app/shared/ui/chart.ts" &&
     lacks "chart\.js/auto|registerables" "$app"/shared/ui/*.ts "$reports_web"/*.ts &&
-    in_file "'--kb-brand-800'" "$app/shared/ui/chart.ts" &&
-    in_file "'--kb-sky-300'" "$app/shared/ui/chart.ts" &&
+    in_file "'--kb-chart-1'" "$app/shared/ui/chart.ts" &&
+    in_file "'--kb-chart-2'" "$app/shared/ui/chart.ts" &&
     in_file "token('--kb-border-200')" "$app/shared/ui/chart.ts" &&
     in_file '.kb-chart-tooltip {' "$web/src/styles/_utilities.scss" &&
     [ "$(grep -rlF "from 'chart.js'" "$app" --include='*.ts' | grep -v '\.spec\.ts$')" = "$app/shared/ui/chart.ts" ]

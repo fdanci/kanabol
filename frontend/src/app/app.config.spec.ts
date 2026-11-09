@@ -111,7 +111,9 @@ describe('appConfig', () => {
 
     expect(TestBed.inject(MatIconRegistry).getDefaultFontSetClass()).toEqual(['kb-symbols']);
     expect(TestBed.inject(MAT_TOOLTIP_DEFAULT_OPTIONS).showDelay).toBe(500);
-    expect(TestBed.inject(MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS).hideIcon).toBe(true);
+    // ThemeToggle, the only switch, sets its own: slide-toggle and the forms it brings stay out of the
+    // first bundle (docs/SPEC.md §6.2).
+    expect(TestBed.inject(MAT_SLIDE_TOGGLE_DEFAULT_OPTIONS).hideIcon).toBe(false);
     expect(TestBed.inject(MAT_DIALOG_DEFAULT_OPTIONS)).toMatchObject({
       panelClass: 'kb-sheet',
       backdropClass: 'kb-sheet-backdrop',
@@ -133,14 +135,9 @@ describe('appConfig', () => {
     expect(formatNumber(1234.5, locale)).toBe('1.234,5');
   });
 
-  // docs/UI_UX_SPEC.md §6.4 and §11.
-  it('has the paginators speak Romanian, with Romanian numbers', () => {
-    const labels = TestBed.inject(MatPaginatorIntl);
-
-    expect(labels.itemsPerPageLabel).toBe('Pe pagină:');
-    expect(labels.nextPageLabel).toBe('Pagina următoare');
-    expect(labels.getRangeLabel(0, 25, 60)).toBe('1 – 25 din 60');
-    expect(labels.getRangeLabel(40, 25, 1012)).toBe('1.001 – 1.012 din 1.012');
-    expect(labels.getRangeLabel(0, 25, 0)).toBe('0 din 0');
+  // The components that show a paginator provide its Romanian labels (providePaginatorLabels), so the
+  // paginator, and mat-select and the forms it brings, stay out of the first bundle (docs/SPEC.md §6.2).
+  it('leaves the paginators to the pages that show one', () => {
+    expect(TestBed.inject(MatPaginatorIntl).itemsPerPageLabel).toBe('Items per page:');
   });
 });

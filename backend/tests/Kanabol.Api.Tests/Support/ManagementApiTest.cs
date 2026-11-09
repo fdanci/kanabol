@@ -54,8 +54,7 @@ public abstract class ManagementApiTest(ApiFixture api) : AuthApiTest(api)
         await using var db = Api.Postgres.CreateContext();
 
         var role = await db.Roles.SingleAsync(existing => existing.IsSystem);
-        var hash = Api.Factory.Services.GetRequiredService<IPasswordHasher>().Hash(Password);
-        var user = new UserBuilder().WithEmail(UnusedEmail()).InRole(role).WithPasswordHash(hash).Build();
+        var user = new UserBuilder().WithEmail(UnusedEmail()).InRole(role).WithPasswordHash(PasswordHash).Build();
 
         db.Users.Add(user);
         await db.SaveChangesAsync();

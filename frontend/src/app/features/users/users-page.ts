@@ -34,6 +34,7 @@ import { PasswordSheet } from './password-sheet';
 import { RoleSheet } from './role-sheet';
 import { UserSheet, UserSheetData } from './user-sheet';
 import { UsersStore } from './users-store';
+import { providePaginatorLabels } from '../../shared/ui/paginator-labels';
 
 /**
  * Users (docs/UI_UX_SPEC.md §7.7): a standard table, paged by 25, 50 or 100, with what each row
@@ -41,6 +42,8 @@ import { UsersStore } from './users-store';
  */
 @Component({
   selector: 'kb-users-page',
+  // Its own Romanian labels, so the paginator stays out of the first bundle (docs/SPEC.md §6.2).
+  providers: [providePaginatorLabels()],
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     DatePipe,

@@ -30,6 +30,10 @@
   --kb-ink: #052063; /* fundal închis sub text alb în ambele teme: tooltip, snackbar */
   --kb-on-ink-accent: #91c4fb; /* acțiuni și linkuri pe --kb-ink, la fel în dark */
 
+  /* Graficele rapoartelor (§7.8): seria principală și a doua, peste 3:1 pe card în ambele teme */
+  --kb-chart-1: #122d94;
+  --kb-chart-2: #135bf7;
+
   /* Lockup-ul din navbar: culorile mark-ului (§14.4), nu ale temei */
   --kb-logo-bar: #052063;
   --kb-logo-disc: #91c4fb;
@@ -107,6 +111,8 @@
   --kb-danger-600: #f87171;
   --kb-danger-bg: #2d0f0d;
   --kb-archived-400: #55617d;
+  --kb-chart-1: #91c4fb;
+  --kb-chart-2: #3d6fc9;
   --kb-logo-bar: #ffffff;
   --kb-shadow-bezel: 0 0.5px 1px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
   --kb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);

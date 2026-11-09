@@ -3,6 +3,7 @@ using System.Text.Json;
 using Kanabol.Api.Realtime;
 using Kanabol.Api.Tests.Realtime;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Features.Notifications.Commands.NotifyOverdueTasks;
 using Kanabol.Domain.Authorization;
@@ -78,8 +79,9 @@ public sealed class OverdueAlertsFlowTests(ApiFixture api) : RealtimeApiTest(api
         return json.RootElement.GetProperty("count").GetInt32();
     }
 
+    // Through the queue the events take, so it comes after whatever the requests before it sent.
     private Task Probe(Guid userId) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>().Clients.Group(BoardGroups.User(userId)).SendAsync("Probe", new { marker = "the end" });
+        Api.Factory.Services.GetRequiredService<IBoardNotifier>().NotifyUserAsync(userId, "Probe", new { marker = "the end" }, CancellationToken.None);
 
     [Fact]
     public async Task OverdueTask_TellsItsAssigneeAndTheOwnerOnce_AndNobodyElse()

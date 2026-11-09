@@ -19,6 +19,7 @@ import { AvatarStack } from '../../shared/ui/avatar-stack';
 import { Chip } from '../../shared/ui/chip';
 import { DeadlineChip } from '../../shared/ui/deadline-chip';
 import { TaskSummaryDto, priorityLabel } from './models';
+import { providePaginatorLabels } from '../../shared/ui/paginator-labels';
 
 /** A row of a task list: the project's, or "Task-urile mele", which add the project's name. */
 export type TaskRow = TaskSummaryDto & { projectName?: string };
@@ -30,6 +31,8 @@ export type TaskRow = TaskSummaryDto & { projectName?: string };
  */
 @Component({
   selector: 'kb-task-table',
+  // Its own Romanian labels, so the paginator stays out of the first bundle (docs/SPEC.md §6.2).
+  providers: [providePaginatorLabels()],
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     MatPaginator,

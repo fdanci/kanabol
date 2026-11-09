@@ -42,6 +42,13 @@ public static class DependencyInjection
             .Validate(
                 alerts => alerts.OverdueCheckInterval <= AlertsOptions.MaximumInterval,
                 $"Alerts:OverdueCheckInterval must be at most {AlertsOptions.MaximumInterval}.");
+        services.AddValidatedOptions<AuthOptions>(configuration, AuthOptions.SectionName)
+            .Validate(
+                auth => auth.RefreshTokenCleanupInterval >= AuthOptions.MinimumInterval,
+                $"Auth:RefreshTokenCleanupInterval must be at least {AuthOptions.MinimumInterval}.")
+            .Validate(
+                auth => auth.RefreshTokenCleanupInterval <= AuthOptions.MaximumInterval,
+                $"Auth:RefreshTokenCleanupInterval must be at most {AuthOptions.MaximumInterval}.");
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -67,8 +74,9 @@ public static class DependencyInjection
         services.AddScoped<DatabaseSeeder>();
         services.AddHostedService<DatabaseInitializer>();
 
-        // After DatabaseInitializer: hosted services start one after another, so the first check finds the database migrated.
+        // After DatabaseInitializer: hosted services start one after another, so the first runs find the database migrated.
         services.AddHostedService<OverdueTasksWorker>();
+        services.AddHostedService<RefreshTokensCleanupWorker>();
 
         return services;
     }

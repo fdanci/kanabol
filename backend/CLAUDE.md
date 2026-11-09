@@ -25,6 +25,7 @@ Run from `backend/`:
 - Run the checks of the deadline alerts, from the repo root: `scripts/check-alerts.sh [task-number...]`, under the same conditions.
 - Run the checks of the main panel and "Task-urile mele", from the repo root: `scripts/check-dashboard.sh [task-number...]`, under the same conditions.
 - Run the checks of the reports, from the repo root: `scripts/check-reports.sh [task-number...]`, under the same conditions.
+- Run the checks of the hardening, from the repo root: `scripts/check-hardening.sh [task-number...]`, under the same conditions; 1, nginx's headers, needs only Docker.
 
 ## Migrations
 
@@ -57,22 +58,24 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 - Shared values are in `appsettings.json`, and values for one environment in `appsettings.Development.json` and `appsettings.Production.json`.
 - Development secrets go in user secrets, never in a file.
 - Local overrides that aren't secret go in `src/Kanabol.Api/appsettings.Development.local.json`, which git ignores. It's only read in Development, and it wins over everything else.
-- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day.
+- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day, or if `Auth:RefreshTokenCleanupInterval` is under an hour or over 30 days.
 
 In Docker and production, settings come from environment variables:
 
-| Variable                               | Value                                                                                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                                                               |
-| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                                                                      |
-| `Jwt__Secret`                          | The key that signs JWTs                                                                                                               |
-| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                                                            |
-| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                                                                |
-| `Storage__AllowedExtensions`           | The extensions a file may have, one value separated by commas, `pdf,png`, which replaces the whole default list in `appsettings.json` |
-| `Database__MigrateOnStartup`           | `true` by default                                                                                                                     |
-| `Alerts__OverdueCheckInterval`         | How often the API looks for overdue tasks, `00:15:00` by default, at least `00:01:00` and at most a day                               |
-| `Alerts__OverdueCheckEnabled`          | `true` by default; `false` stops the overdue check, as the API's tests do                                                             |
-| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                           |
+| Variable                               | Value                                                                                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ASPNETCORE_ENVIRONMENT`               | `Production` unless set                                                                                                                                      |
+| `ConnectionStrings__Default`           | The PostgreSQL connection string                                                                                                                             |
+| `Jwt__Secret`                          | The key that signs JWTs                                                                                                                                      |
+| `Admin__InitialPassword`               | The first admin's password, needed on the first start only                                                                                                   |
+| `Storage__Root`                        | The attachments folder, `/data/attachments` by default                                                                                                       |
+| `Storage__AllowedExtensions`           | The extensions a file may have, one value separated by commas, `pdf,png`, which replaces the whole default list in `appsettings.json`                        |
+| `Database__MigrateOnStartup`           | `true` by default                                                                                                                                            |
+| `Alerts__OverdueCheckInterval`         | How often the API looks for overdue tasks, `00:15:00` by default, at least `00:01:00` and at most a day                                                      |
+| `Alerts__OverdueCheckEnabled`          | `true` by default; `false` stops the overdue check, as the API's tests do                                                                                    |
+| `Auth__RefreshTokenCleanupInterval`    | How often the API deletes the refresh tokens that expired or were revoked over 30 days ago, `1.00:00:00` by default, at least `01:00:00` and at most 30 days |
+| `Auth__RefreshTokenCleanupEnabled`     | `true` by default; `false` stops the cleanup, as the API's tests do                                                                                          |
+| `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                                                  |
 
 ## Access rules
 
@@ -237,17 +240,19 @@ In Docker and production, settings come from environment variables:
 
 ## Real time
 
-| Hub           | Does                                                                                                                                                     | Needs                                         |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `/hubs/board` | Every connection joins `user:{id}` by itself. `JoinProject(projectId)` joins `project:{id}`, and `LeaveProject(projectId)` leaves it. The hub only sends | signed in; joining as for the project's `GET` |
+| Hub           | Does                                                                                                                                                                                                             | Needs                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `/hubs/board` | Every connection joins `user:{id}` by itself. `JoinProject(projectId)` joins `project:{id}`, at most 8 projects on a connection, and `LeaveProject(projectId)` leaves it and frees the place. The hub only sends | signed in; joining as for the project's `GET` |
 
 - The token comes from `access_token` in the query string, since a browser can't put a header on a WebSocket, and only on `/hubs`: under `/api` it opens nothing (`JwtAuthenticationExtensions`). The name has to be in the address as sent, once: ASP.NET decodes `access%5Ftoken` into the same name, which the logs' redaction wouldn't see. The forced password change closes the hub too (403 `Auth.PasswordChangeRequired`).
 - The hub speaks WebSockets only. A long poll, or a send of Server-Sent Events, may bring a fresh token and push the connection's expiry back, so a user who lost a project would keep hearing it for ever.
 - `JoinProject` asks `IProjectAccess.EnsureMemberAsync`, so a member, `projects.view_all` or `projects.manage`, and an active account. It answers null for a join, and the code for a refusal, `Project.MemberRequired`, with a warning in the log: a refusal is an ordinary answer, and SignalR would log a method that throws as an `Error`. Joins and refusals are logged with `UserId`, `ProjectId` and `ConnectionId`.
-- A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`), so someone who lost access stops hearing a project within 15 minutes; the browser opens another with a fresh token.
-- Tokens never reach a log: `AccessTokenRedaction` hides the value of `access_token` in every log entry, such as ASP.NET's "Request starting", which Development shows with the whole address, and nginx keeps no access log for `/hubs/`.
+- A connection closes when the token it was opened with expires (`CloseOnAuthenticationExpiration`); the browser opens another with a fresh token.
+- `RealtimeConnections` (Api, a singleton: there's one API) keeps each user's open connections and the projects each joined. A ninth project answers `Hub.TooManyProjects` (`HubErrors`) before any read of the database, a project joined already is joined again without one, and the fifth refusal on a connection, of either kind, closes it (`Context.Abort()`) with a warning: a board joins one project, and only again when it reconnects. Joins, leaves and removals on one connection take turns, so a removal that comes while a join reads the database waits for it and takes the connection out after.
+- The handlers that take access away call `IRealtimeAccess` (Application), which `RealtimeConnections` implements, once their change is saved: removing a member takes every connection of theirs out of the project's group, unless `projects.view_all` or `projects.manage` still shows them the project (`IProjectAccess.EnsureMemberAsync`), and a change of role or a deactivation closes every connection of theirs (`DisconnectAsync`). The browser reconnects with a fresh token, which the new role decides, or with the one it still holds, which joins nothing once the account is deactivated. A role's own permissions changing closes nothing: the token holds them up to 15 minutes, as for the API.
+- Tokens never reach a log: `AccessTokenRedaction` hides the value of `access_token` in every property of every log entry, such as ASP.NET's "Request starting", which Development shows with the whole address, and nginx keeps no access log for `/hubs/`. It looks into text, a `Uri`, which then goes as text, and every text inside a list, an object or a dictionary, keys included, at any depth; a value without a token stays the same instance, so most entries cost a look and no copy. `ApiLogRedactionTests` logs structured values through the API host's own pipeline: nothing the API takes in reaches its log as one yet.
 - `IRequestContext` (Application, next to `ICurrentUser`) gives the connection id the browser sends in `X-Connection-Id`, read by `HttpRequestContext`: only an id SignalR could make, letters, digits, `-` and `_`, at most 64, sent once; otherwise null.
-- What the hub sends comes from the domain event handlers in `Features/Realtime`, after the commit, through `IBoardNotifier` (`HubBoardNotifier` in Api, over `IHubContext<BoardHub>`):
+- What the hub sends comes from the domain event handlers in `Features/Realtime`, after the commit, through `IBoardNotifier` (`HubBoardNotifier` in Api), which only puts it in `BoardOutbox`, an unbounded channel: the request never waits for anyone's socket. `BoardSender`, a hosted service and the channel's one reader, sends each message to its group over `IHubContext<BoardHub>`, in the order they came; a send that fails is logged as an error and the next one goes. A socket that stops reading holds the line until the hub's send timeout closes it, 10 seconds, but no request. At stop the channel takes nothing more and what's in it still goes, for at most 5 seconds, with a warning for what's left. It's registered before the workers, so it stops after them:
 
 | Event                                         | From                                                                                                                              | Payload                                                                                          | Group          |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------- |
@@ -257,8 +262,8 @@ In Docker and production, settings come from environment variables:
 | `CommentAdded`                                | `CommentAddedEvent`                                                                                                               | the same, and `commentId`                                                                        | `project:{id}` |
 | `NotificationCreated`                         | `NotificationCreatedEvent`                                                                                                        | `notificationId`                                                                                 | `user:{id}`    |
 
-- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. A hub that fails is logged and skipped, like any handler: the change is saved, and a board reads itself again when it reconnects.
-- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. Handler tests read what was sent from the `BoardNotifier` substitute, and set the connection through `RequestContext`.
+- `originConnectionId` is the request's `X-Connection-Id`, or null without one, so the tab that made a change can ignore it. A send that fails is logged and skipped: the change is saved, and a board reads itself again when it reconnects.
+- Tests connect as the browser does through `RealtimeApiTest`: negotiation and WebSocket on the test server, with the token in the address. `StartAsync` ends with the handshake, before the server's `OnConnectedAsync` puts the connection in its user's group, so `Connect` makes one call that joins nothing, which the server handles only after it: a message sent to the user's group right after connecting got lost otherwise. The tests' probes go through `IBoardNotifier`, so they queue behind whatever a request sent and "nothing came before it" still holds. Handler tests read what was sent from the `BoardNotifier` substitute, what they asked of the hub from `RealtimeAccess`, and set the connection through `RequestContext`.
 
 ## Browser logs
 
@@ -269,4 +274,6 @@ In Docker and production, settings come from environment variables:
 - `POST /api/auth/login`, `refresh`, `logout` and `change-password`, and `GET /api/auth/me`. Access tokens go in the body and refresh tokens only in the `refresh_token` cookie, which is `Secure`, so tests have to call over `https://localhost` and browsers accept it on `http://localhost`.
 - Every controller needs a signed-in user unless it says `[AllowAnonymous]`.
 - While `MustChangePassword` is on, the API answers 403 `Auth.PasswordChangeRequired` everywhere except the public endpoints and those marked `[AllowedBeforePasswordChange]`.
+- `RefreshTokensCleanupWorker` (Infrastructure, like `OverdueTasksWorker`, registered after it) runs `DeleteOldRefreshTokensCommand` at start and then every `Auth:RefreshTokenCleanupInterval`, each run in a scope of its own; a run that fails is logged and the next one still comes. The command deletes, in one `DELETE`, the rows that expired or were revoked over 30 days ago, and logs how many: a token revoked lately stays, so using it again still ends its family as a theft. `ApiFactory` turns it off, since tests make old rows of their own.
 - Logins are limited to 5 per minute per client address, which comes from `X-Forwarded-For` on connections from private networks. Tests that log in give each attempt its own address: `AuthApiTest.Login` does it by itself.
+- The people the tests make share one hash of the common `Password`, made once per suite (`PasswordHash` in `AuthApiTest` and `AuthHandlerTest`, from `new PasswordHasher()`): PBKDF2 for every person of every test had taken the merge into main to 188 s of its 180. A helper that makes people uses it, never `IPasswordHasher.Hash`; a test that swaps the hasher still sees its own in the handlers.

@@ -178,6 +178,8 @@ describe('NotificationsPage', () => {
     const paginator = await loader.getHarness(MatPaginatorHarness);
 
     expect(await paginator.getPageSize()).toBe(50);
+    // The page provides the Romanian labels itself, so the paginator stays out of the first bundle.
+    expect(await paginator.getRangeLabel()).toBe('1 – 50 din 120');
     await paginator.goToNextPage();
     await settle();
 

@@ -31,6 +31,7 @@ import { Snackbar } from '../../shared/ui/snackbar';
 import { ProjectDto, ProjectSummaryDto } from './models';
 import { ProjectSheet } from './project-sheet';
 import { ProjectsStore } from './projects-store';
+import { providePaginatorLabels } from '../../shared/ui/paginator-labels';
 
 /**
  * The projects the user can open (docs/UI_UX_SPEC.md §7.3), as a table: name, owner, members as
@@ -38,6 +39,8 @@ import { ProjectsStore } from './projects-store';
  */
 @Component({
   selector: 'kb-projects-page',
+  // Its own Romanian labels, so the paginator stays out of the first bundle (docs/SPEC.md §6.2).
+  providers: [providePaginatorLabels()],
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,

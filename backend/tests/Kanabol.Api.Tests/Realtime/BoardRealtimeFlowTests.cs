@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Kanabol.Api.Realtime;
 using Kanabol.Api.Tests.Support;
+using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Notifications;
 using Kanabol.Domain.Projects;
@@ -55,8 +56,9 @@ public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api
         return heard;
     }
 
+    // Through the queue the events take, so it comes after whatever the requests before it sent.
     private Task Probe(Guid userId) =>
-        Api.Factory.Services.GetRequiredService<IHubContext<BoardHub>>().Clients.Group(BoardGroups.User(userId)).SendAsync("Probe", new { marker = "the end" });
+        Api.Factory.Services.GetRequiredService<IBoardNotifier>().NotifyUserAsync(userId, "Probe", new { marker = "the end" }, CancellationToken.None);
 
     private static IEnumerable<string> NamesIn(JsonElement payload) => payload.EnumerateObject().Select(property => property.Name);
 

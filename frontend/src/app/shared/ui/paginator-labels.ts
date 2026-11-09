@@ -1,5 +1,5 @@
 import { formatNumber } from '@angular/common';
-import { Injectable, LOCALE_ID, inject } from '@angular/core';
+import { Injectable, LOCALE_ID, Provider, inject } from '@angular/core';
 import { MatPaginatorIntl } from '@angular/material/paginator';
 
 /** What mat-paginator says, in Romanian (docs/UI_UX_SPEC.md §6.4, §11): "1 – 25 din 60". */
@@ -25,4 +25,12 @@ export class PaginatorLabels extends MatPaginatorIntl {
   private number(value: number): string {
     return formatNumber(value, this.locale, '1.0-0');
   }
+}
+
+/**
+ * For the components that show a mat-paginator, in their own providers: provided in app.config, the
+ * paginator, and the mat-select and forms it brings, went into the first bundle (docs/SPEC.md §6.2).
+ */
+export function providePaginatorLabels(): Provider {
+  return { provide: MatPaginatorIntl, useClass: PaginatorLabels };
 }

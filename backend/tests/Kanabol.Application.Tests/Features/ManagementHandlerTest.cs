@@ -106,7 +106,7 @@ public abstract class ManagementHandlerTest(PostgresFixture postgres) : AuthHand
             db.Roles.Add(role);
         }
 
-        var user = new UserBuilder().WithEmail(email).InRole(role).WithPasswordHash(Get<IPasswordHasher>().Hash(Password)).Build();
+        var user = new UserBuilder().WithEmail(email).InRole(role).WithPasswordHash(PasswordHash).Build();
         db.Users.Add(user);
         await db.SaveChangesAsync();
         return user;

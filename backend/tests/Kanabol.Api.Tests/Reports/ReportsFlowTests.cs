@@ -31,18 +31,14 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
         return (ana, anaToken, dan, danToken, rep);
     }
 
-    /// <summary>A password hash computed once: PBKDF2 for every person of every test was most of their time.</summary>
-    private static string? _passwordHash;
-
     /// <summary>A named person in a role of their own with these permissions, who signs in with Password.</summary>
     private async Task<User> Person(string displayName, params string[] permissions)
     {
-        _passwordHash ??= Api.Factory.Services.GetRequiredService<IPasswordHasher>().Hash(Password);
         await using var db = Api.Postgres.CreateContext();
         var email = UnusedEmail();
         var role = new Role($"Role of {email}", isSystem: false);
         (await db.Permissions.Where(permission => permissions.Contains(permission.Name)).ToListAsync()).ForEach(permission => role.Grant(permission.Id));
-        var user = new User(email, displayName, _passwordHash, role.Id);
+        var user = new User(email, displayName, PasswordHash, role.Id);
         db.Roles.Add(role);
         db.Users.Add(user);
         await db.SaveChangesAsync();

@@ -54,6 +54,31 @@ public sealed class DeactivateUserCommandHandlerTests(PostgresFixture postgres) 
         var result = await Handler.Handle(new DeactivateUserCommand(user.Id), CancellationToken.None);
 
         result.Value.IsActive.Should().BeFalse();
+        await RealtimeAccess.DidNotReceive().DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    // Their boards reconnect with the token they still hold, and IProjectAccess refuses them every project.
+    [Fact]
+    public async Task Handle_WhenAllowed_ClosesOnlyThatUsersConnections()
+    {
+        await SignInWith(Permissions.UsersManage);
+        var user = await CreateUser();
+
+        (await Handler.Handle(new DeactivateUserCommand(user.Id), CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        await RealtimeAccess.Received(1).DisconnectAsync(user.Id, Arg.Any<CancellationToken>());
+        await RealtimeAccess.Received(1).DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenRefused_ClosesNoConnection()
+    {
+        await SignInWith(Permissions.RolesManage);
+        var user = await CreateUser();
+
+        (await Handler.Handle(new DeactivateUserCommand(user.Id), CancellationToken.None)).IsFailure.Should().BeTrue();
+
+        await RealtimeAccess.DidNotReceive().DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

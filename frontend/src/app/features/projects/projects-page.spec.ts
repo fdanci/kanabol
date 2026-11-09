@@ -4,13 +4,11 @@ import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
-import { MatPaginatorIntl } from '@angular/material/paginator';
 import { MatPaginatorHarness } from '@angular/material/paginator/testing';
 import { Router, provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
-import { PaginatorLabels } from '../../shared/ui/paginator-labels';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { NewProject, ProjectDto, ProjectSummaryDto } from './models';
 import { ProjectsApi } from './projects-api';
@@ -110,7 +108,6 @@ describe('ProjectsPage', () => {
             has: (permission: string) => permissions.has(permission),
           },
         },
-        { provide: MatPaginatorIntl, useClass: PaginatorLabels },
         { provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } },
       ],
     });
@@ -225,6 +222,8 @@ describe('ProjectsPage', () => {
     await open();
 
     const paginator = await loader.getHarness(MatPaginatorHarness);
+    // The page provides the Romanian labels itself, so the paginator stays out of the first bundle.
+    expect(await paginator.getRangeLabel()).toBe('1 – 25 din 60');
     await paginator.goToNextPage();
     await settle();
 

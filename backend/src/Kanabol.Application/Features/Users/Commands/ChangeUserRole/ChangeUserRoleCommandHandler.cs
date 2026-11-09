@@ -11,13 +11,15 @@ namespace Kanabol.Application.Features.Users.Commands.ChangeUserRole;
 
 /// <summary>
 /// Ends the user's sessions in the same save, so a refresh running at the same moment either happened
-/// before, and its token gets revoked here too, or makes this save fail and nothing changes.
+/// before, and its token gets revoked here too, or makes this save fail and nothing changes. Then their
+/// connections to the board hub close, and come back with a token of the new role (SPEC section 9).
 /// </summary>
 public sealed class ChangeUserRoleCommandHandler(
     IAppDbContext db,
     CurrentPermissions currentPermissions,
     LastAdminGuard lastAdmin,
     IClock clock,
+    IRealtimeAccess realtimeAccess,
     ILogger<ChangeUserRoleCommandHandler> logger) : ICommandHandler<ChangeUserRoleCommand, UserDto>
 {
     public async Task<Result<UserDto>> Handle(ChangeUserRoleCommand command, CancellationToken ct)
@@ -89,6 +91,7 @@ public sealed class ChangeUserRoleCommandHandler(
         }
 
         logger.LogInformation("User {TargetUserId} moved to role {RoleId}, which ended {SessionCount} tokens", target.Id, roleId, liveTokens.Count);
+        await realtimeAccess.DisconnectAsync(target.Id, CancellationToken.None);
         return null;
     }
 }

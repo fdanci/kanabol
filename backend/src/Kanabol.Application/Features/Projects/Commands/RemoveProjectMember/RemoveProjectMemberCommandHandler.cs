@@ -6,10 +6,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Application.Features.Projects.Commands.RemoveProjectMember;
 
-/// <summary>Project.RemoveMember refuses to leave the project without an active owner (SPEC section 4.4).</summary>
+/// <summary>
+/// Project.RemoveMember refuses to leave the project without an active owner (SPEC section 4.4). Once saved,
+/// the person's boards stop hearing the project, unless a permission still shows them every project (SPEC
+/// section 9).
+/// </summary>
 public sealed class RemoveProjectMemberCommandHandler(
     IAppDbContext db,
     ProjectChanges changes,
+    IProjectAccess projectAccess,
+    IRealtimeAccess realtimeAccess,
     ILogger<RemoveProjectMemberCommandHandler> logger) : ICommandHandler<RemoveProjectMemberCommand, Unit>
 {
     public async Task<Result<Unit>> Handle(RemoveProjectMemberCommand command, CancellationToken ct)
@@ -34,6 +40,13 @@ public sealed class RemoveProjectMemberCommandHandler(
         }
 
         logger.LogInformation("User {MemberUserId} removed from project {ProjectId}", command.UserId, command.ProjectId);
+
+        // The change is saved: the boards lose the project even when the request is gone by now.
+        if ((await projectAccess.EnsureMemberAsync(command.ProjectId, command.UserId, CancellationToken.None)).IsFailure)
+        {
+            await realtimeAccess.RemoveFromProjectAsync(command.UserId, command.ProjectId, CancellationToken.None);
+        }
+
         return Unit.Value;
     }
 }
