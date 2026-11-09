@@ -1,12 +1,12 @@
 # Verificarea UI (grupul 19b)
 
-Fiecare ecran din `docs/UI_UX_SPEC.md` §7, în light și în dark, verificat cu `axe-core` și pentru `prefers-reduced-motion` (UI §8, §9, §15; `docs/SPEC.md` §13.5). Făcută pe 2026-11-09, pe `feature/delivery`.
+Fiecare ecran din `docs/UI_UX_SPEC.md` §7, în light și în dark, verificat cu `axe-core` și pentru `prefers-reduced-motion` (UI §8, §9, §15; `docs/SPEC.md` §13.5). Făcută pe 2026-11-09, pe `feature/delivery`, și reluată în grupul 20, pe `feature/collation`, după token-urile de contrast (mai jos).
 
 ## Cum
 
 - **Datele**: `scripts/demo-data.sh` pe un API local în Production, pe o bază proprie, cu verificarea întârziatelor la un minut, ca notificările „a depășit deadline-ul” să existe. Aplicația din `ng serve`, cu proxy spre acel API. Adminul e cel care se uită, cu 13 notificări necitite.
 - **axe-core** 4.14 (dependență de dev în `frontend/package.json`), rulat în Browser pane pe fiecare ecran, cu regulile `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa` și `best-practice`. Tema vine din `prefers-color-scheme`, pe care aplicația o urmează cât omul nu a ales una. Viewport 1440×900.
-- **Capturile**: PNG de 1440×900 în `docs/screens/`, `<secțiune>-<ecran>-<temă>.png`, dintr-un Edge headless condus prin protocolul DevTools, pe aceleași date, după reparațiile de mai jos.
+- **Capturile**: PNG de 1440×900 în `docs/screens/`, `<secțiune>-<ecran>-<temă>.png`, dintr-un Edge headless condus prin protocolul DevTools, pe aceleași date, după reparațiile de mai jos. Refăcute în grupul 20 cu token-urile noi, pe aceleași date.
 - **Mișcarea**: în Browser pane (care raportează `reduce`), fiecare element cu o tranziție mai lungă de 0 și fiecare animație care rulează; apoi în Edge headless, cu API-ul încetinit, `reduce` față de `no-preference`.
 
 ## Ecranele
@@ -56,12 +56,27 @@ Mișcarea: cu `reduce`, câmpurile, `kb-filter-chip`, select-urile, rândurile t
 
 Nicio reparație nu schimbă ce spun specurile. După ele, pe fiecare ecran, în ambele teme, au rămas doar cele de mai jos.
 
-## Ce rămâne (în Blocked, cu propunere)
+## Ce a rămas după 19b (în Blocked atunci), și cum s-a decis
 
-1. **`--kb-text-500` la 12–13px.** UI §2.2 îl permite doar pentru text de cel puțin 14px bold sau 18px, dar §6.0.7 (titlurile grupurilor din sidebar), §6.3 (textul de ajutor) și §7.4 (cheia de pe card) îl cer la mărimea `caption`, iar codul îl folosește la fel pentru meta: cheile task-urilor (card, Listă, Task-urile mele, panou), timpii relativi, cheile proiectelor, versiunea. Măsurat: în light 4,05:1 pe alb, 3,98 pe sidebar (#fcfdff), 3,81 pe zebra tabelelor (#f7f8fa), 3,65 pe rândurile necitite (#ecf4fc); în dark 3,99 pe #141c32, 3,86 pe #161f36, 3,59 pe #1c253c, 3,33 pe #1e2a4a. Propunerea: `--kb-text-500` #697078 în light (4,51–5,01:1 pe aceleași fundaluri) și #8692ae în dark (4,54–5,77:1), tot sub `text-600`, deci ierarhia rămâne.
-2. **Chip-ul „Owner” în dark**: `text-900` pe `--kb-sky-300` #3d6fc9, 4,35:1 la 12px. Propunerea: `--kb-sky-300` în dark #3b6cc7 (4,52:1), `--kb-chart-2` rămâne #3d6fc9.
-3. **Numele cardului de pe board** (`label-content-name-mismatch`, regulă experimentală în axe 4.14): numele e cheia și titlul, iar cardul arată și prioritatea, deadline-ul și inițialele asignaților. Regula pică și cu tot textul vizibil copiat în nume, deci nu o pot face să treacă din `aria-label`. Propunerea: rămâne așa (numele începe cu ce scrie pe card, tastele sunt în `aria-describedby`); sau numele cu toate câmpurile, „PORT-2, Medium, …, 21.11.2026, Dan Ionescu”, dacă vrei ca cititorul de ecran să le spună la fiecare card.
-4. **Overlay-urile Material** (`region` la dialog și meniu): containerul overlay-ului CDK stă lângă `body`. E felul în care Material le pune; o reparație ar fi un landmark al nostru în jurul containerului. Propunerea: acceptat, ca la celelalte excepții Material din UI §6.0.
+1. **`--kb-text-500` la 12–13px.** UI §2.2 îl permitea doar pentru text de cel puțin 14px bold sau 18px, dar §6.0.7 (titlurile grupurilor din sidebar), §6.3 (textul de ajutor) și §7.4 (cheia de pe card) îl cer la mărimea `caption`, iar codul îl folosește la fel pentru meta: cheile task-urilor (card, Listă, Task-urile mele, panou), timpii relativi, cheile proiectelor, versiunea. Măsurat: în light 4,05:1 pe alb, 3,98 pe sidebar (#fcfdff), 3,81 pe zebra tabelelor (#f7f8fa), 3,65 pe rândurile necitite (#ecf4fc); în dark 3,99 pe #141c32, 3,86 pe #161f36, 3,59 pe #1c253c, 3,33 pe #1e2a4a. Decis în UI v1.20: `--kb-text-500` #697078 în light (4,51–5,01:1 pe aceleași fundaluri) și #8692ae în dark (4,54–5,77:1), tot sub `text-600`, deci ierarhia rămâne. Aplicat în grupul 20.
+2. **Chip-ul „Owner” în dark**: `text-900` pe `--kb-sky-300` #3d6fc9, 4,35:1 la 12px. Decis în UI v1.20: `--kb-sky-300` în dark #3b6cc7 (4,52:1), `--kb-chart-2` rămâne #3d6fc9. Aplicat în grupul 20.
+3. **Numele cardului de pe board** (`label-content-name-mismatch`, regulă experimentală în axe 4.14): numele e cheia și titlul, iar cardul arată și prioritatea, deadline-ul și inițialele asignaților. Regula pică și cu tot textul vizibil copiat în nume, deci nu poate trece din `aria-label`. Decis în UI v1.20 (§7.4): rămâne cheia și titlul, tastele în `aria-describedby`.
+4. **Overlay-urile Material** (`region` la dialog și meniu): containerul overlay-ului CDK stă lângă `body`, cum le pune Material. Decis în UI v1.20 (§6.0.5, §6.0.6): acceptat, ca celelalte excepții Material.
+
+## Grupul 20: token-urile de contrast
+
+Pe 2026-11-09, pe `feature/collation`, cu `--kb-text-500` #697078 / #8692ae și `--kb-sky-300` #3b6cc7 în dark (UI §2.1–§2.3, §3.2) în `_tokens.scss`. Aceleași date ca în 19b (`scripts/demo-data.sh` pe un API local în Production, adminul cu 13 notificări necitite), aplicația din `ng serve`, axe-core 4.14 în Browser pane, la 1440×900, cu tema din `prefers-color-scheme`.
+
+| Ecranul                        | Regulile                                  | Light                                                                                              | Dark                                                             |
+| ------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 7.2 Panou principal (cu shell) | toate, ca în 19b                          | 0 încălcări                                                                                        | 0 încălcări                                                      |
+| 7.3 Membri (`7.3-membri`)      | toate, ca în 19b                          | 0 încălcări; „Owner” `#052063` pe #91c4fb                                                          | 0 încălcări; „Owner” `#eef2ff` pe #3b6cc7                        |
+| Toate cele 13 ecrane cu shell  | `color-contrast`                          | 0 încălcări                                                                                        | 0 încălcări                                                      |
+| Contraprobă: valorile vechi    | toate, valoarea pusă pe `:root` în pagină | Panou cu #787f86: 15 noduri `color-contrast` (titlurile grupurilor din sidebar, versiunea, cheile) | Membri cu #3d6fc9: cele 2 chip-uri „Owner”; cu #6f7b96: 3 noduri |
+
+Cele 13 ecrane cu shell: Panou, Task-urile mele, Proiecte, proiectul cu Listă, Membri, Rapoarte, Setări și Board, Notificări, Utilizatori, Roluri, Rapoarte și panoul task-ului. Rămân „de verificat”, ca în 19b, doar butoanele pline cu gradient (`kb-default`), verificate de mână mai jos.
+
+Capturile din `docs/screens/` sunt refăcute cu token-urile noi, pe aceleași date, cu același Edge headless: 30 diferă de cele din v0.1.0. Cele două ale paginii de login nu au text în `text-500` și au ieșit identice, octet cu octet, deci în rest nimic nu s-a mișcat. `check-collation.sh` 3 verifică token-urile, CSS-ul construit, capturile și acest document.
 
 ## Verificate de mână (axe le-a lăsat „de verificat”)
 

@@ -27,6 +27,11 @@
 #      started under it with pg_ctl (from the server's data_directory and BINDIR, or KANABOL_PGDATA and
 #      KANABOL_PGBIN): the first request answers 200, and after another restart two tasks get the next
 #      numbers, the counter after them, with EF's retries in the log and no error. Docker, PostgreSQL.
+#   3  the contrast tokens: --kb-text-500 #697078 in light and #8692ae in dark, --kb-sky-300 #3b6cc7 in dark
+#      and --kb-chart-2 still #3d6fc9 there, in _tokens.scss and in the production build's CSS (light once,
+#      dark in both of its rules), the old values nowhere; the 30 PNGs of docs/screens/ with text in
+#      text-500 or on sky-300 taken again since v0.1.0 (the login page's two have none, and come out the
+#      same); and docs/ui-review.md telling of axe-core run again on them in both themes. Only the packages.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB
 # or else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -91,8 +96,11 @@ is() { # is <expected> <actual>
   }
 }
 
-lacks() { # lacks <extended regex> <file or folder...>
-  ! grep -rnE -- "$@" || return 1
+# grep's options may come before the regex or after the paths. Found is a failure, and so is an error of
+# grep's own (status 2), so a wrong path or option can't pass for "nothing found".
+lacks() { # lacks [grep options...] <extended regex> <file or folder...> [grep options...]
+  grep -rnE "$@"
+  [ "$?" -eq 1 ]
 }
 
 docker_is_running() {
@@ -642,11 +650,106 @@ task_2() {
   stop_api
 }
 
-tasks=${*:-1 2}
+# ---- Task 3: the contrast tokens of docs/UI_UX_SPEC.md §2.1–§2.3 and §3.2.
+
+tokens=frontend/src/styles/_tokens.scss
+
+# The light rule is :root's; the dark one is the mixin both dark rules include.
+token_in() { # token_in <light|dark> <name>: its value in that rule of _tokens.scss
+  case "$1" in
+    light) sed -n '/^:root {/,/^}/p' "$tokens" ;;
+    dark) sed -n '/^@mixin dark {/,/^}/p' "$tokens" ;;
+  esac | sed -n "s/^ *--kb-$2: *\(#[0-9a-f]*\);.*/\1/p"
+}
+
+tokens_have_the_new_values() {
+  is '#697078' "$(token_in light text-500)" || return 1
+  is '#8692ae' "$(token_in dark text-500)" || return 1
+  is '#91c4fb' "$(token_in light sky-300)" || return 1
+  is '#3b6cc7' "$(token_in dark sky-300)" || return 1
+  # The charts keep theirs: chart-2 had sky-300's old value in dark, and keeps it.
+  is '#135bf7' "$(token_in light chart-2)" || return 1
+  is '#3d6fc9' "$(token_in dark chart-2)" || return 1
+  is '--kb-chart-2: #3d6fc9;' "$(grep -o -- '--kb-[a-z0-9-]*: #3d6fc9;' "$tokens")"
+}
+
+# Nothing in the app keeps the values they had: #787f86 and #6f7b96 for text-500.
+old_values_are_gone() {
+  lacks -i '#787f86|#6f7b96' frontend/src --include='*.scss' --include='*.ts' --include='*.html' --include='*.css'
+}
+
+built_css_has_the_tokens() {
+  (cd frontend && npx ng build --configuration production >"$scratch/build.log" 2>&1) || {
+    tail -n 20 "$scratch/build.log"
+    return 1
+  }
+  css=$(ls frontend/dist/kanabol/browser/styles-*.css 2>/dev/null | head -n 1)
+  [ -n "$css" ] || return 1
+  # Light once, dark twice: the media query and data-theme include the same mixin.
+  for expected in '--kb-text-500:#697078:1' '--kb-text-500:#8692ae:2' '--kb-sky-300:#91c4fb:1' '--kb-sky-300:#3b6cc7:2' '--kb-chart-2:#3d6fc9:2'; do
+    pair=${expected%:*}
+    count=${expected##*:}
+    is "$count" "$(tr -d ' ' <"$css" | grep -o -- "$pair" | wc -l | tr -d ' ')" || {
+      echo "for $pair in $css"
+      return 1
+    }
+  done
+  tr -d ' ' <"$css" >"$scratch/styles.css"
+  lacks -i '#787f86|#6f7b96|--kb-sky-300:#3d6fc9' "$scratch/styles.css"
+}
+
+# Each PNG of docs/screens/ taken again since v0.1.0, whose were made with the old tokens: every screen
+# with text in text-500 or on sky-300 is another picture now. The login page has none, and with the same
+# data and the same Edge its two come out the same, byte for byte, which tells that nothing else moved.
+screenshots_are_retaken() {
+  git rev-parse -q --verify 'v0.1.0^{commit}' >/dev/null || {
+    echo "no tag v0.1.0 to compare the screenshots with"
+    return 1
+  }
+  changed=0
+  for file in $(git ls-files 'docs/screens/*.png'); do
+    old=$(git rev-parse -q --verify "v0.1.0:$file") || {
+      echo "$file wasn't in v0.1.0"
+      return 1
+    }
+    case "$file" in
+      docs/screens/7.1-login-*) continue ;;
+    esac
+    [ "$old" != "$(git hash-object "$file")" ] || {
+      echo "$file is still the picture of v0.1.0"
+      return 1
+    }
+    changed=$((changed + 1))
+  done
+  is 30 "$changed"
+}
+
+ui_review_is_up_to_date() {
+  for words in 'grupul 20' '#697078' '#8692ae' '#3b6cc7' 'color-contrast' '7.3-membri' 'light' 'dark'; do
+    grep -qF -- "$words" docs/ui-review.md || {
+      echo "docs/ui-review.md doesn't say $words"
+      return 1
+    }
+  done
+  # What 19b left for the tokens is no longer waiting.
+  lacks 'Ce rămâne \(în Blocked' docs/ui-review.md
+}
+
+task_3() {
+  echo "20.3 the contrast tokens, the screenshots and docs/ui-review.md"
+  check "_tokens.scss has text-500 #697078 and #8692ae, sky-300 #3b6cc7 in dark, chart-2 still #3d6fc9" tokens_have_the_new_values
+  check "nothing in the app keeps text-500's old values" old_values_are_gone
+  check "the production CSS has them, light once and dark in both rules, and none of the old ones" built_css_has_the_tokens
+  check "every screenshot in docs/screens/ with text in text-500 or on sky-300 was taken again since v0.1.0" screenshots_are_retaken
+  check "docs/ui-review.md tells of group 20's tokens and axe-core run again on them" ui_review_is_up_to_date
+}
+
+tasks=${*:-1 2 3}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
+    3) task_3 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
