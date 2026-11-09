@@ -26,6 +26,7 @@ Run from `backend/`:
 - Run the checks of the main panel and "Task-urile mele", from the repo root: `scripts/check-dashboard.sh [task-number...]`, under the same conditions.
 - Run the checks of the reports, from the repo root: `scripts/check-reports.sh [task-number...]`, under the same conditions.
 - Run the checks of the hardening, from the repo root: `scripts/check-hardening.sh [task-number...]`, under the same conditions; 1, nginx's headers, needs only Docker.
+- Run the checks of the delivery, from the repo root: `scripts/check-release.sh [task-number...]`. 1, `backup.sh` and `restore.sh`, and 2, `release.sh`, need only Docker: they build the images and run stacks of their own from `compose.yaml` and `compose.prod.yaml`. 3, the screenshots and `docs/ui-review.md`, needs the packages; 4, `demo-data.sh` on the real API, PostgreSQL.
 
 ## Migrations
 
