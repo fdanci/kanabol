@@ -1,0 +1,138 @@
+:host {
+  display: block;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kb-space-4);
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+// In a project's tab, the project's page gives the width and the margins.
+.content.in-project {
+  max-width: none;
+  padding: 0;
+}
+
+// The flat cards of 6.0.10, as the main panel's.
+.card {
+  min-width: 0;
+  padding: 20px var(--kb-space-6);
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+}
+
+// The filters in one row above the charts, wrapping when the window is narrow.
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--kb-space-3) var(--kb-space-6);
+  padding: var(--kb-space-4) var(--kb-space-6);
+}
+
+.presets,
+.dates,
+.selects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--kb-space-2);
+}
+
+.date {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--kb-space-1);
+
+  .label {
+    margin-right: var(--kb-space-1);
+    font-size: 13px;
+    color: var(--kb-text-600);
+  }
+
+  input {
+    box-sizing: border-box;
+    width: 120px;
+    cursor: pointer;
+  }
+}
+
+.project {
+  width: 220px;
+}
+
+.user {
+  width: 180px;
+}
+
+.granularity {
+  width: 130px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kb-space-4);
+  margin-bottom: var(--kb-space-4);
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--kb-space-4);
+  margin-bottom: var(--kb-space-4);
+}
+
+.data,
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kb-space-4);
+}
+
+.chart-placeholder {
+  display: block;
+}
+
+// A by-person and a by-project table side by side, under the periods.
+.breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--kb-space-6);
+}
+
+table {
+  width: 100%;
+}
+
+.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.key {
+  margin-left: var(--kb-space-1);
+  font-family: var(--kb-font-mono);
+  font-size: 12px;
+  color: var(--kb-text-500);
+}
+
+@media (max-width: 959px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .breakdown {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -2,14 +2,9 @@ import { Route, Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/auth/auth-guard';
 import { permissionGuard } from './core/auth/permission-guard';
 import { PERMISSIONS, Permission } from './core/auth/permissions';
-import { ForbiddenPage, NotFoundPage, PlaceholderPage } from './core/layout/pages';
+import { ForbiddenPage, NotFoundPage } from './core/layout/pages';
 import { Shell } from './core/layout/shell';
 import { TASK_PANEL_OUTLET } from './shared/task-panel';
-
-/** A page whose group hasn't been built yet: the sidebar already links to it. */
-function placeholder(path: string, title: string): Route {
-  return { path, title: `${title} · Kanabol`, component: PlaceholderPage, data: { title } };
-}
 
 /**
  * A page that needs a permission. Without it, the route after it on the same path matches instead,
@@ -97,7 +92,12 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/roles/roles.routes').then((roles) => roles.ROLES_ROUTES),
       }),
-      ...withPermission(PERMISSIONS.reportsView, placeholder('reports', $localize`Rapoarte`)),
+      ...withPermission(PERMISSIONS.reportsView, {
+        path: 'reports',
+        title: $localize`Rapoarte · Kanabol`,
+        loadChildren: () =>
+          import('./features/reports/reports.routes').then((reports) => reports.REPORTS_ROUTES),
+      }),
       { path: '**', title: $localize`Pagina nu există · Kanabol`, component: NotFoundPage },
     ],
   },

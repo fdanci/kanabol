@@ -1,13 +1,12 @@
 import { Routes } from '@angular/router';
 import { ProjectMembers } from './project-members';
 import { ProjectPage } from './project-page';
-import { ProjectPlaceholder } from './project-placeholder';
 import { ProjectSettings } from './project-settings';
 import { ProjectsPage } from './projects-page';
 
 /**
  * Loaded with the first visit to /projects. Any signed-in user may open it: the API answers with the
- * projects they can see, and refuses the rest. The reports come later.
+ * projects they can see, and refuses the rest.
  */
 export const PROJECTS_ROUTES: Routes = [
   { path: '', component: ProjectsPage },
@@ -27,7 +26,13 @@ export const PROJECTS_ROUTES: Routes = [
         loadComponent: () => import('../tasks/task-list-page').then((page) => page.TaskListPage),
       },
       { path: 'members', component: ProjectMembers },
-      { path: 'reports', component: ProjectPlaceholder },
+      // docs/SPEC.md §6.1: the one feature a route of another loads, the reports page with its project
+      // fixed; it stays in its own chunk.
+      {
+        path: 'reports',
+        loadComponent: () => import('../reports/reports-page').then((page) => page.ReportsPage),
+        data: { projectFixed: true },
+      },
       { path: 'settings', component: ProjectSettings },
     ],
   },

@@ -21,10 +21,12 @@ import { StatTile } from './stat-tile';
       [value]="1234"
       caption="de luni încoace"
     />
+    <kb-stat-tile class="text" label="Lead time mediu" [value]="lead()" caption="mediana 1 z 2 h" />
   `,
 })
 class Host {
   readonly overdue = signal<number | null>(3);
+  readonly lead = signal<number | string | null>('2 z 4 h');
 }
 
 /** docs/UI_UX_SPEC.md §7.2: a card with a caption, a 28px number and a caption, a link when it leads somewhere. */
@@ -76,5 +78,17 @@ describe('StatTile', () => {
     host.overdue.set(0);
     await detect();
     expect(tile.querySelector('.value')?.textContent.trim()).toBe('0');
+  });
+
+  // The reports show durations and rates as text (docs/UI_UX_SPEC.md §7.8).
+  it('shows a text as it is, in place of a number', async () => {
+    const { host, element, detect } = await render();
+    const tile = element.querySelector('.text')!;
+
+    expect(tile.querySelector('.value')?.textContent.trim()).toBe('2 z 4 h');
+
+    host.lead.set('–');
+    await detect();
+    expect(tile.querySelector('.value')?.textContent.trim()).toBe('–');
   });
 });

@@ -8,7 +8,7 @@ const NUMBER = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 0 });
 /**
  * A stat tile (docs/UI_UX_SPEC.md §7.2): a flat card with a caption, a 28px/600 navy number and a caption
  * under it. With a link it's a clickable card (§6.0.10); while the number is on its way, null, a skeleton
- * keeps its place.
+ * keeps its place. The reports give it a text instead of a number, a duration or a rate (§7.8).
  */
 @Component({
   selector: 'kb-stat-tile',
@@ -93,11 +93,14 @@ const NUMBER = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 0 });
 })
 export class StatTile {
   readonly label = input.required<string>();
-  /** Null until it comes. */
-  readonly value = input<number | null>(null);
+  /** A number, formatted in ro-RO, or a text shown as it is, such as a duration; null until it comes. */
+  readonly value = input<number | string | null>(null);
   readonly caption = input.required<string>();
   readonly link = input<string | null>(null);
   readonly queryParams = input<Params | null>(null);
 
-  protected readonly shown = computed(() => NUMBER.format(this.value() ?? 0));
+  protected readonly shown = computed(() => {
+    const value = this.value();
+    return typeof value === 'string' ? value : NUMBER.format(value ?? 0);
+  });
 }
