@@ -3,6 +3,7 @@ using System.Text.Json;
 using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Users;
+using Kanabol.Infrastructure.Authentication;
 using Kanabol.Tests.Shared.Builders;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,10 @@ namespace Kanabol.Api.Tests.Support;
 public abstract class AuthApiTest(ApiFixture api) : ApiTest(api)
 {
     protected const string Password = "corect cal baterie capsa";
+
+    // PBKDF2 for every person of every test was most of the merge into main's 180 seconds (SPEC section 14.6):
+    // the common password is hashed once per suite, by the API's own hasher, and every person shares the hash.
+    private static readonly Lazy<string> _passwordHash = new(() => new PasswordHasher().Hash(Password));
     protected const string RefreshCookieName = "refresh_token";
 
     private static int _lastAddress;
@@ -41,6 +46,9 @@ public abstract class AuthApiTest(ApiFixture api) : ApiTest(api)
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
 
     /// <summary>An address nobody else has used, so the limit on logins per IP doesn't get in the way.</summary>
+    /// <summary>The common password's hash, made once per suite.</summary>
+    protected static string PasswordHash => _passwordHash.Value;
+
     protected static string UnusedAddress()
     {
         var next = Interlocked.Increment(ref _lastAddress);
@@ -55,8 +63,7 @@ public abstract class AuthApiTest(ApiFixture api) : ApiTest(api)
         var granted = await db.Permissions.Where(permission => permissions.Contains(permission.Name)).ToListAsync();
         granted.ForEach(permission => role.Grant(permission.Id));
 
-        var hash = Api.Factory.Services.GetRequiredService<IPasswordHasher>().Hash(Password);
-        var builder = new UserBuilder().WithEmail(email).InRole(role).WithPasswordHash(hash);
+        var builder = new UserBuilder().WithEmail(email).InRole(role).WithPasswordHash(PasswordHash);
         var user = (mustChangePassword ? builder.MustChangePassword() : builder).Build();
 
         db.Roles.Add(role);

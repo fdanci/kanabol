@@ -44,6 +44,10 @@
 #      lazy chunk; every component with a mat-paginator providing its labels; then the charts' colors:
 #      --kb-chart-1 and --kb-chart-2 in the built CSS (#122d94 and #135bf7, and #91c4fb and #3d6fc9 in both
 #      dark rules), and kb-chart reading them instead of brand-800 and sky-300. Only the packages.
+#   6  the tests' common password hashed once per suite: the tests (the people AuthApiTest and
+#      AuthHandlerTest make share one hash, which signs in), no helper hashing per person, then
+#      check-pipeline.sh 6, whose merge into main, with the whole suite and the real hooks in a throwaway
+#      copy of the repo, takes under 180 s; prints the time. Docker.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL. 5 needs only the packages that
 # scripts/setup.sh installs. PostgreSQL means one whose
@@ -1461,7 +1465,46 @@ task_5() {
   check "the charts' tokens are in the built CSS, light and dark" the_chart_tokens_are_in_the_css
   check "kb-chart reads --kb-chart-1 and --kb-chart-2, and no hex" the_chart_reads_its_tokens
 }
-tasks=${*:-1 2 3 4 5}
+
+# ---- 19.6: the common test password hashed once per suite, and the merge into main under 180 s.
+
+common_password_tests_pass() {
+  named_tests_pass Kanabol.Api.Tests CommonPasswordTests.People_MadeByTheTests_ShareOneHashOfTheCommonPassword_AndSignInWithIt &&
+    named_tests_pass Kanabol.Application.Tests CommonPasswordTests.People_MadeByTheTests_ShareOneHashOfTheCommonPassword
+}
+
+# No helper that makes people hashes the password itself any more.
+nobody_hashes_per_person() {
+  lacks 'IPasswordHasher>\(\)\.Hash\(Password\)' \
+    backend/tests/Kanabol.Api.Tests/Support/*.cs backend/tests/Kanabol.Api.Tests/Reports/*.cs \
+    backend/tests/Kanabol.Application.Tests/Features/Auth/AuthHandlerTest.cs \
+    backend/tests/Kanabol.Application.Tests/Features/ManagementHandlerTest.cs &&
+    in_file 'new Lazy<string>(() => new PasswordHasher().Hash(Password))' backend/tests/Kanabol.Api.Tests/Support/AuthApiTest.cs &&
+    in_file 'new Lazy<string>(() => new PasswordHasher().Hash(Password))' backend/tests/Kanabol.Application.Tests/Features/Auth/AuthHandlerTest.cs
+}
+
+# docs/SPEC.md §14.6: check-pipeline.sh 6 makes a throwaway repo from this one, with its real hooks, and
+# merges a branch into main with --no-ff, which runs the whole suite, in under 180 s.
+merge_into_main_is_under_180_seconds() {
+  stop_api
+  sh scripts/check-pipeline.sh 6 >"$scratch/pipeline.log" 2>&1
+  status=$?
+  sed -n '/a --no-ff merge into main runs the full suite, in under 180 s/,+1p' "$scratch/pipeline.log"
+  grep -q '^  ok    a --no-ff merge into main runs the full suite, in under 180 s' "$scratch/pipeline.log" && [ "$status" -eq 0 ] || {
+    grep -E 'FAIL' -A3 "$scratch/pipeline.log" | head -n 20
+    return 1
+  }
+}
+
+task_6() {
+  echo "19.6 the common password hashed once, and the merge into main under 180 s"
+  check "Docker is running" docker_is_running
+  check "the people the tests make share one hash of the common password" common_password_tests_pass
+  check "no helper hashes it per person" nobody_hashes_per_person
+  check "check-pipeline.sh 6 passes, its merge into main under 180 s" merge_into_main_is_under_180_seconds
+  sed -n '/a --no-ff merge into main runs the full suite, in under 180 s/{n;p}' "$scratch/pipeline.log" 2>/dev/null
+}
+tasks=${*:-1 2 3 4 5 6}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
@@ -1469,6 +1512,7 @@ for task in $tasks; do
     3) task_3 ;;
     4) task_4 ;;
     5) task_5 ;;
+    6) task_6 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
