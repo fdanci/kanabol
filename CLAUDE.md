@@ -67,3 +67,7 @@ Never mention Claude in commit messages or PRs, and never add a `Co-Authored-By`
 After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the full test suite on `main`, which needs Docker Desktop running, and only fast checks on other branches (`docs/SPEC.md` §14).
 
 Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`: run them all on a fresh clone before calling a group done (`docs/SPEC.md` §14.7).
+
+## The server
+
+`docs/deploy.md` installs Kanabol on the server and updates it: the clone, `.env`, `scripts/make-certs.sh`, `scripts/release.sh vX.Y.Z` (the images, built on the server, with no registry), `compose up` with `compose.prod.yaml`. `docs/backup.md` has the nightly `scripts/backup.sh` and `scripts/restore.sh`. `scripts/demo-data.sh` fills a running Kanabol with demonstration data through its API. None of them prints a password, and only `restore.sh` asks anything. `scripts/check-release.sh` checks them all (`docs/SPEC.md` §14.7).

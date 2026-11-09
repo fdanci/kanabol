@@ -42,9 +42,9 @@ export const APP_VERSION = '0.1.0';
         </ul>
       }
     </nav>
-    <p class="version kb-caption" [class.kb-visually-hidden]="collapsed()" i18n>
+    <footer class="version kb-caption" [class.kb-visually-hidden]="collapsed()" i18n>
       Versiunea {{ version }}
-    </p>
+    </footer>
   `,
   styleUrl: './sidenav.scss',
 })

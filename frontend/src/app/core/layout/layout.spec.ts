@@ -148,6 +148,14 @@ describe('layout', () => {
         /^Versiunea \d+\.\d+\.\d+$/,
       );
     });
+
+    // Every part of the page in a landmark, as axe-core asks (group 19b): the version is the page's footer.
+    it('puts the version in a footer, the links in the navigation', async () => {
+      const element = await sidenav();
+
+      expect(element.querySelector('.version')?.tagName).toBe('FOOTER');
+      expect(element.querySelector('nav')?.getAttribute('aria-label')).toBe('Navigare');
+    });
   });
 
   describe('Navbar', () => {
@@ -160,6 +168,13 @@ describe('layout', () => {
         loader: TestbedHarnessEnvironment.loader(fixture),
       };
     }
+
+    // Every part of the page in a landmark, as axe-core asks (group 19b): the toolbar is the banner.
+    it('is the banner of the page', async () => {
+      const { element } = await navbar();
+
+      expect(element.getAttribute('role')).toBe('banner');
+    });
 
     it('links the lockup to the start page, with a name a screen reader can say', async () => {
       const { element } = await navbar();

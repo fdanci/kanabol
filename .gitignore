@@ -33,3 +33,6 @@ CLAUDE.local.md
 !.vscode/tasks.json
 Thumbs.db
 .DS_Store
+
+# Backups the server makes with scripts/backup.sh
+backups/

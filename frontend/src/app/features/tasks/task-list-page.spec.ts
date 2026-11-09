@@ -200,6 +200,8 @@ describe('TaskListPage', () => {
     expect(cell('KAN-3', 'updated').textContent.trim()).toBe('acum 1 minut');
     expect(cell('KAN-1', 'assignee').textContent.trim()).toBe('Neasignat');
     expect(cell('KAN-2', 'column').querySelector('.done')).not.toBeNull();
+    // An aria-label needs a role to be read (axe-core, group 19b).
+    expect(cell('KAN-2', 'column').querySelector('.done')?.getAttribute('role')).toBe('img');
   });
 
   it('reads the filters, the sort and the page from the address', async () => {

@@ -20,6 +20,8 @@ import { ThemeStore } from './theme-store';
 @Component({
   selector: 'kb-navbar',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // The page's banner landmark, so the lockup and the menus are in one (axe-core, group 19b).
+  host: { role: 'banner' },
   imports: [
     MatIconButton,
     MatMenu,

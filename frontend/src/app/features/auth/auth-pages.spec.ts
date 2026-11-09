@@ -74,6 +74,24 @@ describe('auth pages', () => {
       expect(element.querySelector('input[type=checkbox]')).toBeNull();
     });
 
+    // docs/UI_UX_SPEC.md §9: a field points to its error only while it shows, as axe-core asks (group 19b).
+    it('ties each field to its error only while the error shows', async () => {
+      const { harness, element } = await page('/login');
+
+      expect(field(element, 'username').hasAttribute('aria-describedby')).toBe(false);
+      expect(field(element, 'current-password').hasAttribute('aria-describedby')).toBe(false);
+
+      await submit(harness, element);
+
+      for (const [autocomplete, id] of [
+        ['username', 'email-error'],
+        ['current-password', 'password-error'],
+      ]) {
+        expect(field(element, autocomplete).getAttribute('aria-describedby')).toBe(id);
+        expect(element.querySelector(`#${id}`)).not.toBeNull();
+      }
+    });
+
     it('shows the password when asked', async () => {
       const { harness, element } = await page('/login');
       const show = element.querySelector<HTMLButtonElement>('button.show')!;
@@ -176,6 +194,17 @@ describe('auth pages', () => {
         passwordRules('veche', 'o parola noua', 'o parola nou').map((rule) => rule.met),
       ).toEqual([true, true, false]);
       expect(passwordRules('veche', 'x'.repeat(257), 'x'.repeat(257))[0].met).toBe(false);
+    });
+
+    // docs/UI_UX_SPEC.md §9: before any error, only the rules describe the new password (group 19b).
+    it('points no field to an error that is not there', async () => {
+      const { element } = await page('/change-password');
+
+      expect(field(element, 'current-password').hasAttribute('aria-describedby')).toBe(false);
+      expect(field(element, 'new-password').getAttribute('aria-describedby')).toBe(
+        'password-rules',
+      );
+      expect(element.querySelector('#password-rules')).not.toBeNull();
     });
 
     it('lists the rules on the page and ticks them live', async () => {
