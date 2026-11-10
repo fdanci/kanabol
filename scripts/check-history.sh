@@ -432,7 +432,7 @@ ioana_is_a_member_again() {
 # the first column, and nothing for the one deleted.
 a_deleted_column_has_no_name() {
   team_is_ready || return 1
-  status_is 201 "$(as "$admin_token" POST "/api/projects/$his_id/board-columns" '{"name":"Temporar","isDone":false}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$his_id/board-columns" '{"name":"Temporar"}')" || return 1
   temporary=$(body_field id)
   a_new_task 'Mutat' "\"columnId\":\"$temporary\"" || return 1
   status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$first_column\"}")" || return 1

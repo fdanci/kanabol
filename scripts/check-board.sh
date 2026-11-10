@@ -407,15 +407,16 @@ creates_the_board_project() {
   [ -n "$todo_id" ] && [ -n "$done_id" ]
 }
 
+# Since group 22 a new column is of the project's own, right before Gata, which stays last.
 a_column_is_added_at_the_end() {
-  status_is 201 "$(as "$admin_token" POST "/api/projects/$brd_id/board-columns" '{"name":" Review ","isDone":false}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$brd_id/board-columns" '{"name":" Review "}')" || return 1
   review_id=$(body_field id)
   location=$(location_header)
   is "/api/projects/$brd_id/board-columns/$review_id" "$location" || return 1
-  is 4 "$(json "b.position")" || return 1
+  is 3 "$(json "b.position")" || return 1
   is Custom "$(json "b.kind")" || return 1
   status_is 200 "$(as "$admin_token" GET "$location")" || return 1
-  is 'Backlog,În lucru,În pauză,Gata*,Review' "$(columns_of "$brd_id")"
+  is 'Backlog,În lucru,În pauză,Review,Gata*' "$(columns_of "$brd_id")"
 }
 
 a_done_column_completes_its_tasks() {
@@ -428,22 +429,25 @@ a_done_column_completes_its_tasks() {
   is null "$(json "b.completedAt")"
 }
 
+# The project's own move between Backlog and Gata only, and the fixed ones never (group 22).
 a_column_moves_and_the_others_close_up() {
-  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$done_id/position" '{"position":0}')" || return 1
-  is 'Gata*,Backlog,În lucru,În pauză,Review' "$(json "b.map(c => c.name + (c.kind === 'Done' ? '*' : '')).join(',')")" || return 1
-  is '0,1,2,3,4' "$(json "b.map(c => c.position).join(',')")"
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$review_id/position" '{"position":1}')" || return 1
+  is 'Backlog,Review,În lucru,În pauză,Gata*' "$(json "b.map(c => c.name + (c.kind === 'Done' ? '*' : '')).join(',')")" || return 1
+  is '0,1,2,3,4' "$(json "b.map(c => c.position).join(',')")" || return 1
+  status_is 400 "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$review_id/position" '{"position":0}')" || return 1
+  code_is 409 Column.Fixed "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$done_id/position" '{"position":0}')"
 }
 
 only_an_empty_column_is_deleted() {
-  code_is 409 Column.NotEmpty "$(as "$admin_token" DELETE "/api/projects/$brd_id/board-columns/$todo_id")" || return 1
+  code_is 409 Column.Fixed "$(as "$admin_token" DELETE "/api/projects/$brd_id/board-columns/$todo_id")" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$brd_id/board-columns/$review_id")" || return 1
-  is 'Gata*,Backlog,În lucru,În pauză' "$(columns_of "$brd_id")" || return 1
+  is 'Backlog,În lucru,În pauză,Gata*' "$(columns_of "$brd_id")" || return 1
   is '0|1|2|3' "$(in_db "SELECT string_agg(position::text, '|' ORDER BY position) FROM board_columns WHERE project_id = '$brd_id'")"
 }
 
 a_member_reads_them_but_only_an_owner_changes_them() {
   status_is 200 "$(as "$dan_token" GET "/api/projects/$brd_id/board-columns")" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$dan_token" POST "/api/projects/$brd_id/board-columns" '{"name":"A lui Dan","isDone":false}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" POST "/api/projects/$brd_id/board-columns" '{"name":"A lui Dan"}')" || return 1
   code_is 403 Project.OwnerRequired "$(as "$dan_token" DELETE "/api/projects/$brd_id/board-columns/$doing_id")"
 }
 
@@ -474,17 +478,17 @@ task_2() {
   check "the errors are tracked" tracked backend/src/Kanabol.Application/Features/Projects/ColumnErrors.cs
   check "the solution builds without warnings" solution_builds
   check "the formatting is clean" formatting_is_clean
-  check "the aggregate's column tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectColumnTests|FullyQualifiedName~TaskItemTests.MoveTo' 15
-  check "the handlers' column tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~BoardColumnCommandHandlerTests' 20
+  check "the aggregate's column tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectColumnTests|FullyQualifiedName~TaskItemTests.MoveTo' 30
+  check "the handlers' column tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~BoardColumnCommandHandlerTests' 30
   check "Gata completing a task, the races with moves and creations, and two additions at once" column_tests_pass
   check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~BoardColumnsEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 14
   check "backend/CLAUDE.md lists the endpoints" the_endpoints_are_written_down
   check "the real API starts in Production, with a member without permissions" dan_is_ready
   check "a project is created, with Dan as a member" creates_the_board_project
-  check "a column is added at the right end, with its Location" a_column_is_added_at_the_end
+  check "a column of the project's own comes right before Gata, with its Location" a_column_is_added_at_the_end
   check "a task that enters Gata is completed, and open again once it leaves" a_done_column_completes_its_tasks
-  check "a column moves to the left end, the others closing up" a_column_moves_and_the_others_close_up
-  check "a column with a task stays, an empty one goes, and the places stay 0, 1, 2" only_an_empty_column_is_deleted
+  check "it moves after Backlog, the others closing up, and Gata never moves" a_column_moves_and_the_others_close_up
+  check "a fixed column stays, an empty one of the project's own goes, and the places stay 0, 1, 2" only_an_empty_column_is_deleted
   check "a member reads the columns, but only an owner changes them" a_member_reads_them_but_only_an_owner_changes_them
   check "the addition is logged" log_has_entry "Column {ColumnId} added to project {ProjectId}" "\"ColumnId\":\"$review_id\""
   check "the log has no unhandled exception" no_errors_in_the_log

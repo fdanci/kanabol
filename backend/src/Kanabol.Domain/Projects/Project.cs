@@ -82,14 +82,17 @@ public sealed class Project : AuditableEntity, IArchivable
         Description = NormalizeDescription(description);
     }
 
-    /// <summary>A column of the project's own, at the right end of the board.</summary>
+    /// <summary>A column of the project's own, right before Gata, which stays last (SPEC section 4.4).</summary>
     public BoardColumn AddColumn(string name)
     {
-        var column = new BoardColumn(Id, name, _columns.Count, ColumnKind.Custom);
+        var done = _columns.Single(column => column.Kind == ColumnKind.Done);
+        var column = new BoardColumn(Id, name, done.Position, ColumnKind.Custom);
+        done.PlaceAt(done.Position + 1);
         _columns.Add(column);
         return column;
     }
 
+    /// <summary>Only a column of the project's own: the fixed ones keep their names.</summary>
     public ColumnChange RenameColumn(Guid columnId, string name)
     {
         var column = FindColumn(columnId);
@@ -98,11 +101,20 @@ public sealed class Project : AuditableEntity, IArchivable
             return ColumnChange.NotFound;
         }
 
+        if (column.IsFixed)
+        {
+            return ColumnChange.Fixed;
+        }
+
         column.Rename(name);
         return ColumnChange.Done;
     }
 
-    /// <summary>To a place from 0, the others closing up around it; past the end it goes last.</summary>
+    /// <summary>
+    /// A column of the project's own to a place from 0, the others closing up around it: only after
+    /// Backlog and before Gata, so the four fixed ones keep their order, with any number of the project's
+    /// own between any two of them (SPEC section 4.4). The fixed ones never move.
+    /// </summary>
     public ColumnChange MoveColumn(Guid columnId, int position)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);
@@ -112,15 +124,26 @@ public sealed class Project : AuditableEntity, IArchivable
             return ColumnChange.NotFound;
         }
 
+        if (column.IsFixed)
+        {
+            return ColumnChange.Fixed;
+        }
+
         var ordered = OrderedColumns().Where(other => other != column).ToList();
-        ordered.Insert(Math.Min(position, ordered.Count), column);
+        if (position < 1 || position > ordered.Count - 1)
+        {
+            return ColumnChange.OutOfRange;
+        }
+
+        ordered.Insert(position, column);
         Renumber(ordered);
         return ColumnChange.Done;
     }
 
     /// <summary>
-    /// Only an empty column goes, and never the last one: a task always starts in a column. Whether it
-    /// holds a task, archived ones included, isn't the project's to know, so the handler says.
+    /// Only an empty column of the project's own goes: the fixed ones stay, so a task always has
+    /// Backlog to start in. Whether it holds a task, archived ones included, isn't the project's to know,
+    /// so the handler says.
     /// </summary>
     public ColumnChange RemoveColumn(Guid columnId, bool holdsTasks)
     {
@@ -130,14 +153,14 @@ public sealed class Project : AuditableEntity, IArchivable
             return ColumnChange.NotFound;
         }
 
+        if (column.IsFixed)
+        {
+            return ColumnChange.Fixed;
+        }
+
         if (holdsTasks)
         {
             return ColumnChange.NotEmpty;
-        }
-
-        if (_columns.Count == 1)
-        {
-            return ColumnChange.LastColumn;
         }
 
         _columns.Remove(column);

@@ -262,11 +262,9 @@ ensure_review_column() { # ensure_review_column <project id>: "În review" of it
   status=$(as "$admin" GET "/api/projects/$1")
   expect 200 -- "the project's columns"
   grep -q '"kind":"Custom"' "$body" && return 0
-  status=$(as "$admin" POST "/api/projects/$1/board-columns" '{"name":"În review","isDone":false}')
+  # A new column of the project's own comes right before Gata.
+  status=$(as "$admin" POST "/api/projects/$1/board-columns" '{"name":"În review"}')
   expect 201 -- "the review column"
-  column=$(field id)
-  status=$(as "$admin" PATCH "/api/projects/$1/board-columns/$column/position" '{"position":3}')
-  expect 200 -- "the review column's place"
   made "column În review in $1"
 }
 

@@ -10,6 +10,13 @@ public static class ColumnErrors
     public static readonly Error NotEmpty =
         Error.Conflict("Column.NotEmpty", "This column still holds tasks, archived ones included. Move them out first.");
 
-    public static readonly Error LastColumn =
-        Error.Conflict("Column.LastColumn", "A board needs a column: every task starts in one.");
+    /// <summary>Backlog, În lucru, În pauză and Gata, which every board has (SPEC section 4.4).</summary>
+    public static readonly Error Fixed =
+        Error.Conflict("Column.Fixed", "Backlog, În lucru, În pauză and Gata are never renamed, moved or deleted.");
+
+    /// <summary>Backlog stays first and Gata last, so a column of the project's own goes only between them.</summary>
+    public static readonly Error OutsideBacklogAndGata = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["Position"] = ["A column of the project's own goes after Backlog and before Gata."],
+    });
 }

@@ -20,9 +20,10 @@ namespace Kanabol.Application.Tests.Features.Projects;
 
 /// <summary>
 /// The columns of a board (UI spec section 7.4): an owner or projects.manage adds, renames, moves and
-/// deletes them, whoever sees the project reads them. Every board has the four fixed columns, and Gata is
-/// the done one (SPEC section 4.4). The places stay 0, 1, 2..., and the project's version keeps two
-/// changes at once from both landing.
+/// deletes the project's own, whoever sees the project reads them. Backlog, În lucru, În pauză and Gata
+/// are in every board and never change, the project's own stay between Backlog and Gata, and Gata is the
+/// done one (SPEC section 4.4). The places stay 0, 1, 2..., and the project's version keeps two changes at
+/// once from both landing.
 /// </summary>
 public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : TaskHandlerTest(postgres)
 {
@@ -61,15 +62,33 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         return (owner, project);
     }
 
+    private static BoardColumn FixedColumn(Project project, ColumnKind kind) => project.Columns.Single(column => column.Kind == kind);
+
+    public static TheoryData<ColumnKind> FixedKinds => [ColumnKind.Backlog, ColumnKind.InProgress, ColumnKind.Paused, ColumnKind.Done];
+
+    /// <summary>A column of the project's own, Review, right before Gata, holding a task when asked.</summary>
+    private async Task<BoardColumnDto> AColumnOfItsOwn(Project project, User owner, bool withATask = false)
+    {
+        var review = (await Add(project, "Review")).Value;
+        if (withATask)
+        {
+            var task = await CreateTaskAs(owner, project, "În review");
+            (await Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, review.Id, null))).IsSuccess.Should().BeTrue();
+        }
+
+        return review;
+    }
+
     [Fact]
-    public async Task Add_ByAnOwner_MakesACustomColumn()
+    public async Task Add_ByAnOwner_PutsACustomColumnRightBeforeGata()
     {
         var (_, project) = await AProject();
 
         var result = await Add(project, "  Review ");
+        await Add(project, "QA");
 
-        result.Value.Should().BeEquivalentTo(new { Name = "Review", Position = 4, Kind = ColumnKind.Custom });
-        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata* | Review");
+        result.Value.Should().BeEquivalentTo(new { Name = "Review", Position = 3, Kind = ColumnKind.Custom });
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | QA | Gata*");
         Logs.Entries.Should().Contain(entry => entry.Message == $"Column {result.Value.Id} added to project {project.Id}");
     }
 
@@ -133,6 +152,23 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         (await Add(project, new string('a', 100))).IsSuccess.Should().BeTrue();
     }
 
+    // SPEC section 4.4: the fixed names are taken, in any case, for a new column and for a new name.
+    [Theory]
+    [InlineData("Backlog")]
+    [InlineData("backlog")]
+    [InlineData("ÎN LUCRU")]
+    [InlineData(" În pauză ")]
+    [InlineData("gata")]
+    public async Task AddAndUpdate_WithTheNameOfAFixedColumn_ReturnAValidationErrorOnName(string name)
+    {
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner);
+
+        (await Add(project, name)).Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Name");
+        (await Update(project, review.Id, name)).Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Name");
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
+    }
+
     [Fact]
     public async Task Update_TheName_ChangesOnlyTheName()
     {
@@ -141,8 +177,22 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
 
         var result = await Update(project, review.Id, " Verificare ");
 
-        result.Value.Should().BeEquivalentTo(new { review.Id, Name = "Verificare", Position = 4, Kind = ColumnKind.Custom });
-        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata* | Verificare");
+        result.Value.Should().BeEquivalentTo(new { review.Id, Name = "Verificare", Position = 3, Kind = ColumnKind.Custom });
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Verificare | Gata*");
+    }
+
+    // SPEC section 4.4: a fixed column is never renamed, moved or deleted, empty or not.
+    [Theory]
+    [MemberData(nameof(FixedKinds))]
+    public async Task Changes_ToAFixedColumn_ReturnFixedAndChangeNothing(ColumnKind kind)
+    {
+        var (_, project) = await AProject();
+        var column = FixedColumn(project, kind);
+
+        (await Update(project, column, "Altceva")).Error.Should().Be(ColumnErrors.Fixed);
+        (await MoveColumn(project, column, 1)).Error.Should().Be(ColumnErrors.Fixed);
+        (await Delete(project, column)).Error.Should().Be(ColumnErrors.Fixed);
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
     }
 
     [Theory]
@@ -160,12 +210,19 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         (await ColumnsOf(project)).Should().Be(expected);
     }
 
-    [Fact]
-    public async Task Move_ToANegativePlace_ReturnsAValidationErrorOnPosition()
+    // SPEC section 4.4: Backlog stays first and Gata last, so a column of the project's own goes only between them.
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(9)]
+    public async Task Move_BeforeBacklogOrAfterGata_ReturnsAValidationErrorOnPositionAndMovesNothing(int position)
     {
-        var (_, project) = await AProject();
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner);
 
-        (await MoveColumn(project, ColumnAt(project, 2), -1)).Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Position");
+        (await MoveColumn(project, review.Id, position)).Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Position");
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
     }
 
     [Fact]
@@ -185,10 +242,10 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     public async Task Delete_AColumnWithATask_ReturnsNotEmpty()
     {
         var (owner, project) = await AProject();
-        await CreateTaskAs(owner, project);
+        var review = await AColumnOfItsOwn(project, owner, withATask: true);
 
-        (await Delete(project, ColumnAt(project, 0))).Error.Should().Be(ColumnErrors.NotEmpty);
-        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
+        (await Delete(project, review.Id)).Error.Should().Be(ColumnErrors.NotEmpty);
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
     }
 
     // An archived task keeps its column, and goes back to it when restored, so it counts.
@@ -196,10 +253,11 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     public async Task Delete_AColumnWithOnlyAnArchivedTask_ReturnsNotEmpty()
     {
         var (owner, project) = await AProject();
-        var task = await CreateTaskAs(owner, project);
+        var review = await AColumnOfItsOwn(project, owner, withATask: true);
+        var task = (await TasksOf(project)).Single();
         (await Handle<ArchiveTaskCommand, Unit>(new ArchiveTaskCommand(task.Id))).IsSuccess.Should().BeTrue();
 
-        (await Delete(project, ColumnAt(project, 0))).Error.Should().Be(ColumnErrors.NotEmpty);
+        (await Delete(project, review.Id)).Error.Should().Be(ColumnErrors.NotEmpty);
     }
 
     [Fact]
@@ -209,7 +267,7 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         var other = await CreateProject(builder => builder.OwnedBy(owner));
 
         (await Update(project, ColumnAt(other, 0), "X")).Error.Should().Be(ColumnErrors.NotFound);
-        (await MoveColumn(project, ColumnAt(other, 0), 0)).Error.Should().Be(ColumnErrors.NotFound);
+        (await MoveColumn(project, ColumnAt(other, 0), 1)).Error.Should().Be(ColumnErrors.NotFound);
         (await Delete(project, ColumnAt(other, 1))).Error.Should().Be(ColumnErrors.NotFound);
         (await ColumnsOf(other)).Should().Be("Backlog | În lucru | În pauză | Gata*");
     }
@@ -239,7 +297,7 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         (await Ask<GetBoardColumnsQuery, BoardColumnDto[]>(new GetBoardColumnsQuery(project.Id))).Error.Should().Be(ProjectErrors.MemberRequired);
     }
 
-    // The project is saved with its columns, so of two additions at once only one takes the last place.
+    // The project is saved with its columns, so of two additions at once only one takes the place before Gata.
     [Fact]
     public async Task Add_TwoAtOnce_TheSecondGets409AndThePlacesStayInOrder()
     {
@@ -252,7 +310,7 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
             async () => (await HandleInOwnScope<AddBoardColumnCommand, BoardColumnDto>(new AddBoardColumnCommand(project.Id, "A doua"))).IsSuccess.Should().BeTrue());
 
         first.Error.Should().Be(ProjectErrors.ChangedMeanwhile);
-        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata* | A doua");
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | A doua | Gata*");
     }
 
     // A task moved into an empty column after the delete checked it: the foreign key refuses the delete.
@@ -260,16 +318,17 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     public async Task Delete_WhileATaskIsMovedIntoIt_ReturnsNotEmpty()
     {
         var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner);
         var task = await CreateTaskAs(owner, project);
 
         var deleted = await PausedAtClockCall(
             1,
-            () => HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, ColumnAt(project, 1).Id)),
-            async () => (await HandleInOwnScope<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, ColumnAt(project, 1).Id, null))).IsSuccess.Should().BeTrue());
+            () => HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review.Id)),
+            async () => (await HandleInOwnScope<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, review.Id, null))).IsSuccess.Should().BeTrue());
 
         deleted.Error.Should().Be(ColumnErrors.NotEmpty);
-        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
-        (await Stored(task.Id))!.ColumnId.Should().Be(ColumnAt(project, 1).Id);
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
+        (await Stored(task.Id))!.ColumnId.Should().Be(review.Id);
     }
 
     // The other way round: the column goes first, and the move answers as for a column not on the board.
@@ -277,13 +336,14 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     public async Task MoveTask_IntoAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnId()
     {
         var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner);
         var task = await CreateTaskAs(owner, project);
 
         // The move's first read of the clock comes after it read the column.
         var moved = await PausedAtClockCall(
             1,
-            () => HandleInOwnScope<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, ColumnAt(project, 1).Id, null)),
-            async () => (await HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, ColumnAt(project, 1).Id))).IsSuccess.Should().BeTrue());
+            () => HandleInOwnScope<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, review.Id, null)),
+            async () => (await HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review.Id))).IsSuccess.Should().BeTrue());
 
         moved.Error.Should().Be(TaskErrors.ColumnNotInProject);
         (await Stored(task.Id))!.ColumnId.Should().Be(ColumnAt(project, 0).Id);
@@ -292,13 +352,14 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     [Fact]
     public async Task CreateTask_InAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnIdAndTakesNoNumber()
     {
-        var (_, project) = await AProject();
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner);
 
         // The creation's first read of the clock comes after it read the column, before it takes a number.
         var created = await PausedAtClockCall(
             1,
-            () => HandleInOwnScope<Application.Features.Tasks.Commands.CreateTask.CreateTaskCommand, TaskItemDto>(NewTask(project, columnId: ColumnAt(project, 1).Id)),
-            async () => (await HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, ColumnAt(project, 1).Id))).IsSuccess.Should().BeTrue());
+            () => HandleInOwnScope<Application.Features.Tasks.Commands.CreateTask.CreateTaskCommand, TaskItemDto>(NewTask(project, columnId: review.Id)),
+            async () => (await HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review.Id))).IsSuccess.Should().BeTrue());
 
         created.Error.Should().Be(TaskErrors.ColumnNotInProject);
         (await TasksOf(project)).Should().BeEmpty();

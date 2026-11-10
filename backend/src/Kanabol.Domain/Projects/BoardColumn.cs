@@ -48,6 +48,10 @@ public sealed class BoardColumn : AuditableEntity
     public static string FixedName(ColumnKind kind) =>
         _fixed.Single(column => column.Kind == kind).Name;
 
+    /// <summary>Whether the name is one of the four, in any case: a column of the project's own can't take it.</summary>
+    public static bool IsAFixedName(string name) =>
+        _fixed.Any(column => string.Equals(column.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+
     internal void Rename(string name) => Name = NormalizeName(name);
 
     internal void PlaceAt(int position) => Position = position;

@@ -65,7 +65,7 @@ public sealed class BoardColumnsController : ControllerBase
         CancellationToken ct) =>
         (await handler.Handle(new MoveBoardColumnCommand(projectId, columnId, request.Position), ct)).ToActionResult();
 
-    /// <summary>Only an empty column, archived tasks counting, and never the last one.</summary>
+    /// <summary>Only an empty column of the project's own, archived tasks counting.</summary>
     [HttpDelete("{columnId:guid}")]
     public async Task<IActionResult> DeleteColumn(
         Guid projectId,

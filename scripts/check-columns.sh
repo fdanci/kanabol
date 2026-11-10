@@ -12,8 +12,12 @@
 #      one with a single column and one with columns of its own, which the real API in Production migrates
 #      at start: Backlog, În lucru, În pauză and Gata in each, the project's own kept between them, every
 #      task in its column, the one finished in the second done column open again; a new project gets the
-#      four fixed columns, and the API speaks of kind and columnKind, never isDone; then the migration back,
-#      is_done on Gata and the columns as they are. Docker, PostgreSQL.
+#      four fixed columns, and the API speaks of kind and columnKind, never isDone; the fixed ones answer
+#      409 Column.Fixed to a rename, a move and a delete, a new column of the project's own comes right
+#      before Gata, moves only between Backlog and Gata (400 on position otherwise), can't take a fixed name
+#      in any case (400 on name), goes when empty, an isDone sent as before changes nothing, and
+#      Column.LastColumn is gone from the code; then the migration back, is_done on Gata and the columns as
+#      they are. Docker, PostgreSQL.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -264,14 +268,15 @@ body_field() { # body_field <name>: the value of the first text field with that 
   sed -n "s/^[^\"]*\"$1\":\"\([^\"]*\)\".*/\1/p; t; s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$scratch/body" | head -n 1
 }
 
-json() { # json <JavaScript expression on b, the last answer, in ASCII>: prints its value
+json() { # json <JavaScript expression on b, the last answer, in ASCII> [argument]: prints its value; the argument is process.argv[3]
   node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
-    "$(native "$scratch/body")" "$1" | tr -d '\r'
+    "$(native "$scratch/body")" "$@" | tr -d '\r'
 }
 
 status_is() { # status_is <expected status> <actual status>: shows the answer when it differs
   is "$1" "$2" || {
     head -c 600 "$scratch/body" 2>/dev/null
+    echo
     return 1
   }
 }
@@ -406,6 +411,66 @@ Paused|5|5' "$(in_db "SELECT kind, count(*), count(DISTINCT project_id) FROM boa
   }
 }
 
+column_id() { # column_id <project id> <name>: the id of that column, as the API gives it
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$1/board-columns")" >/dev/null || return 1
+  json "(b.find(c => c.name === process.argv[3]) || {}).id" "$2"
+}
+
+the_fixed_columns_never_change() {
+  the_admin_signs_in && [ -n "${new_project:-}" ] || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$new_project/board-columns")" || return 1
+  for column in $(json "b.map(c => c.id).join(' ')"); do
+    code_is 409 Column.Fixed "$(as "$admin_token" PUT "/api/projects/$new_project/board-columns/$column" '{"name":"Altceva"}')" || return 1
+    code_is 409 Column.Fixed "$(as "$admin_token" PATCH "/api/projects/$new_project/board-columns/$column/position" '{"position":1}')" || return 1
+    code_is 409 Column.Fixed "$(as "$admin_token" DELETE "/api/projects/$new_project/board-columns/$column")" || return 1
+  done
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Gata:Done' "$(columns_of "$new_project")"
+}
+
+a_column_of_its_own_comes_right_before_gata() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$new_project/board-columns" '{"name":"Review"}')" || return 1
+  is '3 Custom' "$(json "b.position + ' ' + b.kind")" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$new_project/board-columns" '{"name":"QA"}')" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Review:Custom,QA:Custom,Gata:Done' "$(columns_of "$new_project")"
+}
+
+it_moves_only_between_backlog_and_gata() {
+  review=$(column_id "$new_project" Review)
+  [ -n "$review" ] || return 1
+  for place in 0 5 9; do
+    status_is 400 "$(as "$admin_token" PATCH "/api/projects/$new_project/board-columns/$review/position" "{\"position\":$place}")" || return 1
+    is true "$(json "'position' in b.errors")" || return 1
+  done
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$new_project/board-columns/$review/position" '{"position":1}')" || return 1
+  is 'Backlog,Review,În lucru,În pauză,QA,Gata' "$(json "b.map(c => c.name).join(',')")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$new_project/board-columns/$review/position" '{"position":4}')" || return 1
+  is 'Backlog,În lucru,În pauză,QA,Review,Gata' "$(json "b.map(c => c.name).join(',')")"
+}
+
+the_fixed_names_are_taken() {
+  for name in Gata gata Backlog 'ÎN PAUZĂ' 'în lucru'; do
+    status_is 400 "$(as "$admin_token" POST "/api/projects/$new_project/board-columns" "{\"name\":\"$name\"}")" || return 1
+    is true "$(json "'name' in b.errors")" || return 1
+    status_is 400 "$(as "$admin_token" PUT "/api/projects/$new_project/board-columns/$review" "{\"name\":\"$name\"}")" || return 1
+  done
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,QA:Custom,Review:Custom,Gata:Done' "$(columns_of "$new_project")"
+}
+
+an_empty_column_of_its_own_goes_and_is_done_changes_nothing() {
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$new_project/board-columns" '{"name":"Livrat","isDone":true}')" || return 1
+  livrat=$(body_field id)
+  is Custom "$(json b.kind)" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/projects/$new_project/board-columns/$livrat" '{"name":"Livrat","isDone":true}')" || return 1
+  is Custom "$(json b.kind)" || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/projects/$new_project/board-columns/$livrat")" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,QA:Custom,Review:Custom,Gata:Done' "$(columns_of "$new_project")"
+}
+
+last_column_is_gone() {
+  lacks 'LastColumn|isDone|IsDone|columnIsDone|ColumnIsDone' backend/src frontend/src --include='*.cs' --include='*.ts' --include='*.html' \
+    --exclude-dir=Migrations --exclude-dir=bin --exclude-dir=obj
+}
+
 the_migration_goes_back() {
   ef database update "$before_kinds" --connection "$(connection_to "$check_db")" >"$scratch/back.log" 2>&1 || {
     tail -n 15 "$scratch/back.log"
@@ -427,6 +492,12 @@ task_1() {
   check "only the tasks in Gata stay finished, and the list says columnKind" only_tasks_in_gata_stay_finished
   check "a new project gets the four fixed columns, kind and never isDone" a_new_project_gets_the_four_fixed_columns
   check "the database holds each fixed kind once per project" the_database_holds_one_of_each
+  check "the fixed columns answer 409 Column.Fixed to a rename, a move and a delete" the_fixed_columns_never_change
+  check "a column of the project's own comes right before Gata" a_column_of_its_own_comes_right_before_gata
+  check "it moves only between Backlog and Gata, 400 on position otherwise" it_moves_only_between_backlog_and_gata
+  check "the fixed names are taken in any case, 400 on name" the_fixed_names_are_taken
+  check "an empty one of the project's own goes, and an isDone sent as before changes nothing" an_empty_column_of_its_own_goes_and_is_done_changes_nothing
+  check "Column.LastColumn and isDone are gone from the code" last_column_is_gone
   check "the migration goes back: is_done on Gata, the columns as they are" the_migration_goes_back
 }
 

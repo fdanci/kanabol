@@ -1,5 +1,6 @@
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Features.Projects.Commands.AddBoardColumn;
 using Kanabol.Application.Features.Projects.Commands.DeleteBoardColumn;
 using Kanabol.Application.Features.Projects.Commands.RemoveProjectMember;
 using Kanabol.Application.Features.Tasks;
@@ -68,6 +69,10 @@ public sealed class TaskHistoryQueryHandlerTests(PostgresFixture postgres) : Tas
         var task = await CreateTaskAs(owner, project, "Login SSO");
         return (owner, member, project, task);
     }
+
+    /// <summary>A column of the project's own, Review: since group 22 only those can be deleted (SPEC section 4.4).</summary>
+    private async Task<Guid> AColumnOfItsOwn(Project project) =>
+        (await Handle<AddBoardColumnCommand, BoardColumnDto>(new AddBoardColumnCommand(project.Id, "Review"))).Value.Id;
 
     [Fact]
     public async Task Get_ATaskJustCreated_IsAnEmptyPage()
@@ -170,22 +175,22 @@ public sealed class TaskHistoryQueryHandlerTests(PostgresFixture postgres) : Tas
     {
         var (owner, _, project, task) = await ATaskOfTwo();
         var first = ColumnAt(project, 0);
-        var second = ColumnAt(project, 1);
         var done = DoneColumn(project);
         SignIn(owner);
+        var review = await AColumnOfItsOwn(project);
         NextMinute();
-        await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, second.Id, null)));
+        await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, review, null)));
         NextMinute();
         await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, done.Id, null)));
-        await Changed(Handle<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, first.Id)));
+        await Changed(Handle<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review)));
 
         var entries = (await HistoryOf(task.Id)).Value.Items;
 
         entries.Should().HaveCount(2).And.OnlyContain(entry => entry.Field == TaskHistoryFields.ColumnId);
-        entries[0].Should().BeEquivalentTo(new { OldValue = second.Id.ToString(), NewValue = done.Id.ToString() });
-        entries[0].Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [second.Id] = second.Name, [done.Id] = done.Name });
-        entries[1].Should().BeEquivalentTo(new { OldValue = first.Id.ToString(), NewValue = second.Id.ToString() });
-        entries[1].Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [first.Id] = null, [second.Id] = second.Name });
+        entries[0].Should().BeEquivalentTo(new { OldValue = review.ToString(), NewValue = done.Id.ToString() });
+        entries[0].Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [review] = null, [done.Id] = done.Name });
+        entries[1].Should().BeEquivalentTo(new { OldValue = first.Id.ToString(), NewValue = review.ToString() });
+        entries[1].Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [first.Id] = first.Name, [review] = null });
     }
 
     [Fact]
@@ -408,16 +413,18 @@ public sealed class TaskHistoryQueryHandlerTests(PostgresFixture postgres) : Tas
     {
         var (owner, _, project, task) = await ATaskOfTwo();
         var first = ColumnAt(project, 0);
-        var second = ColumnAt(project, 1);
         SignIn(owner);
+        var review = await AColumnOfItsOwn(project);
         NextMinute();
-        await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, second.Id, null)));
-        await Changed(Handle<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, first.Id)));
-        var listed = (await HistoryOf(task.Id)).Value.Items.Single();
+        await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, review, null)));
+        NextMinute();
+        await Changed(Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, DoneColumn(project).Id, null)));
+        await Changed(Handle<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review)));
+        var listed = (await HistoryOf(task.Id)).Value.Items.Single(found => found.NewValue == review.ToString());
 
         var entry = (await EntryOf(task.Id, listed.Id)).Value;
 
-        entry.Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [first.Id] = null, [second.Id] = second.Name });
+        entry.Names.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [first.Id] = first.Name, [review] = null });
     }
 
     [Fact]

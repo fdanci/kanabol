@@ -5,8 +5,8 @@ using Kanabol.Domain.Projects;
 namespace Kanabol.Application.Features.Projects.Commands.UpdateBoardColumn;
 
 /// <summary>
-/// Another name for a column. Whether a task is finished comes from Gata, the Done column, which never
-/// changes its kind (SPEC section 4.4), so a rename leaves the tasks alone.
+/// Another name for a column of the project's own: the fixed ones keep theirs (409 Column.Fixed, SPEC
+/// section 4.4). Whether a task is finished comes from Gata, so a rename leaves the tasks alone.
 /// </summary>
 public sealed class UpdateBoardColumnCommandHandler(ProjectChanges changes) : ICommandHandler<UpdateBoardColumnCommand, BoardColumnDto>
 {
@@ -19,9 +19,12 @@ public sealed class UpdateBoardColumnCommandHandler(ProjectChanges changes) : IC
         }
 
         var project = loaded.Value;
-        if (project.RenameColumn(command.ColumnId, command.Name) == ColumnChange.NotFound)
+        switch (project.RenameColumn(command.ColumnId, command.Name))
         {
-            return ColumnErrors.NotFound;
+            case ColumnChange.NotFound:
+                return ColumnErrors.NotFound;
+            case ColumnChange.Fixed:
+                return ColumnErrors.Fixed;
         }
 
         var saved = await changes.Save(ct);
