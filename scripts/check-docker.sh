@@ -498,6 +498,29 @@ config_satisfies() { # config_satisfies <-f arguments, or nothing for the defaul
 base='-f compose.yaml'
 prod='-f compose.yaml -f compose.prod.yaml'
 
+# The version the sidebar shows, APP_VERSION in sidenav.ts. The commit a version tags sets it, and the
+# default tag of compose.prod.yaml with it (docs/SPEC.md §13.5).
+app_version() {
+  sed -n "s/^export const APP_VERSION = '\([^']*\)';\$/\1/p" frontend/src/app/core/layout/sidenav.ts | tr -d '\r'
+}
+
+prod_uses_the_app_version() {
+  version=$(app_version)
+  printf '%s' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
+    echo "no X.Y.Z APP_VERSION in frontend/src/app/core/layout/sidenav.ts: '$version'"
+    return 1
+  }
+  # The default tag, what runs when KANABOL_VERSION isn't set.
+  # shellcheck disable=SC2086 # the file arguments are meant to split
+  (unset KANABOL_VERSION && compose_as "$run_id" $prod config --format json) >"$scratch/prod-config.json" || return 1
+  images=$(node -e "const s = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).services;
+    console.log(s.api.image + ' ' + s.web.image);" "$(native "$scratch/prod-config.json")" | tr -d '\r')
+  is "kanabol-api:v$version kanabol-web:v$version" "$images" || {
+    echo "APP_VERSION is $version, so compose.prod.yaml's default tag is v$version"
+    return 1
+  }
+}
+
 # The whole stack as compose.yaml describes it. Only the ports are the check's own, to stay out of
 # the way of whatever already runs here.
 write_stack_ports() {
@@ -730,8 +753,7 @@ task_3() {
   check "dev publishes nginx on 4200" config_satisfies '' "published('web') === '127.0.0.1:4200:80'"
 
   check "prod builds nothing" config_satisfies "$prod" "!services.api.build && !services.web.build"
-  check "prod uses the tagged images" config_satisfies "$prod" \
-    "services.api.image === 'kanabol-api:v0.1.0' && services.web.image === 'kanabol-web:v0.1.0'"
+  check "prod uses the images tagged with the version the sidebar shows (APP_VERSION)" prod_uses_the_app_version
   check "prod restarts everything" config_satisfies "$prod" \
     "Object.values(services).every((s) => s.restart === 'unless-stopped')"
   check "prod publishes only 80 and 443 on nginx" config_satisfies "$prod" \

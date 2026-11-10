@@ -4,8 +4,11 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthStore } from '../auth/auth-store';
 import { navigation } from './navigation';
 
-/** The app's version, shown at the foot of the sidebar. */
-export const APP_VERSION = '0.1.0';
+/**
+ * The app's version, shown at the foot of the sidebar. The commit a version tags sets it, and the
+ * default tag of compose.prod.yaml with it (docs/SPEC.md §13.5).
+ */
+export const APP_VERSION = '0.1.2';
 
 /**
  * The source list (docs/UI_UX_SPEC.md §6.0.7): groups with a caption title and 28px items, the

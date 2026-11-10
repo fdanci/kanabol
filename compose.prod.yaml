@@ -1,5 +1,7 @@
 # Production: docker compose -f compose.yaml -f compose.prod.yaml up -d
 # It runs tagged images. KANABOL_VERSION picks another tag than the default one.
+# The default is the version of this commit: the commit a version tags sets it here, on both images, and
+# in APP_VERSION (frontend/src/app/core/layout/sidenav.ts), docs/SPEC.md §13.5.
 services:
   postgres:
     restart: unless-stopped
@@ -9,12 +11,12 @@ services:
 
   api:
     build: !reset null
-    image: kanabol-api:${KANABOL_VERSION:-v0.1.0}
+    image: kanabol-api:${KANABOL_VERSION:-v0.1.2}
     restart: unless-stopped
 
   web:
     build: !reset null
-    image: kanabol-web:${KANABOL_VERSION:-v0.1.0}
+    image: kanabol-web:${KANABOL_VERSION:-v0.1.2}
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     volumes:
