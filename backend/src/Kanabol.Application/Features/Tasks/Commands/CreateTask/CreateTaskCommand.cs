@@ -3,7 +3,10 @@ using Kanabol.Domain.Tasks;
 
 namespace Kanabol.Application.Features.Tasks.Commands.CreateTask;
 
-/// <summary>Without a column, the task starts in the board's first one. It goes at the end of its column, assigned to any number of people.</summary>
+/// <summary>
+/// A task starts in Backlog, at its end, assigned to any number of people: a column, when given, has to be the
+/// project's Backlog (SPEC section 4.4).
+/// </summary>
 public sealed record CreateTaskCommand(
     Guid ProjectId,
     string Title,

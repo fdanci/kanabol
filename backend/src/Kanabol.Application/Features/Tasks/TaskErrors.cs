@@ -17,6 +17,16 @@ public static class TaskErrors
         ["ColumnId"] = ["This column isn't on the project's board."],
     });
 
+    /// <summary>A new task starts in Backlog, whichever column the request names (SPEC section 4.4).</summary>
+    public static readonly Error NotInBacklog = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["ColumnId"] = ["A new task starts in Backlog."],
+    });
+
+    /// <summary>A task in În lucru, or in a column after it, never goes back to one before it (SPEC section 4.4).</summary>
+    public static readonly Error CannotMoveBack =
+        Error.Conflict("Task.CannotMoveBack", "A task started in În lucru doesn't go back to a column before it.");
+
     public static readonly Error AssigneeNotAMember = Error.Validation(new Dictionary<string, string[]>
     {
         ["AssigneeIds"] = ["Only active members of the project can be assigned."],

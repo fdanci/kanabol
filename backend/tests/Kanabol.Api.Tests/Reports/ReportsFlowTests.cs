@@ -92,7 +92,8 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
 
     private static Guid DoneColumnOf(Project project) => project.Columns.Single(column => column.Kind == ColumnKind.Done).Id;
 
-    private static Guid FirstColumnOf(Project project) => project.Columns.Single(column => column.Position == 0).Id;
+    // Out of Gata a task goes back to În lucru, not before it (SPEC section 4.4), and is open again.
+    private static Guid InProgressColumnOf(Project project) => project.Columns.Single(column => column.Kind == ColumnKind.InProgress).Id;
 
     [Fact]
     public async Task ATask_FinishedMovedBackAndFinishedAgain_IsCountedOnlyWhileFinished()
@@ -104,7 +105,7 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
         await Move(anaToken, task, DoneColumnOf(rep));
         (await NumbersOf(anaToken, rep)).Should().Be(new Numbers(1, "1", 1, 0, 1, 0, "1"));
 
-        await Move(anaToken, task, FirstColumnOf(rep));
+        await Move(anaToken, task, InProgressColumnOf(rep));
         (await NumbersOf(anaToken, rep)).Should().Be(new Numbers(0, "", 0, 0, 0, 0, "null"));
 
         await Move(anaToken, task, DoneColumnOf(rep));

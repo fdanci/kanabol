@@ -360,19 +360,14 @@ describe('TaskListPage', () => {
     await assignees.clickOptions({ text: /Ana Pop/ });
     await assignees.clickOptions({ text: /Florin Danci/ });
     await closeList(assignees);
-    await (
-      await loader.getHarness(
-        MatSelectHarness.with({ selector: '[aria-labelledby~="task-column"]' }),
-      )
-    ).clickOptions({ text: 'În lucru' });
     sheet.querySelector('form')!.requestSubmit();
     await settle();
 
+    // docs/SPEC.md §4.4: no column, so the task starts in Backlog.
     expect(api['create']).toHaveBeenCalledWith('p1', {
       title: 'Raport lunar',
       description: null,
       priority: 'Medium',
-      columnId: 'c2',
       assigneeIds: ['me', 'u2'],
       dueDate: null,
     });
@@ -380,19 +375,17 @@ describe('TaskListPage', () => {
     expect(api['list'].mock.calls.length).toBe(before + 1);
   });
 
-  it('starts a new task in the first column, and refuses one without a title', async () => {
+  it('starts a new task in Backlog, offering no other column, and refuses one without a title', async () => {
     await visit();
 
     button('Task nou')!.click();
     await settle();
     const sheet = document.querySelector<HTMLElement>('kb-task-sheet')!;
-    expect(
-      await (
-        await loader.getHarness(
-          MatSelectHarness.with({ selector: '[aria-labelledby~="task-column"]' }),
-        )
-      ).getValueText(),
-    ).toBe('De făcut');
+    expect(sheet.querySelector('.column')?.textContent).toContain('Backlog');
+    expect(sheet.querySelector('.column')?.textContent).toContain(
+      'Un task nou pornește în Backlog.',
+    );
+    expect(sheet.querySelector('.column mat-select')).toBeNull();
     sheet.querySelector('form')!.requestSubmit();
     await settle();
 

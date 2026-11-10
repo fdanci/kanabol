@@ -1067,7 +1067,11 @@ requests_dont_wait_for_a_stalled_board() {
   mov=$(body_field id)
   status_is 200 "$(as "$admin_token" GET "/api/projects/$mov/board")" || return 1
   first_column=$(json 'b.columns[0].id')
-  second_column=$(json 'b.columns[1].id')
+  # The tasks go between Backlog and a column of the project's own right after it, both before În lucru,
+  # so they move both ways and nothing is asked of them (group 22).
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$mov/board-columns" '{"name":"Alături"}')" || return 1
+  second_column=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$mov/board-columns/$second_column/position" '{"position":1}')" || return 1
   moves=
   for i in $(seq 1 20); do
     status_is 201 "$(as "$admin_token" POST "/api/projects/$mov/tasks" "{\"title\":\"Mutare $i\",\"description\":\"\",\"priority\":\"Low\"}")" || return 1

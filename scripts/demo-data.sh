@@ -320,15 +320,19 @@ task() {
     else
       creator_token=$admin
     fi
-    column=$(column_at "$project" "$position")
     due=null
     [ "$days" = - ] || due="\"$(deadline "$days")\""
     ids=$(printf '%s' "$assignees" | sed -e 's/\([^,][^,]*\)/"\1"/g')
     status=$(as "$creator_token" POST "/api/projects/$project/tasks" \
-      "{\"title\":$(json_text "$title"),\"description\":$(json_text "$description"),\"priority\":\"$priority\",\"columnId\":\"$column\",\"assigneeIds\":[$ids],\"dueDate\":$due}")
+      "{\"title\":$(json_text "$title"),\"description\":$(json_text "$description"),\"priority\":\"$priority\",\"assigneeIds\":[$ids],\"dueDate\":$due}")
     expect 201 -- "the task $key"
     task_id=$(field id)
     made "task $(field key) $title"
+    # A task starts in Backlog (group 22), then goes to its column, forward.
+    if [ "$position" -gt 0 ]; then
+      status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(column_at "$project" "$position")\",\"position\":null}")
+      expect 200 -- "$key into its column"
+    fi
   fi
   if [ "$finished" = yes ] && grep -q '"completedAt":null' "$body"; then
     status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(done_column "$project")\",\"position\":null}")

@@ -71,6 +71,8 @@ const BY_CODE: Record<string, () => string> = {
   'Column.NotFound': () => $localize`Coloana nu mai e pe board. Reîncarcă pagina.`,
   'Column.NotEmpty': () =>
     $localize`Coloana mai are task-uri, poate și arhivate. Mută-le întâi în altă coloană.`,
+  // docs/UI_UX_SPEC.md §7.4: the board says it too, before it asks the API.
+  'Task.CannotMoveBack': () => $localize`Un task început nu se mai întoarce înainte de «În lucru».`,
   'Column.Fixed': () =>
     $localize`Backlog, În lucru, În pauză și Gata rămân cum sunt: nu se redenumesc, nu se mută și nu se șterg.`,
 };

@@ -432,7 +432,10 @@ work_is_ready() {
   created_at "$pan_1" 2026-10-01T09:00:00Z && entered_at "$pan_1" "$pan_doing" 2026-10-06T10:00:00Z &&
     entered_at "$pan_1" "$pan_done" 2026-10-08T10:00:00Z || return 1
 
-  a_task_in "$pan_id" 'Pagina de start' "\"priority\":\"Low\",\"columnId\":\"$pan_doing\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"2026-10-13T12:00:00Z\"" &&
+  # Created straight in În lucru, as tasks could be before group 22: since then they start in Backlog, so
+  # the database puts it there, without a move in its history.
+  a_task_in "$pan_id" 'Pagina de start' "\"priority\":\"Low\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"2026-10-13T12:00:00Z\"" &&
+    in_db "UPDATE task_items SET column_id = '$pan_doing', position = 0 WHERE id = '$new_task'" >/dev/null &&
     moved "$new_task" "$pan_done" || return 1
   pan_2=$new_task
   created_at "$pan_2" 2026-10-02T09:00:00Z && entered_at "$pan_2" "$pan_done" 2026-10-14T09:00:00Z || return 1
@@ -1096,7 +1099,8 @@ finishing_it_counts_it_on_time() {
 
 moving_it_back_takes_it_out() {
   a_live_task_is_ready || return 1
-  moved "$live_task" "$pan_todo" || return 1
+  # Out of Gata to În lucru, never back before it (group 22).
+  moved "$live_task" "$pan_doing" || return 1
   is '0 0 1 0 0 null' "$(numbers_now "$admin_token")" || return 1
   moved "$live_task" "$pan_done" || return 1
   is '1 1 1 1 0 1' "$(numbers_now "$admin_token")"

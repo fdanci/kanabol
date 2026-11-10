@@ -2,6 +2,7 @@ using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Projects;
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -43,13 +44,13 @@ public sealed class CreateTaskCommandHandler(
             return ProjectErrors.Archived;
         }
 
-        var column = await db.BoardColumns
-            .Where(found => found.ProjectId == project.Id && (command.ColumnId == null || found.Id == command.ColumnId))
-            .OrderBy(found => found.Position)
-            .FirstOrDefaultAsync(ct);
-        if (column is null)
+        // Backlog is never deleted, so no creation races a delete of its column.
+        var column = await db.BoardColumns.SingleAsync(found => found.ProjectId == project.Id && found.Kind == ColumnKind.Backlog, ct);
+        if (command.ColumnId is { } asked && asked != column.Id)
         {
-            return TaskErrors.ColumnNotInProject;
+            return await db.BoardColumns.AnyAsync(found => found.Id == asked && found.ProjectId == project.Id, ct)
+                ? TaskErrors.NotInBacklog
+                : TaskErrors.ColumnNotInProject;
         }
 
         if (!await db.AreAllActiveMembersOf(project.Id, command.AssigneeIds, ct))
@@ -58,36 +59,27 @@ public sealed class CreateTaskCommandHandler(
         }
 
         var now = clock.UtcNow;
-        TaskItem? created;
-        try
-        {
-            // The end of the column is read once the number is taken: the creations before this one in the
-            // project are committed by then, so two of them never end up in the same place.
-            created = await taskNumbers.SaveNewTaskAsync(
-                project.Id,
-                async number =>
-                {
-                    var last = await db.TaskItems.Where(task => task.ColumnId == column.Id).MaxAsync(task => (int?)task.Position, ct);
-                    return TaskItem.Create(
-                        project,
-                        column,
-                        number,
-                        command.Title,
-                        command.Description,
-                        command.Priority,
-                        (last ?? -1) + 1,
-                        command.AssigneeIds,
-                        command.DueDate,
-                        currentUser.Id,
-                        now);
-                },
-                ct);
-        }
-        catch (DbUpdateException exception) when (exception.IsForeignKeyViolation())
-        {
-            // The column was deleted after it was read, and the number with it, since nothing committed.
-            return TaskErrors.ColumnNotInProject;
-        }
+        // The end of the column is read once the number is taken: the creations before this one in the
+        // project are committed by then, so two of them never end up in the same place.
+        var created = await taskNumbers.SaveNewTaskAsync(
+            project.Id,
+            async number =>
+            {
+                var last = await db.TaskItems.Where(task => task.ColumnId == column.Id).MaxAsync(task => (int?)task.Position, ct);
+                return TaskItem.Create(
+                    project,
+                    column,
+                    number,
+                    command.Title,
+                    command.Description,
+                    command.Priority,
+                    (last ?? -1) + 1,
+                    command.AssigneeIds,
+                    command.DueDate,
+                    currentUser.Id,
+                    now);
+            },
+            ct);
 
         if (created is null)
         {

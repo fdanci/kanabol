@@ -1,5 +1,6 @@
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Features.Projects.Commands.AddBoardColumn;
 using Kanabol.Application.Features.Projects.Commands.AddProjectMember;
 using Kanabol.Application.Features.Projects.Commands.ArchiveProject;
 using Kanabol.Application.Features.Tasks;
@@ -67,29 +68,44 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
         (await NextTaskNumberOf(project)).Should().Be(4);
     }
 
+    // SPEC section 4.4: a new task starts in Backlog, at its end, given or not.
     [Fact]
-    public async Task Create_InAGivenColumn_PutsItAtTheEndOfThatColumn()
+    public async Task Create_InBacklogGiven_PutsItAtTheEndOfBacklog()
     {
         var owner = await CreateUser();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         await CreateTaskAs(owner, project);
-        var inProgress = ColumnAt(project, 1);
+        var backlog = project.Columns.Single(column => column.Kind == ColumnKind.Backlog);
 
-        var result = await Create(NewTask(project, columnId: inProgress.Id));
+        var result = await Create(NewTask(project, columnId: backlog.Id));
 
-        result.Value.ColumnId.Should().Be(inProgress.Id);
-        result.Value.Position.Should().Be(0);
+        result.Value.ColumnId.Should().Be(backlog.Id);
+        result.Value.Position.Should().Be(1);
         result.Value.Number.Should().Be(2);
+        result.Value.CompletedAt.Should().BeNull();
     }
 
-    [Fact]
-    public async Task Create_InTheDoneColumn_IsCompletedAtOnce()
+    // Any other column of the project is refused, the project's own included, and takes no number.
+    [Theory]
+    [InlineData(ColumnKind.InProgress)]
+    [InlineData(ColumnKind.Paused)]
+    [InlineData(ColumnKind.Done)]
+    [InlineData(ColumnKind.Custom)]
+    public async Task Create_InAnotherColumnOfTheProject_ReturnsAValidationErrorOnColumnIdAndTakesNoNumber(ColumnKind kind)
     {
         var owner = await CreateUser();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         SignIn(owner);
+        var column = kind == ColumnKind.Custom
+            ? (await Handle<AddBoardColumnCommand, BoardColumnDto>(new AddBoardColumnCommand(project.Id, "Review"))).Value.Id
+            : project.Columns.Single(found => found.Kind == kind).Id;
 
-        (await Create(NewTask(project, columnId: DoneColumn(project).Id))).Value.CompletedAt.Should().Be(Now);
+        var result = await Create(NewTask(project, columnId: column));
+
+        result.Error.Should().Be(TaskErrors.NotInBacklog);
+        result.Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("ColumnId");
+        (await TasksOf(project)).Should().BeEmpty();
+        (await NextTaskNumberOf(project)).Should().Be(1);
     }
 
     [Fact]

@@ -348,21 +348,4 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         moved.Error.Should().Be(TaskErrors.ColumnNotInProject);
         (await Stored(task.Id))!.ColumnId.Should().Be(ColumnAt(project, 0).Id);
     }
-
-    [Fact]
-    public async Task CreateTask_InAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnIdAndTakesNoNumber()
-    {
-        var (owner, project) = await AProject();
-        var review = await AColumnOfItsOwn(project, owner);
-
-        // The creation's first read of the clock comes after it read the column, before it takes a number.
-        var created = await PausedAtClockCall(
-            1,
-            () => HandleInOwnScope<Application.Features.Tasks.Commands.CreateTask.CreateTaskCommand, TaskItemDto>(NewTask(project, columnId: review.Id)),
-            async () => (await HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review.Id))).IsSuccess.Should().BeTrue());
-
-        created.Error.Should().Be(TaskErrors.ColumnNotInProject);
-        (await TasksOf(project)).Should().BeEmpty();
-        (await NextTaskNumberOf(project)).Should().Be(1, "the number went back with the rest of the transaction");
-    }
 }

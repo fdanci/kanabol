@@ -52,6 +52,17 @@ public sealed class BoardColumn : AuditableEntity
     public static bool IsAFixedName(string name) =>
         _fixed.Any(column => string.Equals(column.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Whether a move takes a task in În lucru, or in a column after it, back to a column before În lucru,
+    /// Backlog or one of the project's own (SPEC section 4.4): never, whatever the task went through before.
+    /// The board's columns say where În lucru is.
+    /// </summary>
+    public static bool GoesBackBeforeInProgress(BoardColumn from, BoardColumn to, IEnumerable<BoardColumn> board)
+    {
+        var inProgress = board.Single(column => column.Kind == ColumnKind.InProgress).Position;
+        return from.Position >= inProgress && to.Position < inProgress;
+    }
+
     internal void Rename(string name) => Name = NormalizeName(name);
 
     internal void PlaceAt(int position) => Position = position;

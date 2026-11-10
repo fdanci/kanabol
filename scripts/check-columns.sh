@@ -18,10 +18,17 @@
 #      in any case (400 on name), goes when empty, an isDone sent as before changes nothing, and
 #      Column.LastColumn is gone from the code; then the migration back, is_done on Gata and the columns as
 #      they are. Docker, PostgreSQL.
+#   2  the moves: the tests (the order of the columns, the moves and the creations, their endpoints); then the
+#      real API in Production: a task starts in Backlog, any other column of the project (the project's own
+#      too) or another project's answers 400 on columnId and takes no number; a task in În lucru, În pauză
+#      or Gata goes back neither to Backlog nor to a column of the project's own before În lucru (409
+#      Task.CannotMoveBack, nothing moved, no history), but goes from Gata to În lucru, open again, and
+#      between the columns before În lucru both ways; a column of another project is 400 before the 409.
+#      Docker, PostgreSQL.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
-# kanabol_columns_check_<pid>, and drops it. Docker runs the tests' own PostgreSQL. The real API listens on
+# kanabol_columns_old_<pid> for task 1 and kanabol_columns_check_<pid> for the others, and drops them. Docker runs the tests' own PostgreSQL. The real API listens on
 # port 5278.
 
 set -u
@@ -29,7 +36,9 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 
 failures=0
 scratch=$(mktemp -d)
-check_db="kanabol_columns_check_$$"
+old_db="kanabol_columns_old_$$"
+api_db="kanabol_columns_check_$$"
+check_db=$api_db
 api_dir=backend/src/Kanabol.Api
 api_port=5278
 API_URL="http://127.0.0.1:$api_port"
@@ -179,6 +188,14 @@ need_database() {
   case " $created_databases " in *" $check_db "*) return 0 ;; esac
   sql "$admin_connection" "CREATE DATABASE $check_db" || return 1
   created_databases="$created_databases $check_db"
+}
+
+# Task 1 works on an old database it migrates back at the end; the other tasks on one the API makes.
+use_database() { # use_database <name>
+  [ "$check_db" = "$1" ] && return 0
+  stop_api
+  admin_token=
+  check_db=$1
 }
 
 connection_to() { # connection_to <database>
@@ -482,6 +499,7 @@ the_migration_goes_back() {
 }
 
 task_1() {
+  use_database "$old_db"
   echo "22.1 the fixed columns and the migration AddColumnKinds"
   check "Docker is running" docker_is_running
   check "the column tests pass: the domain, the migration and back, the handlers and the endpoints" column_tests_pass
@@ -501,10 +519,111 @@ task_1() {
   check "the migration goes back: is_done on Gata, the columns as they are" the_migration_goes_back
 }
 
-tasks=${*:-1}
+# ---- Task 2: the moves.
+
+move_tests_pass() {
+  classes_pass Kanabol.Domain.Tests 15 ColumnOrderTests &&
+    classes_pass Kanabol.Application.Tests 35 MoveTaskCommandHandlerTests CreateTaskCommandHandlerTests &&
+    classes_pass Kanabol.Api.Tests 10 TaskMoveEndpointTests TasksEndpointTests
+}
+
+# MUT, the admin's: Backlog, Analiză (the project's own, right after it), În lucru, În pauză, Review, Gata.
+a_board_to_move_on() {
+  the_admin_signs_in || return 1
+  [ -n "${mut:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Mutări","key":"MUT"}')" || return 1
+  mut=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$mut/board-columns" '{"name":"Analiză"}')" || return 1
+  mut_analysis=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$mut/board-columns/$mut_analysis/position" '{"position":1}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$mut/board-columns" '{"name":"Review"}')" || return 1
+  mut_review=$(body_field id)
+  for kind in Backlog InProgress Paused Done; do
+    eval "mut_$kind=\$(in_db \"SELECT id FROM board_columns WHERE project_id = '\$mut' AND kind = '\$kind'\")"
+  done
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,În pauză:Paused,Review:Custom,Gata:Done' "$(columns_of "$mut")"
+}
+
+new_task_in() { # new_task_in <title> [JSON fields to add]: the task's id in new_task
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$mut/tasks" "{\"title\":\"$1\",\"priority\":\"Low\"${2:+,$2}}")" || return 1
+  new_task=$(body_field id)
+}
+
+moved_to() { # moved_to <task id> <column id> <expected status>
+  status_is "$3" "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\"}")"
+}
+
+a_task_starts_in_backlog() {
+  a_board_to_move_on || return 1
+  new_task_in 'Fără coloană' || return 1
+  is "$mut_Backlog Backlog" "$(json "b.columnId + ' ' + b.columnName")" || return 1
+  new_task_in 'Cu Backlog' "\"columnId\":\"$mut_Backlog\"" || return 1
+  is "$mut_Backlog 1" "$(json "b.columnId + ' ' + b.position")"
+}
+
+another_column_is_refused_and_takes_no_number() {
+  a_board_to_move_on || return 1
+  other=$(in_db "SELECT id FROM board_columns WHERE project_id <> '$mut' LIMIT 1")
+  for column in "$mut_analysis" "$mut_InProgress" "$mut_Paused" "$mut_review" "$mut_Done" "$other"; do
+    status_is 400 "$(as "$admin_token" POST "/api/projects/$mut/tasks" "{\"title\":\"Altundeva\",\"priority\":\"Low\",\"columnId\":\"$column\"}")" || return 1
+    is true "$(json "'columnId' in b.errors")" || return 1
+  done
+  is '3|2' "$(in_db "SELECT next_task_number, (SELECT count(*) FROM task_items WHERE project_id = '$mut') FROM projects WHERE id = '$mut'")"
+}
+
+# From each column at or after În lucru, back to Backlog and to Analiză: 409, the task where it was, no history.
+no_task_goes_back_before_in_progress() {
+  a_board_to_move_on || return 1
+  for from in "$mut_InProgress" "$mut_Paused" "$mut_review" "$mut_Done"; do
+    new_task_in 'Înapoi' || return 1
+    task=$new_task
+    moved_to "$task" "$from" 200 || return 1
+    for back in "$mut_Backlog" "$mut_analysis"; do
+      code_is 409 Task.CannotMoveBack "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$back\",\"position\":0}")" || return 1
+    done
+    is "$from|1" "$(in_db "SELECT column_id, (SELECT count(*) FROM task_history_entries WHERE task_id = '$task') FROM task_items WHERE id = '$task'")" || return 1
+  done
+}
+
+it_goes_forward_and_back_to_in_progress() {
+  a_board_to_move_on || return 1
+  new_task_in 'Înainte' || return 1
+  task=$new_task
+  moved_to "$task" "$mut_analysis" 200 && moved_to "$task" "$mut_Backlog" 200 && moved_to "$task" "$mut_analysis" 200 || return 1
+  moved_to "$task" "$mut_Done" 200 || return 1
+  is true "$(json "b.completedAt !== null")" || return 1
+  moved_to "$task" "$mut_InProgress" 200 || return 1
+  is null "$(json "b.completedAt")" || return 1
+  moved_to "$task" "$mut_Paused" 200 && moved_to "$task" "$mut_InProgress" 200 && moved_to "$task" "$mut_review" 200
+}
+
+a_wrong_column_is_said_before_the_409() {
+  a_board_to_move_on || return 1
+  new_task_in 'Ordinea' || return 1
+  moved_to "$new_task" "$mut_InProgress" 200 || return 1
+  other=$(in_db "SELECT id FROM board_columns WHERE project_id <> '$mut' LIMIT 1")
+  status_is 400 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$other\"}")" || return 1
+  status_is 400 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Backlog\",\"position\":-1}")"
+}
+
+task_2() {
+  use_database "$api_db"
+  echo "22.2 the moves"
+  check "Docker is running" docker_is_running
+  check "the tests pass: the order of the columns, the moves, the creations and their endpoints" move_tests_pass
+  check "the real API in Production makes MUT, with columns of its own before and after În lucru" a_board_to_move_on
+  check "a task starts in Backlog, given or not" a_task_starts_in_backlog
+  check "any other column is 400 on columnId, the project's own too, and takes no number" another_column_is_refused_and_takes_no_number
+  check "from În lucru or after, never back before it: 409 Task.CannotMoveBack, no history" no_task_goes_back_before_in_progress
+  check "before În lucru both ways, and out of Gata to În lucru, open again" it_goes_forward_and_back_to_in_progress
+  check "a column of another project, or a wrong place, is 400 before the 409" a_wrong_column_is_said_before_the_409
+}
+
+tasks=${*:-1 2}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
+    2) task_2 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

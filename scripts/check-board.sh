@@ -424,7 +424,8 @@ a_done_column_completes_its_tasks() {
   task_id=$(body_field id)
   status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$done_id\"}")" || return 1
   is true "$(json "b.completedAt !== null")" || return 1
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$todo_id\"}")" || return 1
+  # Out of Gata a task goes to În lucru or after it, never back before it (group 22).
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$doing_id\"}")" || return 1
   status_is 200 "$(as "$admin_token" GET "/api/tasks/$task_id")" || return 1
   is null "$(json "b.completedAt")"
 }
@@ -467,7 +468,6 @@ column_tests_pass() {
     BoardColumnCommandHandlerTests.Add_TwoAtOnce_TheSecondGets409AndThePlacesStayInOrder \
     BoardColumnCommandHandlerTests.Delete_WhileATaskIsMovedIntoIt_ReturnsNotEmpty \
     BoardColumnCommandHandlerTests.MoveTask_IntoAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnId \
-    BoardColumnCommandHandlerTests.CreateTask_InAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnIdAndTakesNoNumber \
     MoveTaskCommandHandlerTests.Move_IntoTheDoneColumn_CompletesItAndOutClearsThat
 }
 
@@ -480,7 +480,7 @@ task_2() {
   check "the formatting is clean" formatting_is_clean
   check "the aggregate's column tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectColumnTests|FullyQualifiedName~TaskItemTests.MoveTo' 30
   check "the handlers' column tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~BoardColumnCommandHandlerTests' 30
-  check "Gata completing a task, the races with moves and creations, and two additions at once" column_tests_pass
+  check "Gata completing a task, a move and a delete racing, and two additions at once" column_tests_pass
   check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~BoardColumnsEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 14
   check "backend/CLAUDE.md lists the endpoints" the_endpoints_are_written_down
   check "the real API starts in Production, with a member without permissions" dan_is_ready

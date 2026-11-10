@@ -170,6 +170,8 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         added.StatusCode.Should().Be(HttpStatusCode.Created);
         using var column = await JsonFrom(added);
         var temporary = column.RootElement.GetProperty("id").GetGuid();
+        // Right after Backlog, before În lucru, so the task can go back from it (SPEC section 4.4).
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Patch, $"/api/projects/{project.Id}/board-columns/{temporary}/position", new { position = 1 });
         await Sent(HttpStatusCode.OK, token, HttpMethod.Patch, $"/api/tasks/{taskId}/position", new { columnId = temporary });
         await Sent(HttpStatusCode.OK, token, HttpMethod.Patch, $"/api/tasks/{taskId}/position", new { columnId = first.Id });
         await Sent(HttpStatusCode.NoContent, token, HttpMethod.Delete, $"/api/projects/{project.Id}/board-columns/{temporary}");
