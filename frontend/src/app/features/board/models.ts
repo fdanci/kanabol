@@ -50,6 +50,8 @@ export interface BoardDto {
   isArchived: boolean;
   canMove: boolean;
   canManage: boolean;
+  /** tasks.archive in the token: the board shows the column Arhivate (docs/SPEC.md §4.4). */
+  canSeeArchived: boolean;
   columns: BoardColumnDto[];
   tasks: BoardTaskDto[];
 }

@@ -31,7 +31,12 @@
 #      one who only sees the project. The pause: every entry into În pauză asks for a reason, one line of 1
 #      to 500 characters once trimmed (400 on pauseReason otherwise, nothing moved), which the task keeps
 #      and the history writes next to the move, at its moment; leaving forgets it without an entry, a reorder
-#      there asks for none, and one sent on any other move is ignored. Docker, PostgreSQL.
+#      there asks for none, and one sent on any other move is ignored. The column Arhivate: the tests (its
+#      handler and endpoint); then on the real API, the board's canSeeArchived for tasks.archive, GET
+#      …/board/archived from the latest archiving, each card with its column, who archived it, its estimate
+#      and its reason, which the restore keeps, back in its column; 403 Auth.PermissionRequired without
+#      tasks.archive, 404 Project.NotFound for a project the caller doesn't see, 400 on pageSize over 100.
+#      Docker, PostgreSQL.
 #   3  the worked time and the general settings: the tests (the schedule, its handlers, Schedule:TimeZone, the
 #      migration's row and back, the endpoints; WorkingTime.Between, the counter in the domain and through the
 #      handlers, the migration AddWorkedTime, which starts it for the open tasks already in În lucru, and the
@@ -747,11 +752,58 @@ a_reason_elsewhere_is_ignored() {
   is '|0' "$(in_db "SELECT pause_reason, (SELECT count(*) FROM task_history_entries WHERE task_id = '$new_task' AND field = 'PauseReason') FROM task_items WHERE id = '$new_task'")"
 }
 
+archived_tests_pass() {
+  classes_pass Kanabol.Application.Tests 6 GetArchivedTasksQueryHandlerTests &&
+    classes_pass Kanabol.Api.Tests 5 ArchivedTasksEndpointTests
+}
+
+archived_of() { # archived_of <token> [query]: the status of GET …/board/archived for MUT
+  as "$1" GET "/api/projects/$mut/board/archived${2:+?$2}"
+}
+
+# Two tasks archived, the one from Backlog last: it comes first, then the one from În pauză, with its column,
+# who archived it, its estimate and its reason; the restore takes it back there, with them.
+the_archived_column_gives_the_latest_first() {
+  a_board_to_move_on || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$mut/board")" || return 1
+  is true "$(json b.canSeeArchived)" || return 1
+  new_task_in "Arhivat din pauză" '"estimatedMinutes":45' || return 1
+  shelved=$new_task
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$shelved/position" "{\"columnId\":\"$mut_Paused\",\"pauseReason\":\"Aștept avizul\"}")" || return 1
+  new_task_in "Arhivat din Backlog" || return 1
+  dropped=$new_task
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$shelved")" || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$dropped")" || return 1
+  admin_id=$(in_db "SELECT id FROM users WHERE email = '$admin_email'")
+  status_is 200 "$(archived_of "$admin_token" 'page=1&pageSize=2')" || return 1
+  is "2 $dropped Backlog $admin_id" "$(json "b.items.length + ' ' + b.items[0].id + ' ' + b.items[0].columnName + ' ' + b.items[0].archivedBy.userId")" || return 1
+  is "$shelved $mut_Paused 45 false $admin_id" "$(json "(c => c.id + ' ' + c.columnId + ' ' + c.estimatedMinutes + ' ' + c.isWorking + ' ' + c.archivedBy.userId)(b.items[1])")" || return 1
+  is 'În pauză|Aștept avizul|Low' "$(json "b.items[1].columnName + '|' + b.items[1].pauseReason + '|' + b.items[1].priority")" || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/tasks/$shelved/restore")" || return 1
+  is "$mut_Paused 45" "$(json "b.columnId + ' ' + b.estimatedMinutes")" || return 1
+  is 'Aștept avizul' "$(json b.pauseReason)" || return 1
+  status_is 200 "$(archived_of "$admin_token")" || return 1
+  is false "$(json "b.items.some((c) => c.id === process.argv[3])" "$shelved")"
+}
+
+the_archived_column_is_for_tasks_archive_only() {
+  a_board_to_move_on || return 1
+  person_signs_in "victor@example.com" "Victor Vede Tot" '["projects.view_all"]' || return 1
+  status_is 200 "$(as "$person_token" GET "/api/projects/$mut/board")" || return 1
+  is false "$(json b.canSeeArchived)" || return 1
+  code_is 403 Auth.PermissionRequired "$(archived_of "$person_token")" || return 1
+  person_signs_in "ion@example.com" "Ion Din Afară" '["tasks.archive"]' || return 1
+  code_is 404 Project.NotFound "$(archived_of "$person_token")" || return 1
+  status_is 400 "$(archived_of "$admin_token" 'pageSize=101')" || return 1
+  is pageSize "$(json "Object.keys(b.errors).join(',')")"
+}
+
 task_2() {
   use_database "$api_db"
   echo "22.2 the moves"
   check "Docker is running" docker_is_running
   check "the tests pass: the order of the columns, the moves, the creations and their endpoints" move_tests_pass
+  check "the tests pass: the column Arhivate and canSeeArchived" archived_tests_pass
   check "the real API in Production makes MUT, with columns of its own before and after În lucru" a_board_to_move_on
   check "a task starts in Backlog, given or not" a_task_starts_in_backlog
   check "any other column is 400 on columnId, the project's own too, and takes no number" another_column_is_refused_and_takes_no_number
@@ -766,6 +818,8 @@ task_2() {
   check "În pauză asks every entry for a reason, one line of 1 to 500, written next to the move" paused_asks_for_a_reason
   check "leaving the pause forgets the reason without an entry, a reorder there asks for none" leaving_the_pause_forgets_the_reason
   check "a reason sent on another move is ignored" a_reason_elsewhere_is_ignored
+  check "Arhivate gives the latest archived first, with its column, who and what it keeps; the restore takes it back" the_archived_column_gives_the_latest_first
+  check "Arhivate is for tasks.archive only (403), in a project the caller sees (404), in pages of at most 100" the_archived_column_is_for_tasks_archive_only
 }
 
 # ---- Task 3: the general settings.

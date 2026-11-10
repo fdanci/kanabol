@@ -13,6 +13,7 @@ using Kanabol.Application.Features.Tasks.Commands.RestoreTask;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskDueDate;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskEstimate;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskPriority;
+using Kanabol.Application.Features.Tasks.Queries.GetArchivedTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetBoard;
 using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskById;
@@ -42,6 +43,16 @@ public sealed class TasksController : ControllerBase
         [FromServices] IQueryHandler<GetBoardQuery, BoardDto> handler,
         CancellationToken ct) =>
         (await handler.Handle(new GetBoardQuery(projectId), ct)).ToActionResult();
+
+    /// <summary>The column "Arhivate": a page of the archived cards, from the latest, for tasks.archive.</summary>
+    [HttpGet("/api/projects/{projectId:guid}/board/archived")]
+    public async Task<IActionResult> GetArchivedTasks(
+        Guid projectId,
+        [FromServices] IQueryHandler<GetArchivedTasksQuery, Page<ArchivedTaskDto>> handler,
+        CancellationToken ct,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = Paging.DefaultPageSize) =>
+        (await handler.Handle(new GetArchivedTasksQuery(projectId, page, pageSize), ct)).ToActionResult();
 
     [HttpGet("/api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> GetProjectTasks(

@@ -2,6 +2,7 @@ using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Application.Features.Projects;
+using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
 
@@ -87,6 +88,7 @@ public sealed class GetBoardQueryHandler(
             !open,
             canMove,
             canManage,
+            currentUser.HasPermission(Permissions.TasksArchive),
             columns,
             [.. rows.Select(row => new BoardTaskDto(
                 row.Id,
