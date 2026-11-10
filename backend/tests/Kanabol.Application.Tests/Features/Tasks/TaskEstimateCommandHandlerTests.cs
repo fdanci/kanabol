@@ -22,8 +22,9 @@ public sealed class TaskEstimateCommandHandlerTests(PostgresFixture postgres) : 
 {
     private static BoardColumn Kind(Project project, ColumnKind kind) => project.Columns.Single(column => column.Kind == kind);
 
+    // With a reason, which only În pauză asks for (SPEC section 4.4).
     private Task<Result<TaskItemDto>> Move(Guid taskId, BoardColumn column, int? estimatedMinutes = null, int? position = null) =>
-        Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(taskId, column.Id, position, estimatedMinutes));
+        Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(taskId, column.Id, position, estimatedMinutes, "Aștept"));
 
     private Task<Result<TaskItemDto>> Estimate(Guid taskId, int? minutes) =>
         Handle<SetTaskEstimateCommand, TaskItemDto>(new SetTaskEstimateCommand(taskId, minutes));

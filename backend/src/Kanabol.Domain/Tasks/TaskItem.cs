@@ -22,6 +22,9 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public const int MaxEstimateMinutes = 60_000;
 
+    /// <summary>A pause's reason is one line of 1 to 500 characters, its spaces at the ends trimmed (SPEC section 4.4).</summary>
+    public const int MaxPauseReasonLength = 500;
+
     private readonly List<Comment> _comments = [];
     private readonly List<Attachment> _attachments = [];
     private readonly List<TaskHistoryEntry> _history = [];
@@ -68,6 +71,9 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     /// <summary>How long the work should take, in minutes; asked for when the task first enters În lucru.</summary>
     public int? EstimatedMinutes { get; private set; }
+
+    /// <summary>Why the task is in În pauză, kept while it stays there, archived or not; none elsewhere.</summary>
+    public string? PauseReason { get; private set; }
 
     public IReadOnlyCollection<Comment> Comments => _comments;
 
@@ -223,12 +229,18 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.EstimatedMinutes, changedById));
     }
 
+    /// <summary>Whether a text can be a pause's reason: one line of 1 to 500 characters once trimmed, without control characters.</summary>
+    public static bool IsAPauseReason(string? reason) =>
+        reason?.Trim() is { Length: > 0 and <= MaxPauseReasonLength } trimmed && !trimmed.Any(char.IsControl);
+
     /// <summary>
     /// To a column of the same project, at a place in it. Entering Gata completes the task,
     /// leaving it clears that. Only a change of column goes in the history: a reorder in the same
-    /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1).
+    /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1). Entering
+    /// În pauză takes a reason, which a PauseReason entry writes next to the move; leaving it forgets the
+    /// reason without one (SPEC section 4.4).
     /// </summary>
-    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now)
+    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now, string? pauseReason = null)
     {
         if (column.ProjectId != ProjectId)
         {
@@ -236,6 +248,11 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         }
 
         ArgumentOutOfRangeException.ThrowIfNegative(position);
+        var pausing = column.Kind == ColumnKind.Paused && column.Id != ColumnId;
+        if (pausing && !IsAPauseReason(pauseReason))
+        {
+            throw new ArgumentException("A task enters În pauză with a reason: one line of 1 to 500 characters.", nameof(pauseReason));
+        }
 
         if (column.Id == ColumnId && position == Position)
         {
@@ -247,6 +264,13 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         {
             Record(TaskHistoryFields.ColumnId, from.ToString(), column.Id.ToString(), changedById, now);
             ColumnId = column.Id;
+            PauseReason = null;
+        }
+
+        if (pausing)
+        {
+            PauseReason = pauseReason!.Trim();
+            Record(TaskHistoryFields.PauseReason, null, PauseReason, changedById, now);
         }
 
         Position = position;

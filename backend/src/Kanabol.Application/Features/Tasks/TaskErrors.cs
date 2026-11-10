@@ -44,6 +44,12 @@ public static class TaskErrors
         ["EstimatedMinutes"] = ["A task that entered În lucru keeps an estimate."],
     });
 
+    /// <summary>A task enters În pauză with its reason, one line of 1 to 500 characters (SPEC section 4.4).</summary>
+    public static readonly Error PauseReasonRequired = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["PauseReason"] = ["A task enters În pauză with a reason: one line of 1 to 500 characters."],
+    });
+
     public static readonly Error AssigneeNotAMember = Error.Validation(new Dictionary<string, string[]>
     {
         ["AssigneeIds"] = ["Only active members of the project can be assigned."],

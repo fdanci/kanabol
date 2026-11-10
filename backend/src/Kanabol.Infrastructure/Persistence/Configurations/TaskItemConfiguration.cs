@@ -13,6 +13,7 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.Property(task => task.Title).HasMaxLength(TaskItem.MaxTitleLength).UseCollation(Collations.Romanian);
         builder.Property(task => task.Description).HasColumnType("text");
         builder.Property(task => task.Priority).HasConversion<string>();
+        builder.Property(task => task.PauseReason).HasMaxLength(TaskItem.MaxPauseReasonLength);
         builder.Property<uint>("Version").IsRowVersion();
         builder.HasQueryFilter(task => task.ArchivedAt == null);
         builder.HasIndex(task => new { task.ProjectId, task.ColumnId });

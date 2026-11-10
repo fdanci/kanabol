@@ -28,7 +28,10 @@
 #      nothing moved), 15 to 60,000 minutes, which writes EstimatedMinutes next to the move, at its moment;
 #      sent on any other move it's ignored, whatever it holds; optional at creation, without history; PUT
 #      …/estimate changes it with its entry, takes it away before În lucru but not after (400), is 403 for
-#      one who only sees the project. Docker, PostgreSQL.
+#      one who only sees the project. The pause: every entry into În pauză asks for a reason, one line of 1
+#      to 500 characters once trimmed (400 on pauseReason otherwise, nothing moved), which the task keeps
+#      and the history writes next to the move, at its moment; leaving forgets it without an entry, a reorder
+#      there asks for none, and one sent on any other move is ignored. Docker, PostgreSQL.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -528,9 +531,9 @@ task_1() {
 # ---- Task 2: the moves.
 
 move_tests_pass() {
-  classes_pass Kanabol.Domain.Tests 25 ColumnOrderTests TaskEstimateTests &&
-    classes_pass Kanabol.Application.Tests 55 MoveTaskCommandHandlerTests CreateTaskCommandHandlerTests TaskEstimateCommandHandlerTests &&
-    classes_pass Kanabol.Api.Tests 15 TaskMoveEndpointTests TasksEndpointTests TaskEstimateEndpointTests
+  classes_pass Kanabol.Domain.Tests 40 ColumnOrderTests TaskEstimateTests TaskPauseTests &&
+    classes_pass Kanabol.Application.Tests 65 MoveTaskCommandHandlerTests CreateTaskCommandHandlerTests TaskEstimateCommandHandlerTests TaskPauseCommandHandlerTests &&
+    classes_pass Kanabol.Api.Tests 17 TaskMoveEndpointTests TasksEndpointTests TaskEstimateEndpointTests TaskPauseEndpointTests
 }
 
 # MUT, the admin's: Backlog, Analiză (the project's own, right after it), În lucru, În pauză, Review, Gata.
@@ -555,8 +558,8 @@ new_task_in() { # new_task_in <title> [JSON fields to add]: the task's id in new
   new_task=$(body_field id)
 }
 
-moved_to() { # moved_to <task id> <column id> <expected status>: with an estimate, which only În lucru takes
-  status_is "$3" "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\",\"estimatedMinutes\":60}")"
+moved_to() { # moved_to <task id> <column id> <expected status>: with an estimate and a reason, which only În lucru and În pauză take
+  status_is "$3" "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\",\"estimatedMinutes\":60,\"pauseReason\":\"Aștept\"}")"
 }
 
 a_task_starts_in_backlog() {
@@ -640,7 +643,7 @@ an_estimate_elsewhere_is_ignored() {
   a_board_to_move_on || return 1
   new_task_in 'Altundeva' || return 1
   status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_analysis\",\"estimatedMinutes\":5}")" || return 1
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Paused\",\"estimatedMinutes\":90}")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Paused\",\"estimatedMinutes\":90,\"pauseReason\":\"Aștept\"}")" || return 1
   is '' "$(estimate_of "$new_task")"
 }
 
@@ -688,6 +691,48 @@ an_onlooker_changes_no_estimate() {
   is '' "$(estimate_of "$new_task")"
 }
 
+paused_with() { # paused_with <task id> <reason as JSON>: the status of its move into În pauză
+  as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$mut_Paused\",\"pauseReason\":$2}"
+}
+
+paused_asks_for_a_reason() {
+  a_board_to_move_on || return 1
+  new_task_in 'Pauză' || return 1
+  task=$new_task
+  for reason in null '""' '"   "' '"pe două\nrânduri"' "\"$(printf 'a%.0s' $(seq 1 501))\""; do
+    status_is 400 "$(paused_with "$task" "$reason")" || return 1
+    is true "$(json "'pauseReason' in b.errors")" || return 1
+  done
+  is "$mut_Backlog||0" "$(in_db "SELECT column_id, pause_reason, (SELECT count(*) FROM task_history_entries WHERE task_id = '$task') FROM task_items WHERE id = '$task'")" || return 1
+  status_is 200 "$(paused_with "$task" '"  Aștept răspunsul clientului "')" || return 1
+  is 'Aștept răspunsul clientului' "$(json b.pauseReason)" || return 1
+  is "ColumnId:$mut_Backlog:$mut_Paused PauseReason::Aștept răspunsul clientului" "$(entries_of "$task")" || return 1
+  is 1 "$(in_db "SELECT count(DISTINCT changed_at) FROM task_history_entries WHERE task_id = '$task'")" || return 1
+  status_is 200 "$(paused_with "$new_task" "\"$(printf 'b%.0s' $(seq 1 500))\"")" >/dev/null
+}
+
+leaving_the_pause_forgets_the_reason() {
+  a_board_to_move_on || return 1
+  new_task_in 'Pe pauză' || return 1
+  task=$new_task
+  status_is 200 "$(paused_with "$task" '"Aștept"')" || return 1
+  new_task_in 'Alături' || return 1
+  status_is 200 "$(paused_with "$new_task" '"Și eu"')" || return 1
+  # A reorder there asks for nothing and keeps the reason.
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Paused\",\"position\":0}")" || return 1
+  is 'Și eu 0' "$(json "b.pauseReason + ' ' + b.position")" || return 1
+  moved_to "$task" "$mut_InProgress" 200 || return 1
+  is null "$(json b.pauseReason)" || return 1
+  is '|1' "$(in_db "SELECT pause_reason, (SELECT count(*) FROM task_history_entries WHERE task_id = '$task' AND field = 'PauseReason') FROM task_items WHERE id = '$task'")"
+}
+
+a_reason_elsewhere_is_ignored() {
+  a_board_to_move_on || return 1
+  new_task_in 'Fără pauză' || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Done\",\"pauseReason\":\"pe două\\nrânduri\"}")" || return 1
+  is '|0' "$(in_db "SELECT pause_reason, (SELECT count(*) FROM task_history_entries WHERE task_id = '$new_task' AND field = 'PauseReason') FROM task_items WHERE id = '$new_task'")"
+}
+
 task_2() {
   use_database "$api_db"
   echo "22.2 the moves"
@@ -704,6 +749,9 @@ task_2() {
   check "an estimate at creation writes no history, and the task enters În lucru without another" an_estimate_at_creation_writes_no_history
   check "PUT …/estimate changes it, takes it away before În lucru and not after" put_estimate_changes_it
   check "one who only sees the project changes no estimate" an_onlooker_changes_no_estimate
+  check "În pauză asks every entry for a reason, one line of 1 to 500, written next to the move" paused_asks_for_a_reason
+  check "leaving the pause forgets the reason without an entry, a reorder there asks for none" leaving_the_pause_forgets_the_reason
+  check "a reason sent on another move is ignored" a_reason_elsewhere_is_ignored
 }
 
 tasks=${*:-1 2}

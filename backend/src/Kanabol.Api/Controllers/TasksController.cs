@@ -180,7 +180,7 @@ public sealed class TasksController : ControllerBase
         MoveTaskRequest request,
         [FromServices] ICommandHandler<MoveTaskCommand, TaskItemDto> handler,
         CancellationToken ct) =>
-        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position, request.EstimatedMinutes), ct)).ToActionResult();
+        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position, request.EstimatedMinutes, request.PauseReason), ct)).ToActionResult();
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> ArchiveTask(

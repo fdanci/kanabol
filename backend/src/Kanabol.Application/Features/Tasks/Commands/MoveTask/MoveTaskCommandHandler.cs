@@ -14,7 +14,7 @@ namespace Kanabol.Application.Features.Tasks.Commands.MoveTask;
 /// Task.ChangedMeanwhile and changes nothing (SPEC sections 5.3 and 6.3). Only the moved task writes
 /// history, and only when its column changes. The checks go in the order of SPEC section 4.4: the request's
 /// form, the access, a column on the board, then Task.CannotMoveBack, then what the column asks for (an
-/// estimate to enter În lucru), then the versions.
+/// estimate to enter În lucru, a reason to enter În pauză), then the versions.
 /// </summary>
 public sealed class MoveTaskCommandHandler(
     IAppDbContext db,
@@ -61,6 +61,11 @@ public sealed class MoveTaskCommandHandler(
             }
         }
 
+        if (column.Kind == ColumnKind.Paused && column.Id != task.ColumnId && !TaskItem.IsAPauseReason(command.PauseReason))
+        {
+            return TaskErrors.PauseReasonRequired;
+        }
+
         var neighbours = await db.TaskItems
             .Where(other => (other.ColumnId == task.ColumnId || other.ColumnId == column.Id) && other.Id != task.Id)
             .OrderBy(other => other.Position)
@@ -77,7 +82,7 @@ public sealed class MoveTaskCommandHandler(
             PlaceInOrder(neighbours.Where(other => other.ColumnId == task.ColumnId), except: task);
         }
 
-        task.MoveTo(column, place, currentUser.Id, now);
+        task.MoveTo(column, place, currentUser.Id, now, command.PauseReason);
 
         try
         {

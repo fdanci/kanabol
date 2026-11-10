@@ -26,6 +26,7 @@ export function aTask(extra: Partial<TaskItemDto> = {}): TaskItemDto {
     columnId: 'c1',
     columnName: 'De făcut',
     position: 0,
+    pauseReason: null,
     completedAt: null,
     archivedAt: null,
     createdAt: '2026-11-05T08:00:00Z',

@@ -26,6 +26,7 @@ public sealed record TaskItemDto(
     Guid ColumnId,
     string ColumnName,
     int Position,
+    string? PauseReason,
     DateTimeOffset? CompletedAt,
     DateTimeOffset? ArchivedAt,
     DateTimeOffset CreatedAt,

@@ -25,8 +25,9 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
     private Guid _backlog;
     private Guid _analysis;
 
+    // With a reason, which only În pauză asks for (SPEC section 4.4).
     private Task<Result<TaskItemDto>> Move(Guid taskId, Guid columnId, int? position = null) =>
-        Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(taskId, columnId, position));
+        Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(taskId, columnId, position, PauseReason: "Aștept"));
 
     private static Guid InProgress(Project project) => project.Columns.Single(column => column.Kind == ColumnKind.InProgress).Id;
 
@@ -231,7 +232,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         result.Error.Should().Be(TaskErrors.CannotMoveBack);
         (await Board(project)).Should().Be(before);
-        (await Stored(tasks["A"].Id))!.History.Should().ContainSingle("only the move into the column it's in");
+        (await Stored(tasks["A"].Id))!.History.Should().ContainSingle(entry => entry.Field == "ColumnId", "only the move into the column it's in");
     }
 
     [Theory]

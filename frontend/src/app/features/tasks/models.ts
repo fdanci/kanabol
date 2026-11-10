@@ -29,6 +29,8 @@ export interface TaskItemDto {
   columnId: string;
   columnName: string;
   position: number;
+  /** Why the task is in În pauză, while it's there (docs/SPEC.md §4.4). */
+  pauseReason: string | null;
   completedAt: string | null;
   archivedAt: string | null;
   createdAt: string;
