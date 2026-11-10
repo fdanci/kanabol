@@ -19,6 +19,10 @@ public static class TaskRuleExtensions
     public static IRuleBuilderOptions<T, TaskPriority> IsATaskPriority<T>(this IRuleBuilderInitial<T, TaskPriority> rule) =>
         rule.IsInEnum();
 
+    /// <summary>From a quarter of an hour to 1,000 hours, in whole minutes, when there's one (SPEC section 4.4).</summary>
+    public static IRuleBuilderOptions<T, int?> IsAnEstimate<T>(this IRuleBuilderInitial<T, int?> rule) =>
+        rule.InclusiveBetween(TaskItem.MinEstimateMinutes, TaskItem.MaxEstimateMinutes);
+
     /// <summary>Each person once (SPEC section 4.4). Whether they are active members is the handler's to check.</summary>
     public static IRuleBuilderOptions<T, IReadOnlyList<Guid>> AreAssigneesEachOnce<T>(this IRuleBuilderInitial<T, IReadOnlyList<Guid>> rule) =>
         rule

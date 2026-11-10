@@ -17,6 +17,11 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// <summary>Markdown for a task, not a document: about ten pages of text.</summary>
     public const int MaxDescriptionLength = 20_000;
 
+    /// <summary>An estimate goes from a quarter of an hour to 1,000 hours, in whole minutes (SPEC section 4.4).</summary>
+    public const int MinEstimateMinutes = 15;
+
+    public const int MaxEstimateMinutes = 60_000;
+
     private readonly List<Comment> _comments = [];
     private readonly List<Attachment> _attachments = [];
     private readonly List<TaskHistoryEntry> _history = [];
@@ -61,6 +66,9 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public Guid? ArchivedById { get; private set; }
 
+    /// <summary>How long the work should take, in minutes; asked for when the task first enters În lucru.</summary>
+    public int? EstimatedMinutes { get; private set; }
+
     public IReadOnlyCollection<Comment> Comments => _comments;
 
     public IReadOnlyCollection<Attachment> Attachments => _attachments;
@@ -74,7 +82,8 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// A new task in an open project, with the number the database took from the project's counter
     /// (ITaskNumbers). One created straight into Gata is completed at once, and one created for
     /// people is assigned to them, which they hear of like any assignment (SPEC section 4.3). Whether they
-    /// are active members is the handler's to check first.
+    /// are active members is the handler's to check first. An estimate given here writes no history, as
+    /// nothing of a creation does.
     /// </summary>
     public static TaskItem Create(
         Project project,
@@ -87,7 +96,8 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         IReadOnlyCollection<Guid> assigneeIds,
         DateTimeOffset? dueDate,
         Guid createdById,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        int? estimatedMinutes = null)
     {
         if (project.ArchivedAt is not null)
         {
@@ -102,12 +112,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         ArgumentOutOfRangeException.ThrowIfLessThan(number, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(position);
         EnsureEachOnce(assigneeIds);
+        EnsureAnEstimate(estimatedMinutes);
 
         var task = new TaskItem(project, column, title, description, priority, position)
         {
             Number = number,
             DueDate = dueDate?.ToUniversalTime(),
             CompletedAt = column.Kind == ColumnKind.Done ? now : null,
+            EstimatedMinutes = estimatedMinutes,
         };
         task._assignees.AddRange(assigneeIds.Select(userId => new TaskAssignee(task.Id, userId, createdById, now)));
         task.Raise(new TaskCreatedEvent(task.Id, project.Id, task.Number, createdById));
@@ -191,6 +203,24 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Record(TaskHistoryFields.DueDate, Format(DueDate), Format(utc), changedById, now);
         DueDate = utc;
         Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.DueDate, changedById));
+    }
+
+    /// <summary>
+    /// Another estimate, or none (SPEC section 4.4): each change is an EstimatedMinutes entry, the minutes as
+    /// text, and the board hears of it. Whether none is allowed, only before the task first entered În lucru,
+    /// is the handler's to check, since it reads the history.
+    /// </summary>
+    public void SetEstimate(int? minutes, Guid changedById, DateTimeOffset now)
+    {
+        EnsureAnEstimate(minutes);
+        if (minutes == EstimatedMinutes)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.EstimatedMinutes, FormatMinutes(EstimatedMinutes), FormatMinutes(minutes), changedById, now);
+        EstimatedMinutes = minutes;
+        Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.EstimatedMinutes, changedById));
     }
 
     /// <summary>
@@ -334,6 +364,17 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// <summary>Sorted as text and separated by commas, and empty for nobody, so a list reads the same however it was given.</summary>
     private static string FormatIds(IEnumerable<Guid> ids) =>
         string.Join(',', ids.Select(id => id.ToString()).Order(StringComparer.Ordinal));
+
+    private static void EnsureAnEstimate(int? minutes)
+    {
+        if (minutes is { } value)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, MinEstimateMinutes, nameof(minutes));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, MaxEstimateMinutes, nameof(minutes));
+        }
+    }
+
+    private static string? FormatMinutes(int? minutes) => minutes?.ToString(CultureInfo.InvariantCulture);
 
     private static void EnsureEachOnce(IReadOnlyCollection<Guid> assigneeIds)
     {

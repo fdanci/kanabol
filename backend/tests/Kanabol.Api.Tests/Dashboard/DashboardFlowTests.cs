@@ -99,7 +99,7 @@ public sealed class DashboardFlowTests(ApiFixture api) : ProjectApiTest(api)
         await Expect(await Send(HttpMethod.Post, $"/api/tasks/{taskId}/restore", anaToken), HttpStatusCode.OK);
         (await PanelOf(danToken)).Should().Be(new Panel(0, 0, 1, 2));
 
-        await Expect(await Send(HttpMethod.Patch, $"/api/tasks/{taskId}/position", anaToken, new { columnId = InProgressColumnOf(kan) }), HttpStatusCode.OK);
+        await Expect(await Send(HttpMethod.Patch, $"/api/tasks/{taskId}/position", anaToken, new { columnId = InProgressColumnOf(kan), estimatedMinutes = 60 }), HttpStatusCode.OK);
         (await PanelOf(danToken)).Should().Be(new Panel(1, 1, 0, 2));
     }
 

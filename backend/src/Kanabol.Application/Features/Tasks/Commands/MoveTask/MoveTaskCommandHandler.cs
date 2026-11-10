@@ -13,7 +13,8 @@ namespace Kanabol.Application.Features.Tasks.Commands.MoveTask;
 /// saved with its version, so of two moves through the same column at once the second gets 409
 /// Task.ChangedMeanwhile and changes nothing (SPEC sections 5.3 and 6.3). Only the moved task writes
 /// history, and only when its column changes. The checks go in the order of SPEC section 4.4: the request's
-/// form, the access, a column on the board, then Task.CannotMoveBack, then the versions.
+/// form, the access, a column on the board, then Task.CannotMoveBack, then what the column asks for (an
+/// estimate to enter În lucru), then the versions.
 /// </summary>
 public sealed class MoveTaskCommandHandler(
     IAppDbContext db,
@@ -42,6 +43,24 @@ public sealed class MoveTaskCommandHandler(
             return TaskErrors.CannotMoveBack;
         }
 
+        var now = clock.UtcNow;
+        if (column.Kind == ColumnKind.InProgress && column.Id != task.ColumnId)
+        {
+            if (command.EstimatedMinutes is { } minutes)
+            {
+                if (minutes is < TaskItem.MinEstimateMinutes or > TaskItem.MaxEstimateMinutes)
+                {
+                    return TaskErrors.EstimateOutOfLimits;
+                }
+
+                task.SetEstimate(minutes, currentUser.Id, now);
+            }
+            else if (task.EstimatedMinutes is null)
+            {
+                return TaskErrors.EstimateRequired;
+            }
+        }
+
         var neighbours = await db.TaskItems
             .Where(other => (other.ColumnId == task.ColumnId || other.ColumnId == column.Id) && other.Id != task.Id)
             .OrderBy(other => other.Position)
@@ -58,7 +77,7 @@ public sealed class MoveTaskCommandHandler(
             PlaceInOrder(neighbours.Where(other => other.ColumnId == task.ColumnId), except: task);
         }
 
-        task.MoveTo(column, place, currentUser.Id, clock.UtcNow);
+        task.MoveTo(column, place, currentUser.Id, now);
 
         try
         {

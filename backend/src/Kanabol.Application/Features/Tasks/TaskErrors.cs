@@ -27,6 +27,23 @@ public static class TaskErrors
     public static readonly Error CannotMoveBack =
         Error.Conflict("Task.CannotMoveBack", "A task started in În lucru doesn't go back to a column before it.");
 
+    /// <summary>A task without an estimate enters În lucru only with one (SPEC section 4.4).</summary>
+    public static readonly Error EstimateRequired = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["EstimatedMinutes"] = ["A task enters În lucru with an estimate, from 15 to 60,000 minutes."],
+    });
+
+    public static readonly Error EstimateOutOfLimits = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["EstimatedMinutes"] = ["An estimate is from 15 to 60,000 minutes."],
+    });
+
+    /// <summary>A task that entered În lucru once keeps an estimate (SPEC section 4.4).</summary>
+    public static readonly Error EstimateKept = Error.Validation(new Dictionary<string, string[]>
+    {
+        ["EstimatedMinutes"] = ["A task that entered În lucru keeps an estimate."],
+    });
+
     public static readonly Error AssigneeNotAMember = Error.Validation(new Dictionary<string, string[]>
     {
         ["AssigneeIds"] = ["Only active members of the project can be assigned."],

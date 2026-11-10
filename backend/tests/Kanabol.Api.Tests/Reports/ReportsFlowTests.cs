@@ -58,8 +58,9 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
     private static async Task Expect(HttpResponseMessage response, HttpStatusCode status) =>
         response.StatusCode.Should().Be(status, await response.Content.ReadAsStringAsync());
 
+    // With an estimate, which only an entry into În lucru takes (SPEC section 4.4).
     private Task Move(string token, Guid task, Guid columnId) =>
-        Send(HttpMethod.Patch, $"/api/tasks/{task}/position", token, new { columnId }).ContinueWith(sent => Expect(sent.Result, HttpStatusCode.OK)).Unwrap();
+        Send(HttpMethod.Patch, $"/api/tasks/{task}/position", token, new { columnId, estimatedMinutes = 60 }).ContinueWith(sent => Expect(sent.Result, HttpStatusCode.OK)).Unwrap();
 
     /// <summary>A day either side of now, for the project, as the page asks for it.</summary>
     private async Task<Numbers> NumbersOf(string token, Project project)

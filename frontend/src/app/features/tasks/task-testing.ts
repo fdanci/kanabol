@@ -21,6 +21,7 @@ export function aTask(extra: Partial<TaskItemDto> = {}): TaskItemDto {
     description: null,
     priority: 'Medium',
     dueDate: null,
+    estimatedMinutes: null,
     assignees: [],
     columnId: 'c1',
     columnName: 'De făcut',

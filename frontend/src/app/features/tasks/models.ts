@@ -23,6 +23,8 @@ export interface TaskItemDto {
   description: string | null;
   priority: TaskPriority;
   dueDate: string | null;
+  /** Minutes, from 15 to 60,000, or none (docs/SPEC.md §4.4). */
+  estimatedMinutes: number | null;
   assignees: TaskPersonDto[];
   columnId: string;
   columnName: string;
@@ -138,7 +140,10 @@ export interface NewTask {
   title: string;
   description: string | null;
   priority: TaskPriority;
+  /** Only Backlog, the column a task starts in (docs/SPEC.md §4.4). */
   columnId?: string | null;
   assigneeIds?: string[];
   dueDate?: string | null;
+  /** Minutes, from 15 to 60,000; optional at creation. */
+  estimatedMinutes?: number | null;
 }

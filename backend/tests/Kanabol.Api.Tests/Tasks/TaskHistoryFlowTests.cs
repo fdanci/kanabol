@@ -90,17 +90,23 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/priority", new { priority = "High" });
         await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/due-date", new { dueDate = due });
         await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/assignees", new { assigneeIds = new[] { member.Id } });
-        await Sent(HttpStatusCode.OK, token, HttpMethod.Patch, $"/api/tasks/{taskId}/position", new { columnId = columns[1].Id });
+        // Into În lucru with its estimate, which the history writes next to the move (SPEC section 4.4).
+        await Sent(HttpStatusCode.OK, token, HttpMethod.Patch, $"/api/tasks/{taskId}/position", new { columnId = columns[1].Id, estimatedMinutes = 120 });
         await Sent(HttpStatusCode.NoContent, token, HttpMethod.Delete, $"/api/tasks/{taskId}");
         await Sent(HttpStatusCode.OK, token, HttpMethod.Post, $"/api/tasks/{taskId}/restore");
 
         var (entries, total) = await HistoryOf(taskId, token);
 
-        total.Should().Be(8);
+        total.Should().Be(9);
+        // The move and the estimate have one moment, so they come by their ids, either way round.
         entries.Select(entry => Text(entry, "field")).Should().Equal(
-            "ArchivedAt", "ArchivedAt", "ColumnId", "Assignees", "DueDate", "Priority", "Description", "Title");
-        var (restored, archived, moved, assigned, scheduled, prioritized, described, renamed) =
-            (entries[0], entries[1], entries[2], entries[3], entries[4], entries[5], entries[6], entries[7]);
+            "ArchivedAt", "ArchivedAt", Text(entries[2], "field"), Text(entries[3], "field"), "Assignees", "DueDate", "Priority", "Description", "Title");
+        var moved = entries.Single(entry => Text(entry, "field") == "ColumnId");
+        var estimated = entries.Single(entry => Text(entry, "field") == "EstimatedMinutes");
+        var (restored, archived, assigned, scheduled, prioritized, described, renamed) =
+            (entries[0], entries[1], entries[4], entries[5], entries[6], entries[7], entries[8]);
+        (Text(estimated, "oldValue"), Text(estimated, "newValue")).Should().Be((null, "120"));
+        estimated.GetProperty("changedAt").GetDateTimeOffset().Should().Be(moved.GetProperty("changedAt").GetDateTimeOffset());
         (Text(restored, "oldValue"), Text(restored, "newValue")).Should().Be((Text(archived, "newValue"), null));
         Text(archived, "oldValue").Should().BeNull();
         (Text(moved, "oldValue"), Text(moved, "newValue")).Should().Be((columns[0].Id.ToString(), columns[1].Id.ToString()));
@@ -112,7 +118,7 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         (Text(described, "oldValue"), Text(described, "newValue")).Should().Be((null, null));
         (Text(renamed, "oldValue"), Text(renamed, "newValue")).Should().Be(("Login SSO", "Login cu SSO"));
         renamed.GetProperty("changedBy").GetProperty("userId").GetGuid().Should().Be(member.Id);
-        entries.Skip(2).Take(4).Should().OnlyContain(entry => entry.GetProperty("changedBy").GetProperty("userId").GetGuid() == owner.Id);
+        entries.Skip(2).Take(5).Should().OnlyContain(entry => entry.GetProperty("changedBy").GetProperty("userId").GetGuid() == owner.Id);
     }
 
     [Fact]

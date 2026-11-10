@@ -906,7 +906,7 @@ archiving_and_restoring_it_takes_it_out_and_back() {
 reopening_it_and_moving_its_deadline_count_again() {
   a_live_task_is_ready || return 1
   # Out of Gata to În lucru, which opens it again: never back before it (group 22).
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$live_task/position" "{\"columnId\":\"$pan_doing\"}")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$live_task/position" "{\"columnId\":\"$pan_doing\",\"estimatedMinutes\":60}")" || return 1
   dans_numbers_are '4 2 1 2' || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/tasks/$live_task/due-date" "{\"dueDate\":\"$future\"}")" || return 1
   dans_numbers_are '4 1 1 2'

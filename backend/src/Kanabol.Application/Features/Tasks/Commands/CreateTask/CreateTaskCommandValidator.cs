@@ -10,5 +10,6 @@ public sealed class CreateTaskCommandValidator : AbstractValidator<CreateTaskCom
         RuleFor(command => command.Description).IsATaskDescription();
         RuleFor(command => command.Priority).IsATaskPriority();
         RuleFor(command => command.AssigneeIds).AreAssigneesEachOnce();
+        RuleFor(command => command.EstimatedMinutes).IsAnEstimate();
     }
 }

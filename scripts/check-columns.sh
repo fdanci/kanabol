@@ -23,8 +23,12 @@
 #      too) or another project's answers 400 on columnId and takes no number; a task in În lucru, În pauză
 #      or Gata goes back neither to Backlog nor to a column of the project's own before În lucru (409
 #      Task.CannotMoveBack, nothing moved, no history), but goes from Gata to În lucru, open again, and
-#      between the columns before În lucru both ways; a column of another project is 400 before the 409.
-#      Docker, PostgreSQL.
+#      between the columns before În lucru both ways; a column of another project is 400 before the 409. The
+#      estimate: a task without one enters În lucru only with one (400 on estimatedMinutes otherwise,
+#      nothing moved), 15 to 60,000 minutes, which writes EstimatedMinutes next to the move, at its moment;
+#      sent on any other move it's ignored, whatever it holds; optional at creation, without history; PUT
+#      …/estimate changes it with its entry, takes it away before În lucru but not after (400), is 403 for
+#      one who only sees the project. Docker, PostgreSQL.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -373,9 +377,11 @@ an_old_database_with_four_kinds_of_boards() {
   is 12 "$(in_db 'SELECT count(*) FROM board_columns')"
 }
 
+# AddColumnKinds among the migrations applied, and the newest of the code the last of them.
 api_migrates_the_old_database() {
   api_is_up || return 1
-  is AddColumnKinds "$(in_db 'SELECT migration_id FROM "__EFMigrationsHistory" ORDER BY migration_id DESC LIMIT 1' | sed 's/^[0-9]*_//')"
+  newest=$(ls backend/src/Kanabol.Infrastructure/Persistence/Migrations | sed -n 's/^\([0-9]*_[A-Za-z0-9]*\)\.cs$/\1/p' | sort | tail -n 1)
+  is "1|$newest" "$(in_db "SELECT count(*) FILTER (WHERE migration_id LIKE '%_AddColumnKinds'), max(migration_id) FROM \"__EFMigrationsHistory\"")"
 }
 
 every_board_has_the_fixed_columns() {
@@ -522,9 +528,9 @@ task_1() {
 # ---- Task 2: the moves.
 
 move_tests_pass() {
-  classes_pass Kanabol.Domain.Tests 15 ColumnOrderTests &&
-    classes_pass Kanabol.Application.Tests 35 MoveTaskCommandHandlerTests CreateTaskCommandHandlerTests &&
-    classes_pass Kanabol.Api.Tests 10 TaskMoveEndpointTests TasksEndpointTests
+  classes_pass Kanabol.Domain.Tests 25 ColumnOrderTests TaskEstimateTests &&
+    classes_pass Kanabol.Application.Tests 55 MoveTaskCommandHandlerTests CreateTaskCommandHandlerTests TaskEstimateCommandHandlerTests &&
+    classes_pass Kanabol.Api.Tests 15 TaskMoveEndpointTests TasksEndpointTests TaskEstimateEndpointTests
 }
 
 # MUT, the admin's: Backlog, Analiză (the project's own, right after it), În lucru, În pauză, Review, Gata.
@@ -549,8 +555,8 @@ new_task_in() { # new_task_in <title> [JSON fields to add]: the task's id in new
   new_task=$(body_field id)
 }
 
-moved_to() { # moved_to <task id> <column id> <expected status>
-  status_is "$3" "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\"}")"
+moved_to() { # moved_to <task id> <column id> <expected status>: with an estimate, which only În lucru takes
+  status_is "$3" "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\",\"estimatedMinutes\":60}")"
 }
 
 a_task_starts_in_backlog() {
@@ -581,7 +587,7 @@ no_task_goes_back_before_in_progress() {
     for back in "$mut_Backlog" "$mut_analysis"; do
       code_is 409 Task.CannotMoveBack "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$back\",\"position\":0}")" || return 1
     done
-    is "$from|1" "$(in_db "SELECT column_id, (SELECT count(*) FROM task_history_entries WHERE task_id = '$task') FROM task_items WHERE id = '$task'")" || return 1
+    is "$from|1" "$(in_db "SELECT column_id, (SELECT count(*) FROM task_history_entries WHERE task_id = '$task' AND field = 'ColumnId') FROM task_items WHERE id = '$task'")" || return 1
   done
 }
 
@@ -606,6 +612,82 @@ a_wrong_column_is_said_before_the_409() {
   status_is 400 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Backlog\",\"position\":-1}")"
 }
 
+estimate_of() { # estimate_of <task id>: its minutes, empty for none
+  in_db "SELECT estimated_minutes FROM task_items WHERE id = '$1'"
+}
+
+entries_of() { # entries_of <task id>: its history, field:old:new, the oldest first
+  in_db "SELECT string_agg(field || ':' || coalesce(old_value, '') || ':' || coalesce(new_value, ''), ' ' ORDER BY changed_at, field) FROM task_history_entries WHERE task_id = '$1'"
+}
+
+in_progress_asks_for_an_estimate() {
+  a_board_to_move_on || return 1
+  new_task_in 'Fără estimare' || return 1
+  task=$new_task
+  status_is 400 "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$mut_InProgress\"}")" || return 1
+  is true "$(json "'estimatedMinutes' in b.errors")" || return 1
+  for minutes in 14 60001; do
+    status_is 400 "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$mut_InProgress\",\"estimatedMinutes\":$minutes}")" || return 1
+  done
+  is "$mut_Backlog||" "$(in_db "SELECT column_id, estimated_minutes, (SELECT string_agg(field, ',') FROM task_history_entries WHERE task_id = '$task') FROM task_items WHERE id = '$task'")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$mut_InProgress\",\"estimatedMinutes\":240}")" || return 1
+  is '240 În lucru' "$(json "b.estimatedMinutes + ' ' + b.columnName")" || return 1
+  is "ColumnId:$mut_Backlog:$mut_InProgress EstimatedMinutes::240" "$(entries_of "$task")" || return 1
+  is 1 "$(in_db "SELECT count(DISTINCT changed_at) FROM task_history_entries WHERE task_id = '$task'")"
+}
+
+an_estimate_elsewhere_is_ignored() {
+  a_board_to_move_on || return 1
+  new_task_in 'Altundeva' || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_analysis\",\"estimatedMinutes\":5}")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_Paused\",\"estimatedMinutes\":90}")" || return 1
+  is '' "$(estimate_of "$new_task")"
+}
+
+an_estimate_at_creation_writes_no_history() {
+  a_board_to_move_on || return 1
+  new_task_in 'Estimat' '"estimatedMinutes":90' || return 1
+  is '90|0' "$(in_db "SELECT estimated_minutes, (SELECT count(*) FROM task_history_entries WHERE task_id = '$new_task') FROM task_items WHERE id = '$new_task'")" || return 1
+  status_is 400 "$(as "$admin_token" POST "/api/projects/$mut/tasks" '{"title":"Prea puțin","priority":"Low","estimatedMinutes":10}')" || return 1
+  is true "$(json "'estimatedMinutes' in b.errors")" || return 1
+  # With one already, it enters În lucru without another.
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$mut_InProgress\"}")" || return 1
+  is 90 "$(estimate_of "$new_task")"
+}
+
+put_estimate_changes_it() {
+  a_board_to_move_on || return 1
+  new_task_in 'Schimbat' '"estimatedMinutes":60' || return 1
+  task=$new_task
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$task/estimate" '{"estimatedMinutes":120}')" || return 1
+  is 120 "$(json b.estimatedMinutes)" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/tasks/$task/estimate" '{"estimatedMinutes":null}')" || return 1
+  is null "$(json b.estimatedMinutes)" || return 1
+  is 'EstimatedMinutes:60:120 EstimatedMinutes:120:' "$(entries_of "$task")" || return 1
+  status_is 400 "$(as "$admin_token" PUT "/api/tasks/$task/estimate" '{"estimatedMinutes":14}')" || return 1
+  moved_to "$task" "$mut_InProgress" 200 && moved_to "$task" "$mut_Done" 200 || return 1
+  status_is 400 "$(as "$admin_token" PUT "/api/tasks/$task/estimate" '{"estimatedMinutes":null}')" || return 1
+  is true "$(json "'estimatedMinutes' in b.errors")" || return 1
+  is 60 "$(estimate_of "$task")"
+}
+
+an_onlooker_changes_no_estimate() {
+  a_board_to_move_on || return 1
+  [ -n "${viewer_token:-}" ] || {
+    status_is 201 "$(as "$admin_token" POST /api/roles '{"name":"Privitor","permissions":["projects.view_all"]}')" || return 1
+    role=$(body_field id)
+    status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"vera@example.com\",\"displayName\":\"Vera Privitor\",\"roleId\":\"$role\",\"initialPassword\":\"$admin_password\"}")" || return 1
+    status_is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.78.0.2' \
+      -d "{\"email\":\"vera@example.com\",\"password\":\"$admin_password\"}")" || return 1
+    status_is 200 "$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
+      -H 'Content-Type: application/json' -d "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"parola Verei pentru coloane\"}")" || return 1
+    viewer_token=$(body_field accessToken)
+  }
+  new_task_in 'Privit' || return 1
+  code_is 403 Project.MemberRequired "$(as "$viewer_token" PUT "/api/tasks/$new_task/estimate" '{"estimatedMinutes":60}')" || return 1
+  is '' "$(estimate_of "$new_task")"
+}
+
 task_2() {
   use_database "$api_db"
   echo "22.2 the moves"
@@ -617,6 +699,11 @@ task_2() {
   check "from În lucru or after, never back before it: 409 Task.CannotMoveBack, no history" no_task_goes_back_before_in_progress
   check "before În lucru both ways, and out of Gata to În lucru, open again" it_goes_forward_and_back_to_in_progress
   check "a column of another project, or a wrong place, is 400 before the 409" a_wrong_column_is_said_before_the_409
+  check "În lucru asks a task without an estimate for one, 15 to 60,000, written next to the move" in_progress_asks_for_an_estimate
+  check "an estimate sent on another move is ignored" an_estimate_elsewhere_is_ignored
+  check "an estimate at creation writes no history, and the task enters În lucru without another" an_estimate_at_creation_writes_no_history
+  check "PUT …/estimate changes it, takes it away before În lucru and not after" put_estimate_changes_it
+  check "one who only sees the project changes no estimate" an_onlooker_changes_no_estimate
 }
 
 tasks=${*:-1 2}

@@ -68,7 +68,8 @@ public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api
         var (_, dan, anaToken, danToken, project, taskId) = await ABoardWithATask();
         var anasBoard = await OnTheBoard(anaToken, project);
         var dansTab = await Connect(danToken);
-        var target = project.Columns.Single(column => column.Position == 1);
+        // Gata asks for nothing; În lucru would want an estimate, and the board would hear of it first.
+        var target = project.Columns.Single(column => column.Kind == Kanabol.Domain.Projects.ColumnKind.Done);
 
         (await SendFrom(dansTab, HttpMethod.Patch, $"/api/tasks/{taskId}/position", danToken, new { columnId = target.Id, position = 0 }))
             .StatusCode.Should().Be(HttpStatusCode.OK);

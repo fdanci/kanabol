@@ -719,8 +719,9 @@ creates_the_board_project() {
   todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 0")
   doing=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 1")
   done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND kind = 'Done'")
+  # With an estimate, so they enter În lucru without one and their history holds only the moves (group 22).
   for title in A B C D; do
-    status_is 201 "$(as "$admin_token" POST "$(tasks_of "$brd_id")" "{\"title\":\"$title\",\"priority\":\"Low\"}")" || return 1
+    status_is 201 "$(as "$admin_token" POST "$(tasks_of "$brd_id")" "{\"title\":\"$title\",\"priority\":\"Low\",\"estimatedMinutes\":60}")" || return 1
     eval "task_$title=\$(body_field id)"
   done
   [ -n "$task_D" ] && [ -n "$doing" ]

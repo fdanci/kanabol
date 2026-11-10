@@ -54,7 +54,8 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
     /// <summary>
     /// A, B and C in Backlog, D and E in Analiză, the project's own column right after it, nothing in În lucru,
-    /// În pauză or Gata. Every task starts in Backlog, so D and E move to Analiză.
+    /// În pauză or Gata. Every task starts in Backlog, so D and E move to Analiză, and each has an estimate, so it
+    /// enters În lucru without one sent.
     /// </summary>
     private async Task<(User Owner, Project Project, Dictionary<string, TaskItemDto> Tasks)> ABoard()
     {
@@ -67,7 +68,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
         var tasks = new Dictionary<string, TaskItemDto>();
         foreach (var title in new[] { "A", "B", "C", "D", "E" })
         {
-            tasks[title] = (await Create(NewTask(project, title))).Value;
+            tasks[title] = (await Create(NewTask(project, title) with { EstimatedMinutes = 60 })).Value;
         }
 
         foreach (var title in new[] { "D", "E" })

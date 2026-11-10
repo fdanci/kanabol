@@ -866,7 +866,8 @@ entries_in_db() { # entries_in_db <task id>: how many rows its history has
 # Each method of TaskItem that changes it, through its endpoint on the real API, as the admin, who holds
 # tasks.archive: one entry each, from the newest, and the restore undoes the very moment archived.
 every_change_on_the_real_api_writes_its_entry() {
-  a_new_task 'Fiecare schimbare' || return 1
+  # With an estimate, so it enters În lucru without one and the move is one entry (group 22).
+  a_new_task 'Fiecare schimbare' '"estimatedMinutes":60' || return 1
   task=$new_task
   status_is 200 "$(as "$dan_token" PUT "/api/tasks/$task/title" '{"title":"Fiecare schimbare, redenumit"}')" || return 1
   status_is 200 "$(as "$dan_token" PUT "/api/tasks/$task/description" '{"description":"Cu **Azure AD**"}')" || return 1

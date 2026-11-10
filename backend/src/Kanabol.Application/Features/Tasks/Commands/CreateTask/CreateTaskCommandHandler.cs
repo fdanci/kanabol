@@ -77,7 +77,8 @@ public sealed class CreateTaskCommandHandler(
                     command.AssigneeIds,
                     command.DueDate,
                     currentUser.Id,
-                    now);
+                    now,
+                    command.EstimatedMinutes);
             },
             ct);
 

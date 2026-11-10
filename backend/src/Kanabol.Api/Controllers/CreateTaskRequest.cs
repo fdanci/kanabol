@@ -3,11 +3,15 @@ using Kanabol.Domain.Tasks;
 
 namespace Kanabol.Api.Controllers;
 
-/// <summary>Without columnId, the task starts in the board's first column, and without assigneeIds it's nobody's. Priority goes over the wire as its name.</summary>
+/// <summary>
+/// The task starts in Backlog: a columnId, when given, has to be it. Without assigneeIds it's nobody's, and the
+/// estimate is optional. Priority goes over the wire as its name.
+/// </summary>
 public sealed record CreateTaskRequest(
     string Title,
     string? Description,
     [property: JsonConverter(typeof(JsonStringEnumConverter<TaskPriority>))] TaskPriority Priority,
     Guid? ColumnId,
     IReadOnlyList<Guid>? AssigneeIds,
-    DateTimeOffset? DueDate);
+    DateTimeOffset? DueDate,
+    int? EstimatedMinutes);

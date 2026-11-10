@@ -383,8 +383,8 @@ a_task_in() { # a_task_in <project id> <title> <JSON fields to add>
   new_task=$(body_field id)
 }
 
-moved() { # moved <task id> <column id>: by the admin, through the API
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\"}")"
+moved() { # moved <task id> <column id>: by the admin, through the API, with an estimate, which only În lucru takes
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\",\"estimatedMinutes\":60}")"
 }
 
 # The API stamps everything with now: the task's creation, its entry into a column and its completion go

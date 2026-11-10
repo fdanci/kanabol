@@ -22,7 +22,7 @@ public sealed class TaskMoveEndpointTests(ApiFixture api) : ProjectApiTest(api)
             ids.Add(created.RootElement.GetProperty("id").GetGuid());
         }
 
-        var response = await Send(HttpMethod.Patch, $"/api/tasks/{ids[1]}/position", token, new { columnId = inProgress.Id, position = 0 });
+        var response = await Send(HttpMethod.Patch, $"/api/tasks/{ids[1]}/position", token, new { columnId = inProgress.Id, position = 0, estimatedMinutes = 60 });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var body = await JsonFrom(response);
@@ -55,7 +55,7 @@ public sealed class TaskMoveEndpointTests(ApiFixture api) : ProjectApiTest(api)
         using var created = await JsonFrom(await Send(HttpMethod.Post, $"/api/projects/{project.Id}/tasks", token, new { title = "A", priority = "Low" }));
         var id = created.RootElement.GetProperty("id").GetGuid();
         var backlog = project.Columns.Single(column => column.Position == 0).Id;
-        (await Send(HttpMethod.Patch, $"/api/tasks/{id}/position", token, new { columnId = project.Columns.Single(column => column.Position == 1).Id })).StatusCode
+        (await Send(HttpMethod.Patch, $"/api/tasks/{id}/position", token, new { columnId = project.Columns.Single(column => column.Position == 1).Id, estimatedMinutes = 60 })).StatusCode
             .Should().Be(HttpStatusCode.OK);
 
         var response = await Send(HttpMethod.Patch, $"/api/tasks/{id}/position", token, new { columnId = backlog });

@@ -979,6 +979,7 @@ Has("read_at timestamp with time zone");
 Has("changed_at timestamp with time zone NOT NULL");
 // The column's kind, in place of is_done since group 22, each fixed one once per project (docs/SPEC.md §4.4).
 Has("kind text NOT NULL");
+Has("estimated_minutes integer");
 Has("CREATE UNIQUE INDEX ux_board_columns_project_id_kind ON board_columns (project_id, kind) WHERE kind <> 'Custom'");
 Check.That(!script.Contains("is_done"), "a column has a kind, not is_done");
 Has("size bigint NOT NULL");

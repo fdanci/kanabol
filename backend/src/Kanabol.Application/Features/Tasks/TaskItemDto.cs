@@ -21,6 +21,7 @@ public sealed record TaskItemDto(
     string? Description,
     [property: JsonConverter(typeof(JsonStringEnumConverter<TaskPriority>))] TaskPriority Priority,
     DateTimeOffset? DueDate,
+    int? EstimatedMinutes,
     IReadOnlyList<TaskPersonDto> Assignees,
     Guid ColumnId,
     string ColumnName,

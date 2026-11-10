@@ -330,7 +330,7 @@ task() {
     made "task $(field key) $title"
     # A task starts in Backlog (group 22), then goes to its column, forward.
     if [ "$position" -gt 0 ]; then
-      status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(column_at "$project" "$position")\",\"position\":null}")
+      status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(column_at "$project" "$position")\",\"position\":null,\"estimatedMinutes\":240}")
       expect 200 -- "$key into its column"
     fi
   fi

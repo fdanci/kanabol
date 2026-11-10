@@ -425,7 +425,7 @@ a_done_column_completes_its_tasks() {
   status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$done_id\"}")" || return 1
   is true "$(json "b.completedAt !== null")" || return 1
   # Out of Gata a task goes to În lucru or after it, never back before it (group 22).
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$doing_id\"}")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$doing_id\",\"estimatedMinutes\":60}")" || return 1
   status_is 200 "$(as "$admin_token" GET "/api/tasks/$task_id")" || return 1
   is null "$(json "b.completedAt")"
 }

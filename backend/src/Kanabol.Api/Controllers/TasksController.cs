@@ -11,6 +11,7 @@ using Kanabol.Application.Features.Tasks.Commands.MoveTask;
 using Kanabol.Application.Features.Tasks.Commands.RenameTask;
 using Kanabol.Application.Features.Tasks.Commands.RestoreTask;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskDueDate;
+using Kanabol.Application.Features.Tasks.Commands.SetTaskEstimate;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskPriority;
 using Kanabol.Application.Features.Tasks.Queries.GetBoard;
 using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
@@ -79,7 +80,7 @@ public sealed class TasksController : ControllerBase
         CancellationToken ct)
     {
         var result = await handler.Handle(
-            new CreateTaskCommand(projectId, request.Title, request.Description, request.Priority, request.ColumnId, request.AssigneeIds ?? [], request.DueDate),
+            new CreateTaskCommand(projectId, request.Title, request.Description, request.Priority, request.ColumnId, request.AssigneeIds ?? [], request.DueDate, request.EstimatedMinutes),
             ct);
         return result.ToCreatedResult(result.IsSuccess ? $"/api/tasks/{result.Value.Id}" : "");
     }
@@ -165,13 +166,21 @@ public sealed class TasksController : ControllerBase
         CancellationToken ct) =>
         (await handler.Handle(new SetTaskDueDateCommand(id, request.DueDate), ct)).ToActionResult();
 
+    [HttpPut("{id:guid}/estimate")]
+    public async Task<IActionResult> SetTaskEstimate(
+        Guid id,
+        SetTaskEstimateRequest request,
+        [FromServices] ICommandHandler<SetTaskEstimateCommand, TaskItemDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new SetTaskEstimateCommand(id, request.EstimatedMinutes), ct)).ToActionResult();
+
     [HttpPatch("{id:guid}/position")]
     public async Task<IActionResult> MoveTask(
         Guid id,
         MoveTaskRequest request,
         [FromServices] ICommandHandler<MoveTaskCommand, TaskItemDto> handler,
         CancellationToken ct) =>
-        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position), ct)).ToActionResult();
+        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position, request.EstimatedMinutes), ct)).ToActionResult();
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> ArchiveTask(

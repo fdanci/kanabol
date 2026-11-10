@@ -14,4 +14,5 @@ public sealed record CreateTaskCommand(
     TaskPriority Priority,
     Guid? ColumnId,
     IReadOnlyList<Guid> AssigneeIds,
-    DateTimeOffset? DueDate) : ICommand<TaskItemDto>;
+    DateTimeOffset? DueDate,
+    int? EstimatedMinutes = null) : ICommand<TaskItemDto>;

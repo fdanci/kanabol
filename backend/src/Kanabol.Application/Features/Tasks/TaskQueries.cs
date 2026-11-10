@@ -48,6 +48,7 @@ public static class TaskQueries
                     task.Description,
                     task.Priority,
                     task.DueDate,
+                    task.EstimatedMinutes,
                     // PostgreSQL runs ToUpper as upper(), which takes no culture to give: the names in any case.
 #pragma warning disable CA1304, CA1311
                     Assignees = (
@@ -90,6 +91,7 @@ public static class TaskQueries
                 row.Description,
                 row.Priority,
                 row.DueDate,
+                row.EstimatedMinutes,
                 row.Assignees,
                 row.ColumnId,
                 row.ColumnName,
