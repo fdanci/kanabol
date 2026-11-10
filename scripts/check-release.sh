@@ -23,7 +23,12 @@
 #      leaving the rest of it as it was, prints the compose up command and no password, and does the same
 #      again for the same version; compose.yaml and compose.prod.yaml then run those images from the
 #      KANABOL_VERSION in .env alone, without pulling, the app answering on HTTPS and the API signing in
-#      the first admin. Docker.
+#      the first admin. Since group 21 (docs/SPEC.md §13.5): this checkout's APP_VERSION and the default
+#      tag of compose.prod.yaml are one version, and a version tag on HEAD is that one; the clone's commit
+#      sets both to the release's version, as the commit a version tags does; release.sh refuses a
+#      version that either doesn't name (another version, kanabol-web's default alone changed, APP_VERSION
+#      alone changed), each with no image, no tag and .env unchanged; and the web image it builds holds
+#      the version the sidebar shows. Docker.
 #   3  the documents and the screenshots: docs/deploy.md, docs/backup.md and docs/ui-review.md tracked; each
 #      of the 16 screens of docs/UI_UX_SPEC.md §7 (at least one per section) a tracked PNG of 1440x900 in
 #      docs/screens/, light and dark, the two unlike each other, and nothing else there; docs/ui-review.md
@@ -68,6 +73,8 @@ server="$scratch/server"
 server_project="$run_id-release"
 server_started=
 release_version="v0.0.$$"
+# A version that neither APP_VERSION nor compose.prod.yaml names in the clone.
+other_version="v0.0.$(($$ + 1))"
 compose_projects=
 
 # The probe stack's secrets, which this script makes up. None of them may show in what the scripts print.
@@ -87,7 +94,8 @@ cleanup() {
   done
   [ -z "$server_started" ] || (cd "$server" && server_compose down -v --remove-orphans >/dev/null 2>&1)
   images=$(docker images -q --filter "reference=kanabol-*:$check_tag"
-    docker images -q --filter "reference=kanabol-*:$release_version")
+    docker images -q --filter "reference=kanabol-*:$release_version"
+    docker images -q --filter "reference=kanabol-*:$other_version")
   [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
   rm -rf "$scratch"
 }
@@ -593,8 +601,42 @@ task_1() {
 
 # ---- Task 2: release.sh.
 
+# The version the sidebar shows and the one compose.prod.yaml runs without KANABOL_VERSION, which the
+# commit a version tags sets (docs/SPEC.md §13.5).
+app_version_in() { # app_version_in <folder>: APP_VERSION, X.Y.Z
+  sed -n "s/^export const APP_VERSION = '\([^']*\)';\$/\1/p" "$1/frontend/src/app/core/layout/sidenav.ts" | tr -d '\r'
+}
+
+default_tags_in() { # default_tags_in <folder>: compose.prod.yaml's default tag of each image, "api:vX.Y.Z web:vX.Y.Z"
+  sed -n -E 's/^ +image: kanabol-(api|web):\$\{KANABOL_VERSION:-([^}]*)\}$/\1:\2/p' "$1/compose.prod.yaml" |
+    tr -d '\r' | sort | tr '\n' ' ' | sed 's/ $//'
+}
+
+set_version() { # set_version <folder> <X.Y.Z>: APP_VERSION and both default tags at that version
+  sed -i "s/^export const APP_VERSION = '[^']*';\$/export const APP_VERSION = '$2';/" \
+    "$1/frontend/src/app/core/layout/sidenav.ts" || return 1
+  sed -i -E 's/^( +image: kanabol-(api|web):\$\{KANABOL_VERSION:-)[^}]*\}$/\1v'"$2"'}/' "$1/compose.prod.yaml" || return 1
+  is "$2 api:v$2 web:v$2" "$(app_version_in "$1") $(default_tags_in "$1")"
+}
+
+checkout_versions_agree() {
+  version=$(app_version_in .)
+  printf '%s' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
+    echo "no X.Y.Z APP_VERSION in frontend/src/app/core/layout/sidenav.ts: '$version'"
+    return 1
+  }
+  is "api:v$version web:v$version" "$(default_tags_in .)" || return 1
+  for tag in $(git tag -l --points-at HEAD 'v*'); do
+    is "v$version" "$tag" || {
+      echo "HEAD is tagged $tag"
+      return 1
+    }
+  done
+}
+
 # A clone as the server has it after git pull: main at this checkout's commit, origin/main on it, and the
-# release.sh of this checkout's working tree, committed in the clone if it differs.
+# release.sh of this checkout's working tree, committed in the clone if it differs, in a commit that sets
+# the release's version as the commit a version tags does.
 server_clone_is_ready() {
   [ -f "$scratch/server.env" ] && return 0
   git clone -q "$PWD" "$server" || return 1
@@ -603,9 +645,8 @@ server_clone_is_ready() {
     git checkout -q -B main HEAD || exit 1
     git config user.email release-check@kanabol.local && git config user.name 'Release check' || exit 1
     cp "$OLDPWD/scripts/release.sh" scripts/release.sh || exit 1
-    if [ -n "$(git status --porcelain)" ]; then
-      git add -A && git commit -q --no-verify -m 'test: the release.sh of the working tree' || exit 1
-    fi
+    set_version . "${release_version#v}" || exit 1
+    git add -A && git commit -q --no-verify -m "test: the release.sh of the working tree, at $release_version" || exit 1
     git update-ref refs/remotes/origin/main HEAD
   ) || return 1
   seq_hash_is_known || return 1
@@ -700,6 +741,90 @@ refuses_a_tag_elsewhere() {
   return "$status"
 }
 
+says() { # says <fixed text...>: release.log holds each
+  for text in "$@"; do
+    grep -qF -- "$text" "$scratch/release.log" || {
+      echo "release.sh didn't say: $text"
+      cat "$scratch/release.log"
+      return 1
+    }
+  done
+}
+
+says_nothing_of() { # says_nothing_of <fixed text>
+  ! grep -qF -- "$1" "$scratch/release.log" || {
+    cat "$scratch/release.log"
+    return 1
+  }
+}
+
+no_trace_of() { # no_trace_of <version>: neither image nor the git tag of that version
+  for part in api web; do
+    if docker image inspect "kanabol-$part:$1" >/dev/null 2>&1; then
+      echo "kanabol-$part:$1 was built"
+      return 1
+    fi
+  done
+  if git -C "$server" rev-parse -q --verify "refs/tags/$1" >/dev/null; then
+    echo "the tag $1 was made"
+    return 1
+  fi
+}
+
+# Whatever a release.sh that didn't refuse left, so the checks after start from the same clone.
+undo_release() { # undo_release <version>
+  git -C "$server" tag -d "$1" >/dev/null 2>&1
+  cp "$scratch/server.env" "$server/.env"
+  images=$(docker images -q --filter "reference=kanabol-*:$1")
+  [ -z "$images" ] || docker rmi -f $images >/dev/null 2>&1
+}
+
+commit_on_the_clone() { # commit_on_the_clone <message>: what changed, committed and on origin/main
+  git -C "$server" commit -q -a --no-verify -m "$1" || return 1
+  git -C "$server" update-ref refs/remotes/origin/main HEAD
+}
+
+back_to_the_clones_main() {
+  git -C "$server" reset -q --hard HEAD~1 && git -C "$server" update-ref refs/remotes/origin/main HEAD
+}
+
+# APP_VERSION and compose.prod.yaml say the release's version: another one is refused, naming both.
+refuses_another_version() {
+  refuses "APP_VERSION in frontend/src/app/core/layout/sidenav.ts is ${release_version#v}, not ${other_version#v}" \
+    "$other_version" &&
+    says "compose.prod.yaml runs kanabol-api:$release_version and kanabol-web:$release_version" &&
+    no_trace_of "$other_version"
+  status=$?
+  undo_release "$other_version"
+  return "$status"
+}
+
+refuses_another_web_default() {
+  sed -i -E 's/^( +image: kanabol-web:\$\{KANABOL_VERSION:-)[^}]*\}$/\1'"$other_version"'}/' \
+    "$server/compose.prod.yaml" || return 1
+  is "api:$release_version web:$other_version" "$(default_tags_in "$server")" || return 1
+  commit_on_the_clone "test: kanabol-web's default tag $other_version" || return 1
+  refuses "compose.prod.yaml runs kanabol-api:$release_version and kanabol-web:$other_version" "$release_version" &&
+    says "not $release_version" && says_nothing_of "APP_VERSION in"
+  status=$?
+  back_to_the_clones_main || return 1
+  undo_release "$release_version"
+  return "$status"
+}
+
+refuses_another_app_version() {
+  sed -i "s/^export const APP_VERSION = '[^']*';\$/export const APP_VERSION = '${other_version#v}';/" \
+    "$server/frontend/src/app/core/layout/sidenav.ts" || return 1
+  is "${other_version#v}" "$(app_version_in "$server")" || return 1
+  commit_on_the_clone "test: APP_VERSION ${other_version#v}" || return 1
+  refuses "APP_VERSION in frontend/src/app/core/layout/sidenav.ts is ${other_version#v}, not ${release_version#v}" \
+    "$release_version" && says_nothing_of "compose.prod.yaml runs"
+  status=$?
+  back_to_the_clones_main || return 1
+  undo_release "$release_version"
+  return "$status"
+}
+
 refuses_without_env() {
   mv "$server/.env" "$scratch/env-aside" || return 1
   release "$release_version"
@@ -727,6 +852,22 @@ images_carry_the_release() {
       '{{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}' \
       "kanabol-$part:$release_version" | tr -d '\r')" || return 1
   done
+}
+
+image_holds_version() { # image_holds_version <X.Y.Z>: a script of the web image holds it in quotes, next to the sidebar's text
+  pattern="[\"'\`]$(printf '%s' "$1" | sed 's/\./\\./g')[\"'\`]"
+  # shellcheck disable=SC2016 # the image's shell expands these
+  docker run --rm --entrypoint sh "kanabol-web:$release_version" -c \
+    'for file in $(grep -rlE "$1" /usr/share/nginx/html); do grep -qF Versiunea "$file" && echo "$file"; done' \
+    sh "$pattern" | grep -q .
+}
+
+# The sidebar's version is built into the web image: the clone's APP_VERSION, with "Versiunea {{ version }}".
+web_image_shows_the_version() {
+  image_holds_version "${release_version#v}" || {
+    echo "no script of kanabol-web:$release_version holds ${release_version#v}, the clone's APP_VERSION, with the sidebar's text"
+    return 1
+  }
 }
 
 tag_is_annotated_on_head() {
@@ -798,26 +939,40 @@ release_serves_the_app() {
 
 docs_explain_the_deploy() {
   file_has docs/deploy.md 'cp .env.example .env' POSTGRES_PASSWORD JWT_SECRET SEQ_ADMIN_HASH ADMIN_INITIAL_PASSWORD \
-    scripts/make-certs.sh 'scripts/release.sh v0.1.0' 'docker compose -f compose.yaml -f compose.prod.yaml up -d' \
+    scripts/make-certs.sh 'docker compose -f compose.yaml -f compose.prod.yaml up -d' \
     scripts/seq-retention.sh scripts/backup.sh docs/backup.md ca.crt docs/tls.md 'git pull' \
-    'scripts/release.sh v0.2.0' KANABOL_VERSION
+    'scripts/release.sh v0.2.0' KANABOL_VERSION \
+    APP_VERSION frontend/src/app/core/layout/sidenav.ts "image: kanabol-api:\${KANABOL_VERSION:-v0.2.0}" || return 1
+  # The first install names a version too.
+  grep -qE '^scripts/release\.sh v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' docs/deploy.md || {
+    echo "docs/deploy.md has no line scripts/release.sh vX.Y.Z"
+    return 1
+  }
 }
 
 task_2() {
   echo "19b.2 release.sh"
   check "release.sh is tracked as executable" tracked_and_executable scripts/release.sh
   check "dash, the server's /bin/sh, reads it" parses_as_posix_sh scripts/release.sh
-  check "docs/deploy.md gives the server's steps and the update" docs_explain_the_deploy
+  check "docs/deploy.md gives the server's steps and the update, the version set in the tagged commit" \
+    docs_explain_the_deploy
+  check "this checkout's APP_VERSION and compose.prod.yaml's default tag are one version, HEAD's tag too" \
+    checkout_versions_agree
   check "Docker is running" docker_is_running
-  check "a clean clone is on main, with origin/main on it and a .env from .env.example" server_clone_is_ready
+  check "a clean clone is on main, with origin/main on it, at $release_version, and a .env from .env.example" \
+    server_clone_is_ready
   check "it refuses a version that isn't vX.Y.Z" refuses_bad_versions
   check "it refuses changes git doesn't have, tracked or not" refuses_changes
   check "it refuses another branch" refuses_another_branch
   check "it refuses a commit origin/main doesn't have" refuses_an_unpushed_commit
   check "it refuses a tag of that version on another commit" refuses_a_tag_elsewhere
+  check "it refuses $other_version, which neither APP_VERSION nor compose.prod.yaml names" refuses_another_version
+  check "it refuses $release_version when kanabol-web's default tag alone is another" refuses_another_web_default
+  check "it refuses $release_version when APP_VERSION alone is another" refuses_another_app_version
   check "it refuses without .env" refuses_without_env
   check "release.sh $release_version builds both images" release_builds
   check "they carry the version and the commit" images_carry_the_release
+  check "the web image holds the version for the sidebar" web_image_shows_the_version
   check "the annotated tag is on HEAD" tag_is_annotated_on_head
   check ".env has KANABOL_VERSION once, the rest as it was" env_has_the_version_once
   check "it prints the compose up command" release_says_how_to_start

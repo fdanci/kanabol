@@ -50,10 +50,10 @@ Scriptul face în `certs/` CA-ul propriu și certificatul serverului. `docs/tls.
 ### 4. Imaginile
 
 ```sh
-scripts/release.sh v0.1.0
+scripts/release.sh v0.1.2
 ```
 
-`release.sh` verifică întâi că clona e pe `main`, curată și la un commit de pe `origin/main`, apoi construiește `kanabol-api:v0.1.0` și `kanabol-web:v0.1.0`, pune tag-ul git adnotat dacă lipsește (`v0.1.0` vine deja cu `git pull`) și scrie `KANABOL_VERSION=v0.1.0` în `.env`. Nu pornește nimic: la final spune comanda de la pasul următor. Prima construcție durează câteva minute.
+Versiunea e cea a commit-ului din `main`, ultimul tag (`git describe --tags`): `APP_VERSION` din `frontend/src/app/core/layout/sidenav.ts`, pe care o arată sidebar-ul, și tag-ul implicit al imaginilor din `compose.prod.yaml`. `release.sh` verifică întâi că clona e pe `main`, curată și la un commit de pe `origin/main`, și că versiunea cerută e cea din cele două fișiere, apoi construiește `kanabol-api:v0.1.2` și `kanabol-web:v0.1.2`, pune tag-ul git adnotat dacă lipsește (`v0.1.2` vine deja cu `git pull`) și scrie `KANABOL_VERSION=v0.1.2` în `.env`. Nu pornește nimic: la final spune comanda de la pasul următor. Prima construcție durează câteva minute.
 
 ### 5. Pornirea
 
@@ -92,7 +92,18 @@ Fiecare coleg importă o dată `certs/ca.crt`, după `docs/tls.md`. `certs/ca.ke
 
 ## Actualizarea la o versiune nouă
 
-Pe calculatorul de lucru, versiunea nouă intră în `main` după gate (`docs/SPEC.md` §14), cu tag-ul ei împins:
+Pe calculatorul de lucru, versiunea nouă intră în `main` după gate (`docs/SPEC.md` §14), cu tag-ul ei împins. Commit-ul pe care îl etichetează tag-ul schimbă versiunea, în același commit, în două locuri (`docs/SPEC.md` §13.5): `APP_VERSION` din `frontend/src/app/core/layout/sidenav.ts`, pe care o arată sidebar-ul, și tag-ul implicit al ambelor imagini din `compose.prod.yaml`:
+
+```text
+export const APP_VERSION = '0.2.0';
+```
+
+```text
+    image: kanabol-api:${KANABOL_VERSION:-v0.2.0}
+    image: kanabol-web:${KANABOL_VERSION:-v0.2.0}
+```
+
+`scripts/check-docker.sh 3` și `scripts/check-release.sh 2` pică dacă cele două nu se potrivesc. Tag-ul se pune apoi pe commit-ul din `main` care le are:
 
 ```sh
 git tag -a v0.2.0 -m "Kanabol v0.2.0"
@@ -110,16 +121,16 @@ docker compose -f compose.yaml -f compose.prod.yaml up -d
 
 `up -d` reface doar containerele `api` și `web`, cu imaginile noi; API-ul aplică singur migrările noi la pornire. Datele rămân în volume.
 
-Fără tag-ul împins, `release.sh` îl pune singur pe server și spune cum se împinge.
+Fără tag-ul împins, `release.sh` îl pune singur pe server și spune cum se împinge. O versiune pe care `APP_VERSION` sau `compose.prod.yaml` n-o au o refuză înainte să construiască, să pună tag-ul sau să schimbe `.env`: un tag pus pe un commit care n-a schimbat versiunea nu se instalează, deci versiunea se schimbă în commit-ul etichetat, nu după el.
 
 ### Întoarcerea la versiunea de dinainte
 
 Imaginile vechi rămân pe server (`docker images kanabol-api`). O versiune nouă poate să fi schimbat baza de date, deci întoarcerea merge cu backup-ul făcut înainte de actualizare:
 
-1. În `.env`, `KANABOL_VERSION` înapoi la versiunea veche, de exemplu `v0.1.0`.
+1. În `.env`, `KANABOL_VERSION` înapoi la versiunea veche, de exemplu `v0.1.2`.
 2. `scripts/restore.sh backups/kanabol-AAAA-LL-ZZ`, cu folderul de dinainte de actualizare. Scriptul pornește stack-ul cu versiunea din `.env`.
 
-Imaginile de care nu mai e nevoie se șterg cu `docker rmi kanabol-api:v0.1.0 kanabol-web:v0.1.0`.
+Imaginile de care nu mai e nevoie se șterg cu `docker rmi kanabol-api:v0.1.2 kanabol-web:v0.1.2`.
 
 ## Date de demonstrație
 

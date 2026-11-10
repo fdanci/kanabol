@@ -4,11 +4,13 @@
 # with the tag compose.prod.yaml runs.
 #
 # Usage: scripts/release.sh vX.Y.Z
-# Example: scripts/release.sh v0.1.0
-# It refuses unless the clone is on main, clean, at a commit origin/main has. It builds both images with
-# that tag, puts the annotated git tag on the commit if it's missing (one on another commit stops it), and
-# writes KANABOL_VERSION in .env. It doesn't start anything: it prints the command that does. Running it
-# again for the same version builds again and changes nothing else.
+# Example: scripts/release.sh v0.1.2
+# It refuses unless the clone is on main, clean, at a commit origin/main has, whose APP_VERSION
+# (frontend/src/app/core/layout/sidenav.ts, what the sidebar shows) and default tag in compose.prod.yaml
+# are that version: the commit a version tags sets both (docs/SPEC.md section 13.5). It builds both
+# images with that tag, puts the annotated git tag on the commit if it's missing (one on another commit
+# stops it), and writes KANABOL_VERSION in .env. It doesn't start anything: it prints the command that
+# does. Running it again for the same version builds again and changes nothing else.
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -35,6 +37,26 @@ git rev-parse -q --verify refs/remotes/origin/main >/dev/null || refuse "There's
 git merge-base --is-ancestor HEAD refs/remotes/origin/main ||
   refuse "main has commits origin/main doesn't: release only what was pushed"
 commit=$(git rev-parse HEAD)
+
+# The version the sidebar shows and the one compose.prod.yaml runs without KANABOL_VERSION, from the
+# clean tree the images are built from.
+app_version=$(sed -n "s/^export const APP_VERSION = '\([^']*\)';\$/\1/p" \
+  frontend/src/app/core/layout/sidenav.ts 2>/dev/null | tr -d '\r')
+default_tag() { # default_tag <api|web>
+  sed -n -E 's/^ +image: kanabol-'"$1"':\$\{KANABOL_VERSION:-([^}]*)\}$/\1/p' compose.prod.yaml 2>/dev/null | tr -d '\r'
+}
+api_tag=$(default_tag api)
+web_tag=$(default_tag web)
+mismatch=
+if [ "$app_version" != "${version#v}" ]; then
+  echo "APP_VERSION in frontend/src/app/core/layout/sidenav.ts is ${app_version:-missing}, not ${version#v}." >&2
+  mismatch=1
+fi
+if [ "$api_tag" != "$version" ] || [ "$web_tag" != "$version" ]; then
+  echo "compose.prod.yaml runs kanabol-api:${api_tag:-missing} and kanabol-web:${web_tag:-missing} without KANABOL_VERSION, not $version." >&2
+  mismatch=1
+fi
+[ -z "$mismatch" ] || refuse "The commit tagged $version sets both to that version, as docs/deploy.md says."
 
 if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
   tagged=$(git rev-list -n 1 "refs/tags/$version")

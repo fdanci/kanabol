@@ -71,3 +71,5 @@ Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` 
 ## The server
 
 `docs/deploy.md` installs Kanabol on the server and updates it: the clone, `.env`, `scripts/make-certs.sh`, `scripts/release.sh vX.Y.Z` (the images, built on the server, with no registry), `compose up` with `compose.prod.yaml`. `docs/backup.md` has the nightly `scripts/backup.sh` and `scripts/restore.sh`. `scripts/demo-data.sh` fills a running Kanabol with demonstration data through its API. None of them prints a password, and only `restore.sh` asks anything. `scripts/check-release.sh` checks them all (`docs/SPEC.md` §14.7).
+
+The commit a version tags sets that version in `APP_VERSION` (`frontend/src/app/core/layout/sidenav.ts`, what the sidebar shows) and in the default tag of both images in `compose.prod.yaml`; `release.sh` refuses a tag that doesn't match them (`docs/SPEC.md` §13.5).
