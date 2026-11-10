@@ -3,6 +3,7 @@ using Kanabol.Application.Features.Auth;
 using Kanabol.Application.Features.Tasks;
 using Kanabol.Application.Features.Tasks.Queries.GetMyTasks;
 using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Kanabol.Tests.Shared.Database;
 
@@ -56,8 +57,8 @@ public sealed class GetMyTasksQueryHandlerTests(PostgresFixture postgres) : Dash
             Number = 1,
             Title = "Formular de contact",
             ColumnId = ColumnAt(team.Web, 0).Id,
-            ColumnName = "De făcut",
-            ColumnIsDone = false,
+            ColumnName = "Backlog",
+            ColumnKind = ColumnKind.Backlog,
             Priority = TaskPriority.Critical,
             DueDate = (DateTimeOffset?)null,
             Assignees = new[] { new TaskPersonDto(team.Ana.Id, "Ana Pop"), new TaskPersonDto(team.Dan.Id, "Dan Ionescu") },

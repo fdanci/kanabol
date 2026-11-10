@@ -243,10 +243,10 @@ column_at() { # column_at <project id> <position>: that column's id
   id_of_item "\"position\":$2[,}]"
 }
 
-done_column() { # done_column <project id>: the id of its first done column
+done_column() { # done_column <project id>: the id of Gata, its Done column
   status=$(as "$admin" GET "/api/projects/$1")
   expect 200 -- "the project's columns"
-  id_of_item '"isDone":true'
+  id_of_item '"kind":"Done"'
 }
 
 ensure_member() { # ensure_member <project id> <user id> <Owner|Member>
@@ -258,14 +258,14 @@ ensure_member() { # ensure_member <project id> <user id> <Owner|Member>
   made "member $2 in $1 as $3"
 }
 
-ensure_review_column() { # ensure_review_column <project id>: "În review" before the done column
+ensure_review_column() { # ensure_review_column <project id>: "În review" of its own, right before Gata
   status=$(as "$admin" GET "/api/projects/$1")
   expect 200 -- "the project's columns"
-  [ "$(grep -o '"position":' "$body" | wc -l | tr -d ' ')" -ge 4 ] && return 0
+  grep -q '"kind":"Custom"' "$body" && return 0
   status=$(as "$admin" POST "/api/projects/$1/board-columns" '{"name":"În review","isDone":false}')
   expect 201 -- "the review column"
   column=$(field id)
-  status=$(as "$admin" PATCH "/api/projects/$1/board-columns/$column/position" '{"position":2}')
+  status=$(as "$admin" PATCH "/api/projects/$1/board-columns/$column/position" '{"position":3}')
   expect 200 -- "the review column's place"
   made "column În review in $1"
 }
@@ -367,7 +367,7 @@ task PORT-1 ana "$portal" 1 High 5 no "$me,$dan_id" "Autentificare cu SSO pentru
 - **fără** parole locale pentru ei"
 sso=$task_id
 task PORT-2 ana "$portal" 0 Medium 12 no "$dan_id" "Pagina de facturi: filtre după lună" "Filtre după lună și an, cu totalul perioadei sub tabel."
-task PORT-3 ana "$portal" 2 High -2 no "$ioana_id" "Export PDF al facturii" "PDF-ul pleacă pe email și se descarcă din pagină."
+task PORT-3 ana "$portal" 3 High -2 no "$ioana_id" "Export PDF al facturii" "PDF-ul pleacă pe email și se descarcă din pagină."
 pdf=$task_id
 task PORT-4 admin "$portal" 0 Low - no "" "Notificări pe email pentru comenzile noi" "Un email scurt, cu link spre comandă."
 email=$task_id

@@ -9,9 +9,6 @@ public sealed class Project : AuditableEntity, IArchivable
     public const int MinKeyLength = 2;
     public const int MaxKeyLength = 5;
 
-    // The default columns, in the words the UI spec fixes (section 11).
-    private static readonly (string Name, bool IsDone)[] _defaultColumns = [("De făcut", false), ("În lucru", false), ("Gata", true)];
-
     private readonly List<ProjectMember> _members = [];
     private readonly List<BoardColumn> _columns = [];
 
@@ -27,6 +24,12 @@ public sealed class Project : AuditableEntity, IArchivable
         Key = normalizedKey;
         Description = NormalizeDescription(description);
         NextTaskNumber = 1;
+
+        // Every project has the four fixed columns, made with it (SPEC section 4.4).
+        foreach (var kind in BoardColumn.FixedKinds)
+        {
+            _columns.Add(new BoardColumn(Id, BoardColumn.FixedName(kind), _columns.Count, kind));
+        }
     }
 
     private Project()
@@ -55,17 +58,11 @@ public sealed class Project : AuditableEntity, IArchivable
 
     public IReadOnlyCollection<BoardColumn> Columns => _columns;
 
-    /// <summary>A new project, owned by whoever creates it, with the board's default columns.</summary>
+    /// <summary>A new project, owned by whoever creates it, with the four fixed columns.</summary>
     public static Project Create(string name, string key, string? description, Guid ownerId)
     {
         var project = new Project(name, key, description);
         project.AddMember(ownerId, ProjectRole.Owner);
-
-        foreach (var (columnName, isDone) in _defaultColumns)
-        {
-            project.AddColumn(columnName, isDone);
-        }
-
         return project;
     }
 
@@ -85,10 +82,10 @@ public sealed class Project : AuditableEntity, IArchivable
         Description = NormalizeDescription(description);
     }
 
-    /// <summary>A new column at the right end of the board.</summary>
-    public BoardColumn AddColumn(string name, bool isDone)
+    /// <summary>A column of the project's own, at the right end of the board.</summary>
+    public BoardColumn AddColumn(string name)
     {
-        var column = new BoardColumn(Id, name, _columns.Count, isDone);
+        var column = new BoardColumn(Id, name, _columns.Count, ColumnKind.Custom);
         _columns.Add(column);
         return column;
     }
@@ -102,22 +99,6 @@ public sealed class Project : AuditableEntity, IArchivable
         }
 
         column.Rename(name);
-        return ColumnChange.Done;
-    }
-
-    /// <summary>
-    /// Only the flag: the tasks in the column follow it through TaskItem.FollowColumn, which the handler
-    /// calls, since the project doesn't hold its tasks.
-    /// </summary>
-    public ColumnChange MarkColumnDone(Guid columnId, bool isDone)
-    {
-        var column = FindColumn(columnId);
-        if (column is null)
-        {
-            return ColumnChange.NotFound;
-        }
-
-        column.MarkDone(isDone);
         return ColumnChange.Done;
     }
 

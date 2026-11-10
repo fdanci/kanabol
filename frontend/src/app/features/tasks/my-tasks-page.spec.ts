@@ -36,7 +36,7 @@ function row(key: string, extra: Partial<MyTaskDto> = {}): MyTaskDto {
     title: `Titlul ${key}`,
     columnId: 'c1',
     columnName: 'De făcut',
-    columnIsDone: false,
+    columnKind: 'Backlog',
     priority: 'Medium',
     dueDate: null,
     assignees: [{ userId: 'me', displayName: 'Florin Danci' }],

@@ -36,7 +36,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
             }));
     }
 
-    /// <summary>A, B and C in De făcut, D and E in În lucru, nothing in Gata.</summary>
+    /// <summary>A, B and C in Backlog, D and E in În lucru, nothing in În pauză or Gata.</summary>
     private async Task<(User Owner, Project Project, Dictionary<string, TaskItemDto> Tasks)> ABoard()
     {
         var owner = await CreateUser();
@@ -53,7 +53,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
             tasks[title] = (await Create(NewTask(project, title, columnId: ColumnAt(project, 1).Id))).Value;
         }
 
-        (await Board(project)).Should().Be("A B C | D E | ");
+        (await Board(project)).Should().Be("A B C | D E |  | ");
         return (owner, project, tasks);
     }
 
@@ -65,7 +65,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
         var result = await Move(tasks["A"].Id, ColumnAt(project, 1), 1);
 
         result.Value.Should().BeEquivalentTo(new { ColumnId = ColumnAt(project, 1).Id, ColumnName = "În lucru", Position = 1 });
-        (await Board(project)).Should().Be("B C | D A E | ");
+        (await Board(project)).Should().Be("B C | D A E |  | ");
     }
 
     [Theory]
@@ -80,7 +80,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         (await Move(tasks[title].Id, ColumnAt(project, 0), position)).Value.Position.Should().Be(position);
 
-        (await Board(project)).Should().Be($"{order} | D E | ");
+        (await Board(project)).Should().Be($"{order} | D E |  | ");
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         (await Move(tasks["A"].Id, ColumnAt(project, 1))).Value.Position.Should().Be(2);
 
-        (await Board(project)).Should().Be("B C | D E A | ");
+        (await Board(project)).Should().Be("B C | D E A |  | ");
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         (await Move(tasks["E"].Id, ColumnAt(project, 0), 99)).Value.Position.Should().Be(3);
 
-        (await Board(project)).Should().Be("A B C E | D | ");
+        (await Board(project)).Should().Be("A B C E | D |  | ");
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         (await Move(tasks["D"].Id, ColumnAt(project, 0))).Value.Position.Should().Be(2);
 
-        (await Board(project)).Should().Be("A C D | E | ");
+        (await Board(project)).Should().Be("A C D | E |  | ");
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
         var result = await Move(tasks["A"].Id, ColumnAt(other, 0), 0);
 
         result.Error.Should().Be(TaskErrors.ColumnNotInProject);
-        (await Board(project)).Should().Be("A B C | D E | ");
+        (await Board(project)).Should().Be("A B C | D E |  | ");
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
             async () => (await HandleInOwnScope<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(tasks["A"].Id, ColumnAt(project, 1).Id, 0), owner)).IsSuccess.Should().BeTrue());
 
         result.Error.Should().Be(TaskErrors.ChangedMeanwhile);
-        (await Board(project)).Should().Be("B C | A D E | ");
+        (await Board(project)).Should().Be("B C | A D E |  | ");
     }
 
     // Two moves at once that change different tasks both save, and can leave two tasks on one place.
@@ -218,7 +218,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         await Move(moved.Id, ColumnAt(project, 0), 1);
 
-        (await Board(project)).Should().Be("Unu Nou Doi Trei |  | ");
+        (await Board(project)).Should().Be("Unu Nou Doi Trei |  |  | ");
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public sealed class MoveTaskCommandHandlerTests(PostgresFixture postgres) : Task
 
         (await Move(tasks["B"].Id, ColumnAt(project, 0), 1)).Value.Position.Should().Be(1);
 
-        (await Board(project)).Should().Be("A B C | D E | ");
+        (await Board(project)).Should().Be("A B C | D E |  | ");
         (await Stored(tasks["B"].Id))!.UpdatedAt.Should().BeNull();
     }
 }

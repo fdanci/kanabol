@@ -55,9 +55,9 @@ describe('BoardPage', () => {
       members: vi.fn(() => of([aBoardMember('u1', 'Florin Danci'), aBoardMember('u2', 'Ana Pop')])),
       move: vi.fn(() => of({})),
       create: vi.fn(() => of({ id: 'id-KAN-6', key: 'KAN-6' })),
-      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, isDone: false })),
-      updateColumn: vi.fn((_: string, columnId: string, name: string, isDone: boolean) =>
-        of({ ...board.columns.find((column) => column.id === columnId)!, name, isDone }),
+      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, kind: 'Custom' })),
+      updateColumn: vi.fn((_: string, columnId: string, name: string) =>
+        of({ ...board.columns.find((column) => column.id === columnId)!, name }),
       ),
       moveColumn: vi.fn(() => of([])),
       deleteColumn: vi.fn(() => of(undefined)),
@@ -687,7 +687,7 @@ describe('BoardPage', () => {
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       await settle();
 
-      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review', false);
+      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review');
       expect(api['board']).toHaveBeenCalledTimes(2);
       expect(page().querySelector('.new-column')).toBeNull();
     });
@@ -709,30 +709,24 @@ describe('BoardPage', () => {
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       await settle();
 
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez', false);
+      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez');
       expect(column('Lucrez')).toBeDefined();
     });
 
-    // docs/SPEC.md §5.1: the tasks in a column turned done are completed, so the board is read again.
-    it('marks a column done, and back, reading the board again each time', async () => {
+    // docs/SPEC.md §4.4: Gata is the done column, and no column's kind changes from the menu.
+    it('offers no way to mark a column done', async () => {
       await visit();
 
-      await choose('În lucru', 'Marchează ca terminată');
-
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'În lucru', true);
-      expect(api['board']).toHaveBeenCalledTimes(2);
-      expect(snackbar.show).toHaveBeenCalledWith(
-        '«În lucru» e acum o coloană de task-uri terminate.',
-      );
-      expect(await items('Gata')).toContain('Nu mai e de task-uri terminate');
+      expect(await items('În lucru')).not.toContain('Marchează ca terminată');
+      expect(await items('Gata')).not.toContain('Nu mai e de task-uri terminate');
     });
 
     it('moves a column to the left or the right, and not past the ends', async () => {
       api['moveColumn'].mockReturnValue(
         of([
-          { id: 'c1', name: 'De făcut', position: 0, isDone: false },
-          { id: 'c3', name: 'Gata', position: 1, isDone: true },
-          { id: 'c2', name: 'În lucru', position: 2, isDone: false },
+          { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
+          { id: 'c3', name: 'Gata', position: 1, kind: 'Done' },
+          { id: 'c2', name: 'În lucru', position: 2, kind: 'InProgress' },
         ]),
       );
       await visit();
@@ -775,7 +769,7 @@ describe('BoardPage', () => {
     });
 
     it('never offers to delete the last column', async () => {
-      board.columns = [{ id: 'c1', name: 'De făcut', position: 0, isDone: false }];
+      board.columns = [{ id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' }];
       board.tasks = [];
       await visit();
 

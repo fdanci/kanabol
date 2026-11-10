@@ -1294,15 +1294,15 @@ data_is_what_was_asked() {
   is "users|4
 roles|3
 projects|2
-columns|7
+columns|9
 members|8
 tasks|15
 finished|4
 overdue|3
 comments|6
 attachments|1" "$(grep -E '^(users|roles|projects|columns|members|tasks|finished|overdue|comments|attachments)\|' "$scratch/counts-1")" || return 1
-  is 'PORT|4|De făcut,În lucru,În review,Gata
-TER|3|De făcut,În lucru,Gata' "$(in_db "select p.key, count(*), string_agg(c.name, ',' order by c.position)
+  is 'PORT|5|Backlog,În lucru,În pauză,În review,Gata
+TER|4|Backlog,În lucru,În pauză,Gata' "$(in_db "select p.key, count(*), string_agg(c.name, ',' order by c.position)
     from projects p join board_columns c on c.project_id = p.id group by p.key order by p.key")" || return 1
   # Deadlines on all but one, and the admin told of six assignments and four comments.
   is 14 "$(in_db 'select count(*) from task_items where due_date is not null')" || return 1

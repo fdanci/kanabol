@@ -37,7 +37,7 @@ public sealed class MeEndpointTests(ApiFixture api) : ProjectApiTest(api)
         TaskItem[] tasks =
         [
             In(kan).WithTitle("Login SSO").WithPriority(TaskPriority.High).AssignedTo(dan).DueAt(now.AddDays(-1)).Build(),
-            In(kan).InColumn(kan.Columns.Single(column => column.IsDone)).WithTitle("Logo nou").AssignedTo(dan).Build(),
+            In(kan).InColumn(kan.Columns.Single(column => column.Kind == ColumnKind.Done)).WithTitle("Logo nou").AssignedTo(dan).Build(),
             In(kan).WithTitle("Arhivat").AssignedTo(dan).Build(),
             In(web).WithTitle("Formular").WithPriority(TaskPriority.Critical).AssignedTo(dan).DueAt(now.AddDays(1)).Build(),
             In(web).WithTitle("Al Anei").AssignedTo(ana).Build(),
@@ -125,7 +125,8 @@ public sealed class MeEndpointTests(ApiFixture api) : ProjectApiTest(api)
         row.GetProperty("projectName").GetString().Should().Be("Site");
         row.GetProperty("title").GetString().Should().Be("Formular");
         row.GetProperty("priority").GetString().Should().Be("Critical");
-        row.GetProperty("columnName").GetString().Should().Be("De făcut");
+        row.GetProperty("columnName").GetString().Should().Be("Backlog");
+        row.GetProperty("columnKind").GetString().Should().Be("Backlog");
     }
 
     [Fact]

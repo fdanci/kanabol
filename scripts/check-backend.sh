@@ -977,7 +977,10 @@ Has("archived_at timestamp with time zone");
 Has("archived_by_id uuid");
 Has("read_at timestamp with time zone");
 Has("changed_at timestamp with time zone NOT NULL");
-Has("is_done boolean NOT NULL");
+// The column's kind, in place of is_done since group 22, each fixed one once per project (docs/SPEC.md §4.4).
+Has("kind text NOT NULL");
+Has("CREATE UNIQUE INDEX ux_board_columns_project_id_kind ON board_columns (project_id, kind) WHERE kind <> 'Custom'");
+Check.That(!script.Contains("is_done"), "a column has a kind, not is_done");
 Has("size bigint NOT NULL");
 Has("storage_key character varying(500) NOT NULL");
 Has("CONSTRAINT fk_task_items_projects_project_id FOREIGN KEY (project_id) REFERENCES projects (id)");
@@ -1011,7 +1014,7 @@ var role = new Role("Member", isSystem: false);
 var user = new User("ana@example.com", "Ana", "hash", role.Id);
 var project = new Project("Website", "WEB", "The company site");
 project.AddMember(user.Id, ProjectRole.Owner);
-var column = new BoardColumn(project.Id, "To do", 0, isDone: false);
+var column = new BoardColumn(project.Id, "Review", 4, ColumnKind.Custom);
 var task = TaskItem.Create(project, column, 1, "Write the copy", "All pages", TaskPriority.High, 0, [], null, user.Id, DateTimeOffset.UtcNow);
 var comment = new Comment(task.Id, user.Id, "Looks fine");
 var attachment = new Attachment(task.Id, "brief.pdf", "application/pdf", 1234, "2026/11/key.pdf", user.Id);
@@ -1052,8 +1055,10 @@ await database.Run(async db =>
 
     var storedProject = await db.Projects.Include(p => p.Members).Include(p => p.Columns).SingleAsync(p => p.Id == project.Id);
     Check.That(storedProject.Members.Single().Role == ProjectRole.Owner, "a project owns its members");
-    Check.That(storedProject.Columns.Single().Name == "To do", "a project owns its columns");
-    Check.That(!storedProject.Columns.Single().IsDone, "a column knows whether it means done");
+    Check.That(storedProject.Columns.OrderBy(c => c.Position).Select(c => c.Name).SequenceEqual(["Backlog", "În lucru", "În pauză", "Gata", "Review"]), "a project owns its columns, the four fixed ones first");
+    Check.That(storedProject.Columns.Single(c => c.Name == "Review").Kind == ColumnKind.Custom, "a column knows its kind");
+    var kind = await db.Database.SqlQueryRaw<string>("SELECT kind AS \"Value\" FROM board_columns WHERE position = 3").SingleAsync();
+    Check.That(kind == "Done", "the kind is stored as readable text");
 
     var storedNotification = await db.Notifications.SingleAsync();
     Check.That(storedNotification.Type == NotificationType.TaskAssigned && storedNotification.ReadAt is null, "a notification is stored unread");
@@ -1184,13 +1189,13 @@ await database.Run(async db =>
     Check.That(tables.SequenceEqual(expected), $"the tables are the expected ones: {string.Join(", ", tables)}");
 
     var booleans = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT column_name AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'boolean' ORDER BY 1").ToListAsync();
-    Check.That(booleans.SequenceEqual(["is_active", "is_done", "is_system", "must_change_password"]), $"booleans: {string.Join(", ", booleans)}");
+    Check.That(booleans.SequenceEqual(["is_active", "is_system", "must_change_password"]), $"booleans: {string.Join(", ", booleans)}");
 
     var keys = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'id'").ToListAsync();
     Check.That(keys.SequenceEqual(["uuid"]), "every id is a uuid");
 
-    var enums = await db.Database.SqlQueryRaw<string>("SELECT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name IN ('priority', 'role', 'type')").ToListAsync();
-    Check.That(enums.Count == 3 && enums.All(type => type == "text"), "enums are text columns");
+    var enums = await db.Database.SqlQueryRaw<string>("SELECT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name IN ('priority', 'role', 'type', 'kind')").ToListAsync();
+    Check.That(enums.Count == 4 && enums.All(type => type == "text"), "enums are text columns");
 });
 CS
 }

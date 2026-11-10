@@ -4,9 +4,9 @@ import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto } from './models
 
 /** What the specs of the board build their boards from: a plain file, so importing it runs no spec. */
 export const COLUMNS: BoardColumnDto[] = [
-  { id: 'c3', name: 'Gata', position: 2, isDone: true },
-  { id: 'c1', name: 'De făcut', position: 0, isDone: false },
-  { id: 'c2', name: 'În lucru', position: 1, isDone: false },
+  { id: 'c3', name: 'Gata', position: 2, kind: 'Done' },
+  { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
+  { id: 'c2', name: 'În lucru', position: 1, kind: 'InProgress' },
 ];
 
 export function aCard(

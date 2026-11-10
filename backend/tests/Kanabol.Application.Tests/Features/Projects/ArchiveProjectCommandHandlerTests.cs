@@ -28,7 +28,7 @@ public sealed class ArchiveProjectCommandHandlerTests(PostgresFixture postgres) 
         saved!.ArchivedAt.Should().Be(Now);
         saved.ArchivedById.Should().Be(owner.Id);
         saved.Members.Should().ContainSingle();
-        saved.Columns.Should().HaveCount(3);
+        saved.Columns.Should().HaveCount(4);
         await using var db = Postgres.CreateContext();
         (await db.Projects.AnyAsync(stored => stored.Id == project.Id)).Should().BeFalse("archived projects are filtered out");
     }

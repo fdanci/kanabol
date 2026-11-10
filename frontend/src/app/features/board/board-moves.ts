@@ -39,7 +39,7 @@ export function moveCard(
   placed.set(taskId, {
     columnId,
     position: place,
-    completedAt: column.isDone ? (moving.completedAt ?? now.toISOString()) : null,
+    completedAt: column.kind === 'Done' ? (moving.completedAt ?? now.toISOString()) : null,
   });
 
   return tasks.map((task) => {

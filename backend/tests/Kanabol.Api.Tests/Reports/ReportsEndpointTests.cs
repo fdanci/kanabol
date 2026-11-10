@@ -56,10 +56,10 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
 
         await using var db = Api.Postgres.CreateContext();
         db.TaskItems.AddRange(
-            Through(new TaskItemBuilder().InProject(kan).WithTitle("Login SSO").AssignedTo(dan, ana).DueAt(On(10)), On(1), (Column(kan, 1), On(6)), (Column(kan, 2), On(8))),
-            Through(new TaskItemBuilder().InProject(kan).InColumn(Column(kan, 1)).WithTitle("Pagina de start").AssignedTo(dan).DueAt(On(13)), On(2), (Column(kan, 2), On(14))),
+            Through(new TaskItemBuilder().InProject(kan).WithTitle("Login SSO").AssignedTo(dan, ana).DueAt(On(10)), On(1), (Column(kan, 1), On(6)), (Column(kan, 3), On(8))),
+            Through(new TaskItemBuilder().InProject(kan).InColumn(Column(kan, 1)).WithTitle("Pagina de start").AssignedTo(dan).DueAt(On(13)), On(2), (Column(kan, 3), On(14))),
             Through(new TaskItemBuilder().InProject(kan).WithTitle("Întârziat").AssignedTo(dan).DueAt(On(1)), On(1)),
-            Through(new TaskItemBuilder().InProject(web).WithTitle("Fără nimeni"), On(15), (Column(web, 2), On(20))));
+            Through(new TaskItemBuilder().InProject(web).WithTitle("Fără nimeni"), On(15), (Column(web, 3), On(20))));
         await db.SaveChangesAsync();
         return (ana, dan, kan, web);
     }
@@ -285,7 +285,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         using var json = await JsonFrom(response);
         var columns = json.RootElement.GetProperty("perColumn").EnumerateArray().ToList();
         string.Join(", ", columns.Select(column => $"{column.GetProperty("name").GetString()} {Duration(column)}"))
-            .Should().Be("De făcut 432000/432000, În lucru 604800/604800, Gata 0/0");
+            .Should().Be("Backlog 432000/432000, În lucru 604800/604800, În pauză -/-, Gata 0/0");
         columns.Select(column => column.GetProperty("columnId").GetGuid())
             .Should().Equal(kan.Columns.OrderBy(column => column.Position).Select(column => column.Id));
     }

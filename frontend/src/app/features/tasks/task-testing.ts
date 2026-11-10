@@ -85,9 +85,9 @@ export function aProject(): TaskProjectDto {
     myRole: 'Owner',
     canManage: true,
     columns: [
-      { id: 'c3', name: 'Gata', position: 2, isDone: true },
-      { id: 'c1', name: 'De făcut', position: 0, isDone: false },
-      { id: 'c2', name: 'În lucru', position: 1, isDone: false },
+      { id: 'c3', name: 'Gata', position: 2, kind: 'Done' },
+      { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
+      { id: 'c2', name: 'În lucru', position: 1, kind: 'InProgress' },
     ],
   };
 }

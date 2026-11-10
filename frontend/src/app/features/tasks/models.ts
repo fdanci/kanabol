@@ -1,3 +1,4 @@
+import { ColumnKind } from '../../shared/models/column-kind';
 import { TaskPriority } from '../../shared/models/task-filters';
 
 export { PRIORITIES, priorityLabel } from '../../shared/models/task-filters';
@@ -88,7 +89,7 @@ export interface TaskSummaryDto {
   title: string;
   columnId: string;
   columnName: string;
-  columnIsDone: boolean;
+  columnKind: ColumnKind;
   priority: TaskPriority;
   dueDate: string | null;
   assignees: TaskPersonDto[];
@@ -122,7 +123,7 @@ export interface TaskColumnDto {
   id: string;
   name: string;
   position: number;
-  isDone: boolean;
+  kind: ColumnKind;
 }
 
 export interface TaskMemberDto {

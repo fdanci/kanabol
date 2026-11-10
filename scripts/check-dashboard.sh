@@ -395,7 +395,7 @@ team_is_ready() {
     a_task_in "$pan_id" 'Arhivat' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$past\"" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$new_task")" || return 1
   a_task_in "$pan_id" 'Logo nou' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"]" || return 1
-  pan_done=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND is_done")
+  pan_done=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND kind = 'Done'")
   status_is 200 "$(as "$dan_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$pan_done\"}")" || return 1
   a_task_in "$pan_id" 'Al adminului' "\"priority\":\"Medium\",\"assigneeIds\":[\"$admin_id\"],\"dueDate\":\"$past\"" &&
     a_task_in "$pan_id" 'Gata si arhivat' "\"priority\":\"Medium\",\"assigneeIds\":[\"$admin_id\"]" || return 1
@@ -487,7 +487,7 @@ my_tasks_go_by_deadline() {
 each_row_has_its_project() {
   team_is_ready || return 1
   my_task_keys "$dan_token" 'search=formular' >/dev/null || return 1
-  is "$meu_id MEU Meu Critical De făcut" "$(json "[b.items[0].projectId, b.items[0].projectKey, b.items[0].projectName, b.items[0].priority, b.items[0].columnName].join(' ')")"
+  is "$meu_id MEU Meu Critical Backlog" "$(json "[b.items[0].projectId, b.items[0].projectKey, b.items[0].projectName, b.items[0].priority, b.items[0].columnName].join(' ')")"
 }
 
 the_filters_hold_across_projects() {

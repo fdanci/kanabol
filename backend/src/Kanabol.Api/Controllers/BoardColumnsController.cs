@@ -42,7 +42,7 @@ public sealed class BoardColumnsController : ControllerBase
         [FromServices] ICommandHandler<AddBoardColumnCommand, BoardColumnDto> handler,
         CancellationToken ct)
     {
-        var result = await handler.Handle(new AddBoardColumnCommand(projectId, request.Name, request.IsDone), ct);
+        var result = await handler.Handle(new AddBoardColumnCommand(projectId, request.Name), ct);
         return result.ToCreatedResult(result.IsSuccess ? $"/api/projects/{projectId}/board-columns/{result.Value.Id}" : "");
     }
 
@@ -53,7 +53,7 @@ public sealed class BoardColumnsController : ControllerBase
         UpdateBoardColumnRequest request,
         [FromServices] ICommandHandler<UpdateBoardColumnCommand, BoardColumnDto> handler,
         CancellationToken ct) =>
-        (await handler.Handle(new UpdateBoardColumnCommand(projectId, columnId, request.Name, request.IsDone), ct)).ToActionResult();
+        (await handler.Handle(new UpdateBoardColumnCommand(projectId, columnId, request.Name), ct)).ToActionResult();
 
     /// <summary>Answers every column in its new order.</summary>
     [HttpPatch("{columnId:guid}/position")]

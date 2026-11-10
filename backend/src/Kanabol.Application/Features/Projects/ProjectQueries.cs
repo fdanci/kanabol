@@ -29,7 +29,7 @@ public static class ProjectQueries
                 MyRole = project.Members.Where(member => member.UserId == userId).Select(member => (ProjectRole?)member.Role).FirstOrDefault(),
                 Columns = project.Columns
                     .OrderBy(column => column.Position)
-                    .Select(column => new BoardColumnDto(column.Id, column.Name, column.Position, column.IsDone))
+                    .Select(column => new BoardColumnDto(column.Id, column.Name, column.Position, column.Kind))
                     .ToList(),
             })
             .FirstOrDefaultAsync(ct);

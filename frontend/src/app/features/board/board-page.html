@@ -68,7 +68,6 @@
           [last]="last"
           (renamed)="renameColumn(column, $event)"
           (moved)="moveColumn(column, $event)"
-          (doneChanged)="markDone(column, $event)"
           (deleted)="deleteColumn(column)"
           [liftedId]="lifted()?.taskId ?? null"
           [keysHelpId]="keysHelpId"

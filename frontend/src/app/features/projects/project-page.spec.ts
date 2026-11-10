@@ -141,7 +141,7 @@ describe('ProjectPage', () => {
                       isArchived: false,
                       canMove: true,
                       canManage: true,
-                      columns: [{ id: 'c1', name: 'De făcut', position: 0, isDone: false }],
+                      columns: [{ id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' }],
                       tasks: [],
                     }
                   : [],

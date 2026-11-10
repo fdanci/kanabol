@@ -1,0 +1,449 @@
+#!/bin/sh
+# Acceptance checks for the fixed columns, the estimate, the worked time and the general settings (group 22
+# in the project's Tasks.md; docs/SPEC.md §4.4, §5.1, §5.1.1, §13.3, §14.7; docs/UI_UX_SPEC.md §5, §7.4,
+# §7.5, §7.8, §7.9). The tests hold the rules, so these checks run them, and add what they can't see: the
+# migration over an old database on the local PostgreSQL, the real API process on it, and its answers.
+#
+# Usage: scripts/check-columns.sh [task-number...]    (no arguments: every task)
+# Exits non-zero if any check fails. What each task does, and needs:
+#   1  the fixed columns and the migration AddColumnKinds: the tests (the domain's columns, the migration
+#      over an old database and back, the column handlers and endpoints); then, on the local PostgreSQL, a
+#      database migrated up to AddRomanianCollation with an ordinary project, one with two done columns,
+#      one with a single column and one with columns of its own, which the real API in Production migrates
+#      at start: Backlog, În lucru, În pauză and Gata in each, the project's own kept between them, every
+#      task in its column, the one finished in the second done column open again; a new project gets the
+#      four fixed columns, and the API speaks of kind and columnKind, never isDone; then the migration back,
+#      is_done on Gata and the columns as they are. Docker, PostgreSQL.
+#
+# PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
+# else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
+# kanabol_columns_check_<pid>, and drops it. Docker runs the tests' own PostgreSQL. The real API listens on
+# port 5278.
+
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 2
+
+failures=0
+scratch=$(mktemp -d)
+check_db="kanabol_columns_check_$$"
+api_dir=backend/src/Kanabol.Api
+api_port=5278
+API_URL="http://127.0.0.1:$api_port"
+api_log="$scratch/api.log"
+api_pid=
+admin_connection=
+base_connection=
+created_databases=
+admin_token=
+before_kinds=20261109202207_AddRomanianCollation
+
+admin_email=admin@kanabol.local
+initial_password='o parola initiala de verificare'
+admin_password='parola adminului pentru coloane'
+jwt_secret=columns-check-secret-with-at-least-32-characters
+
+cleanup() {
+  stop_api
+  drop_database
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+
+check() { # check <description> <command...>
+  description=$1
+  shift
+  if "$@" >"$scratch/last-check.log" 2>&1; then
+    printf '  ok    %s\n' "$description"
+  else
+    printf '  FAIL  %s\n' "$description"
+    sed 's/^/        /' "$scratch/last-check.log" | tail -n 15
+    failures=$((failures + 1))
+  fi
+}
+
+native() { # native <path>: as Windows programs (node, curl) read it
+  cygpath -m "$1" 2>/dev/null || echo "$1"
+}
+
+is() { # is <expected> <actual>
+  [ "$1" = "$2" ] || {
+    echo "expected '$1', got '$2'"
+    return 1
+  }
+}
+
+# grep's options may come before the regex or after the paths. Found is a failure, and so is an error of
+# grep's own (status 2), so a wrong path or option can't pass for "nothing found".
+lacks() { # lacks [grep options...] <extended regex> <file or folder...> [grep options...]
+  grep -rnE "$@"
+  [ "$?" -eq 1 ]
+}
+
+docker_is_running() {
+  docker_cli=$(command -v docker || echo '/c/Program Files/Docker/Docker/resources/bin/docker.exe')
+  "$docker_cli" info --format '{{.ServerVersion}}'
+}
+
+# ---- The tests.
+
+tests_pass() { # tests_pass <project> <filter> <minimum passed>
+  stop_api
+  log="$scratch/tests-$1.log"
+  dotnet test "backend/tests/$1/$1.csproj" --nologo --filter "$2" >"$log" 2>&1 || {
+    tail -n 25 "$log"
+    return 1
+  }
+  passed=$(sed -n 's/.*Passed: *\([0-9]*\),.*/\1/p' "$log" | tail -n 1)
+  [ "${passed:-0}" -ge "$3" ] || {
+    echo "only ${passed:-0} tests passed, expected at least $3"
+    return 1
+  }
+}
+
+test_class_exists() { # test_class_exists <project> <class>: some test is in it, so its filter can't run nothing
+  dotnet test "backend/tests/$1/$1.csproj" --nologo --no-build --list-tests 2>/dev/null | tr -d '\r' | grep -qF ".$2." || {
+    echo "no test of $2 in $1"
+    return 1
+  }
+}
+
+classes_pass() { # classes_pass <project> <minimum passed> <class...>: each has tests, and all of them pass
+  project=$1
+  minimum=$2
+  shift 2
+  stop_api
+  dotnet build "backend/tests/$project/$project.csproj" --nologo -v q >/dev/null 2>&1 || return 1
+  filter=
+  for class in "$@"; do
+    test_class_exists "$project" "$class" || return 1
+    filter="${filter:+$filter|}FullyQualifiedName~.$class."
+  done
+  tests_pass "$project" "$filter" "$minimum"
+}
+
+# ---- A database of this run, on the local PostgreSQL, and the real API, in Production, on it.
+
+# Run a statement and print its rows, with columns separated by |. Built once, on first use.
+sql() { # sql <connection> <statement>
+  sql_dll="$scratch/sql/bin/Debug/net10.0/sql.dll"
+  if [ ! -f "$sql_dll" ]; then
+    mkdir -p "$scratch/sql"
+    cat >"$scratch/sql/sql.csproj" <<'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.*" />
+  </ItemGroup>
+</Project>
+XML
+    cat >"$scratch/sql/Program.cs" <<'CS'
+// The names have ă, î and ț, which the console would turn into a, i and t.
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+await using var connection = new Npgsql.NpgsqlConnection(args[0]);
+await connection.OpenAsync();
+await using var command = new Npgsql.NpgsqlCommand(args[1], connection);
+await using var reader = await command.ExecuteReaderAsync();
+while (await reader.ReadAsync())
+{
+    var values = Enumerable.Range(0, reader.FieldCount).Select(i => reader.GetValue(i)?.ToString());
+    Console.WriteLine(string.Join('|', values));
+}
+CS
+    dotnet build "$scratch/sql/sql.csproj" --nologo -v q >"$scratch/sql/build.log" 2>&1 || {
+      cat "$scratch/sql/build.log" >&2
+      return 1
+    }
+  fi
+  dotnet "$sql_dll" "$1" "$2"
+}
+
+# Each task works in the database of this run, made on first use and dropped at the end.
+need_database() {
+  if [ -z "$admin_connection" ]; then
+    base_connection=${KANABOL_CHECK_DB:-$(dotnet user-secrets list --id kanabol-api 2>/dev/null |
+      tr -d '\r' | sed -n 's/^ConnectionStrings:Default = //p')}
+    if [ -z "$base_connection" ]; then
+      echo "No database: set KANABOL_CHECK_DB or the API's ConnectionStrings:Default user secret."
+      return 1
+    fi
+    admin_connection=$(printf '%s' "$base_connection" | sed 's/Database=[^;]*/Database=postgres/')
+  fi
+  case " $created_databases " in *" $check_db "*) return 0 ;; esac
+  sql "$admin_connection" "CREATE DATABASE $check_db" || return 1
+  created_databases="$created_databases $check_db"
+}
+
+connection_to() { # connection_to <database>
+  printf '%s' "$base_connection" | sed "s/Database=[^;]*/Database=$1/"
+}
+
+in_db() { # in_db <statement>: its rows, as sql prints them
+  sql "$(connection_to "$check_db")" "$1" | tr -d '\r'
+}
+
+drop_database() {
+  [ -n "$admin_connection" ] || return 0
+  for database in $created_databases; do
+    sql "$admin_connection" "DROP DATABASE IF EXISTS $database WITH (FORCE)" >/dev/null 2>&1
+  done
+}
+
+api_builds() {
+  stop_api
+  dotnet build "$api_dir/Kanabol.Api.csproj" --nologo -v q >"$scratch/api-build.log" 2>&1 || {
+    tail -n 20 "$scratch/api-build.log"
+    return 1
+  }
+}
+
+ef() { # ef <arguments...>: runs dotnet ef from backend/, against the built projects
+  stop_api
+  (cd backend && dotnet ef "$@" -p src/Kanabol.Infrastructure -s src/Kanabol.Api --no-build)
+}
+
+# The API in Production on this run's database, which it migrates at start, without the overdue check.
+api_is_up() {
+  [ -n "$api_pid" ] && return 0
+  need_database || return 1
+  [ -f "$api_dir/bin/Debug/net10.0/Kanabol.Api.dll" ] || api_builds || return 1
+  (
+    cd "$api_dir" || exit 1
+    # Seq's address leads nowhere, so a developer's own Seq gets nothing of these checks.
+    exec env ASPNETCORE_ENVIRONMENT=Production \
+      ConnectionStrings__Default="$(connection_to "$check_db")" \
+      Jwt__Secret="$jwt_secret" \
+      Storage__Root="$scratch/attachments" \
+      Admin__InitialPassword="$initial_password" \
+      Alerts__OverdueCheckEnabled=false \
+      Serilog__WriteTo__1__Args__serverUrl=http://127.0.0.1:9 \
+      dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls "$API_URL"
+  ) >"$api_log" 2>&1 &
+  api_pid=$!
+  attempts=0
+  until curl -s -o /dev/null "$API_URL/health"; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -gt 120 ] || ! kill -0 "$api_pid" 2>/dev/null; then
+      api_pid=
+      tail -n 30 "$api_log"
+      return 1
+    fi
+    sleep 0.5
+  done
+}
+
+stop_api() {
+  [ -n "$api_pid" ] || return 0
+  kill "$api_pid" 2>/dev/null
+  wait "$api_pid" 2>/dev/null
+  api_pid=
+}
+
+send() { # send <method> <path> [curl arguments...]: leaves the answer in the scratch folder, prints the status
+  method=$1
+  path=$2
+  shift 2
+  rm -f "$scratch/body"
+  curl -sS --max-time 30 -o "$scratch/body" -w '%{http_code}' -X "$method" "$@" "$API_URL$path"
+}
+
+# Bodies go from a file: curl reads its arguments in the ANSI code page, which turns ă into a.
+as() { # as <token> <method> <path> [JSON body]
+  if [ $# -ge 4 ]; then
+    printf '%s' "$4" >"$scratch/request.json"
+    send "$2" "$3" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' --data-binary "@$(native "$scratch/request.json")"
+  else
+    send "$2" "$3" -H "Authorization: Bearer $1"
+  fi
+}
+
+body_field() { # body_field <name>: the value of the first text field with that name in the last answer
+  sed -n "s/^[^\"]*\"$1\":\"\([^\"]*\)\".*/\1/p; t; s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$scratch/body" | head -n 1
+}
+
+json() { # json <JavaScript expression on b, the last answer, in ASCII>: prints its value
+  node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
+    "$(native "$scratch/body")" "$1" | tr -d '\r'
+}
+
+status_is() { # status_is <expected status> <actual status>: shows the answer when it differs
+  is "$1" "$2" || {
+    head -c 600 "$scratch/body" 2>/dev/null
+    return 1
+  }
+}
+
+code_is() { # code_is <status> <code> <actual status>: the status and the ProblemDetails code
+  status_is "$1" "$3" || return 1
+  is "$2" "$(body_field code)"
+}
+
+the_admin_signs_in() {
+  [ -n "$admin_token" ] && return 0
+  api_is_up || return 1
+  status_is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.78.0.1' \
+    -d "{\"email\":\"$admin_email\",\"password\":\"$initial_password\"}")" || return 1
+  status_is 200 "$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
+    -H 'Content-Type: application/json' -d "{\"currentPassword\":\"$initial_password\",\"newPassword\":\"$admin_password\"}")" || return 1
+  admin_token=$(body_field accessToken)
+  [ -n "$admin_token" ]
+}
+
+columns_of() { # columns_of <project id>: its columns from the left, as name:kind, separated by commas
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$1/board-columns")" >/dev/null || return 1
+  json "b.map(c => c.name + ':' + c.kind).join(',')"
+}
+
+# ---- Task 1: the fixed columns and the migration AddColumnKinds.
+
+column_tests_pass() {
+  classes_pass Kanabol.Domain.Tests 15 ProjectColumnTests ProjectTests &&
+    classes_pass Kanabol.Application.Tests 25 AddColumnKindsMigrationTests BoardColumnCommandHandlerTests CreateProjectCommandHandlerTests &&
+    classes_pass Kanabol.Api.Tests 5 BoardColumnsEndpointTests
+}
+
+# Ids end in the project's digit, then the column's place from 1, as in AddColumnKindsMigrationTests.
+usual=00000000-0000-7000-8000-000000000001
+two_done=00000000-0000-7000-8000-000000000002
+single=00000000-0000-7000-8000-000000000003
+own=00000000-0000-7000-8000-000000000005
+
+old_column() { # old_column <project id> <place from 1>
+  printf '00000000-0000-7000-8000-000000000c%s%s' "$(printf '%s' "$1" | tail -c 1)" "$2"
+}
+
+an_old_database_with_four_kinds_of_boards() {
+  need_database || return 1
+  api_builds || return 1
+  ef database update "$before_kinds" --connection "$(connection_to "$check_db")" >"$scratch/old-update.log" 2>&1 || {
+    tail -n 15 "$scratch/old-update.log"
+    return 1
+  }
+  in_db "INSERT INTO projects (id, name, key, next_task_number, created_at) VALUES
+    ('$usual', 'Obișnuit', 'OBI', 20, now()), ('$two_done', 'Două gata', 'DOI', 20, now()),
+    ('$single', 'Una', 'UNA', 20, now()), ('$own', 'Ale lor', 'OWN', 20, now())" || return 1
+  in_db "INSERT INTO board_columns (id, project_id, name, position, is_done, created_at) VALUES
+    ('$(old_column $usual 1)', '$usual', 'De făcut', 0, false, now()),
+    ('$(old_column $usual 2)', '$usual', 'În lucru', 1, false, now()),
+    ('$(old_column $usual 3)', '$usual', 'Gata', 2, true, now()),
+    ('$(old_column $two_done 1)', '$two_done', 'De făcut', 0, false, now()),
+    ('$(old_column $two_done 2)', '$two_done', 'În lucru', 1, false, now()),
+    ('$(old_column $two_done 3)', '$two_done', 'Gata', 2, true, now()),
+    ('$(old_column $two_done 4)', '$two_done', 'Livrat', 3, true, now()),
+    ('$(old_column $single 1)', '$single', 'Tot', 0, false, now()),
+    ('$(old_column $own 1)', '$own', 'Idei', 0, false, now()),
+    ('$(old_column $own 2)', '$own', 'Analiză', 1, false, now()),
+    ('$(old_column $own 3)', '$own', 'Review', 2, false, now()),
+    ('$(old_column $own 4)', '$own', 'Livrat', 3, true, now())" || return 1
+  in_db "INSERT INTO task_items (id, project_id, column_id, number, title, priority, position, created_at, completed_at) VALUES
+    (gen_random_uuid(), '$usual', '$(old_column $usual 1)', 1, 'De făcut', 'Low', 0, now(), NULL),
+    (gen_random_uuid(), '$usual', '$(old_column $usual 2)', 2, 'În lucru', 'Low', 0, now(), NULL),
+    (gen_random_uuid(), '$usual', '$(old_column $usual 3)', 3, 'Gata', 'Low', 0, now(), now()),
+    (gen_random_uuid(), '$two_done', '$(old_column $two_done 3)', 1, 'Gata, două', 'Low', 0, now(), now()),
+    (gen_random_uuid(), '$two_done', '$(old_column $two_done 4)', 2, 'Livrat', 'Low', 0, now(), now()),
+    (gen_random_uuid(), '$single', '$(old_column $single 1)', 1, 'Singur', 'Low', 0, now(), NULL),
+    (gen_random_uuid(), '$own', '$(old_column $own 3)', 1, 'În review', 'Low', 0, now(), NULL),
+    (gen_random_uuid(), '$own', '$(old_column $own 4)', 2, 'Livrat, al lor', 'Low', 0, now(), now())" || return 1
+  in_db "SELECT title, column_id, position FROM task_items ORDER BY title" >"$scratch/tasks-before" || return 1
+  is 12 "$(in_db 'SELECT count(*) FROM board_columns')"
+}
+
+api_migrates_the_old_database() {
+  api_is_up || return 1
+  is AddColumnKinds "$(in_db 'SELECT migration_id FROM "__EFMigrationsHistory" ORDER BY migration_id DESC LIMIT 1' | sed 's/^[0-9]*_//')"
+}
+
+every_board_has_the_fixed_columns() {
+  the_admin_signs_in || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Gata:Done' "$(columns_of "$usual")" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Livrat:Custom,Gata:Done' "$(columns_of "$two_done")" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Gata:Done' "$(columns_of "$single")" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Analiză:Custom,Review:Custom,Gata:Done' "$(columns_of "$own")"
+}
+
+every_task_keeps_its_column() {
+  in_db "SELECT title, column_id, position FROM task_items ORDER BY title" >"$scratch/tasks-after" || return 1
+  diff "$scratch/tasks-before" "$scratch/tasks-after"
+}
+
+only_tasks_in_gata_stay_finished() {
+  is 'Gata
+Gata, două
+Livrat, al lor' "$(in_db "SELECT title FROM task_items WHERE completed_at IS NOT NULL ORDER BY title")" || return 1
+  # The list says the column's kind, and never isDone.
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$two_done/tasks?sort=key:asc")" || return 1
+  is 'Gata, două:Done:true Livrat:Custom:false' "$(json "b.items.map(t => t.title + ':' + t.columnKind + ':' + (t.completedAt !== null)).join(' ')")" || return 1
+  is undefined "$(json "b.items[0].columnIsDone")"
+}
+
+a_new_project_gets_the_four_fixed_columns() {
+  the_admin_signs_in || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Nou","key":"NOU"}')" || return 1
+  new_project=$(body_field id)
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,Gata:Done' "$(json "b.columns.map(c => c.name + ':' + c.kind).join(',')")" || return 1
+  is undefined "$(json "b.columns[0].isDone")" || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$new_project/board")" || return 1
+  is 'Backlog Done' "$(json "b.columns[0].kind + ' ' + b.columns[3].kind")"
+}
+
+# Each fixed kind once per project: the database itself refuses a second Gata.
+the_database_holds_one_of_each() {
+  is 'Backlog|5|5
+Done|5|5
+InProgress|5|5
+Paused|5|5' "$(in_db "SELECT kind, count(*), count(DISTINCT project_id) FROM board_columns WHERE kind <> 'Custom' GROUP BY kind ORDER BY kind")" || return 1
+  # sql itself, not in_db, whose pipe would hide its status.
+  if sql "$(connection_to "$check_db")" "INSERT INTO board_columns (id, project_id, name, position, kind, created_at) VALUES (gen_random_uuid(), '$usual', 'Altă Gata', 9, 'Done', now())" >"$scratch/second-done.log" 2>&1; then
+    echo "a second Gata went in"
+    return 1
+  fi
+  grep -q 'ux_board_columns_project_id_kind' "$scratch/second-done.log" || {
+    tail -n 5 "$scratch/second-done.log"
+    return 1
+  }
+}
+
+the_migration_goes_back() {
+  ef database update "$before_kinds" --connection "$(connection_to "$check_db")" >"$scratch/back.log" 2>&1 || {
+    tail -n 15 "$scratch/back.log"
+    return 1
+  }
+  is 'Gata|5' "$(in_db "SELECT name, count(*) FROM board_columns WHERE is_done GROUP BY name")" || return 1
+  is 'Backlog,În lucru,În pauză,Livrat,Gata' "$(in_db "SELECT string_agg(name, ',' ORDER BY position) FROM board_columns WHERE project_id = '$two_done'")" || return 1
+  is 0 "$(in_db "SELECT count(*) FROM information_schema.columns WHERE table_name = 'board_columns' AND column_name = 'kind'")"
+}
+
+task_1() {
+  echo "22.1 the fixed columns and the migration AddColumnKinds"
+  check "Docker is running" docker_is_running
+  check "the column tests pass: the domain, the migration and back, the handlers and the endpoints" column_tests_pass
+  check "an old database has an ordinary project, two done columns, a single column and columns of its own" an_old_database_with_four_kinds_of_boards
+  check "the real API in Production migrates it at start" api_migrates_the_old_database
+  check "every board has Backlog, În lucru, În pauză and Gata, the project's own kept between them" every_board_has_the_fixed_columns
+  check "every task stays in its column, at its place" every_task_keeps_its_column
+  check "only the tasks in Gata stay finished, and the list says columnKind" only_tasks_in_gata_stay_finished
+  check "a new project gets the four fixed columns, kind and never isDone" a_new_project_gets_the_four_fixed_columns
+  check "the database holds each fixed kind once per project" the_database_holds_one_of_each
+  check "the migration goes back: is_done on Gata, the columns as they are" the_migration_goes_back
+}
+
+tasks=${*:-1}
+for task in $tasks; do
+  case "$task" in
+    1) task_1 ;;
+    *)
+      echo "No task $task."
+      failures=$((failures + 1))
+      ;;
+  esac
+done
+
+if [ "$failures" -eq 0 ]; then
+  echo "All checks passed."
+else
+  echo "$failures check(s) failed."
+  exit 1
+fi

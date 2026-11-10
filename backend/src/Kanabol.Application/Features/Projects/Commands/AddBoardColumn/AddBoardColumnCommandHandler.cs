@@ -20,7 +20,7 @@ public sealed class AddBoardColumnCommandHandler(
             return loaded.Error;
         }
 
-        var column = loaded.Value.AddColumn(command.Name, command.IsDone);
+        var column = loaded.Value.AddColumn(command.Name);
 
         var saved = await changes.Save(ct);
         if (saved.IsFailure)

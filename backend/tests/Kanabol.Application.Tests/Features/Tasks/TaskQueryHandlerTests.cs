@@ -148,7 +148,7 @@ public sealed class TaskQueryHandlerTests(PostgresFixture postgres) : TaskHandle
 
         var result = await ById(task.Id);
 
-        result.Value.Should().BeEquivalentTo(new { Key = "KAN-1", ColumnName = "De făcut" });
+        result.Value.Should().BeEquivalentTo(new { Key = "KAN-1", ColumnName = "Backlog" });
         result.Value.Assignees.Should().Equal(new TaskPersonDto(member.Id, "Dan Ionescu"), new TaskPersonDto(owner.Id, "Zoe Ene"));
     }
 

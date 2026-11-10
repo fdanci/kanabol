@@ -24,21 +24,15 @@ export class BoardApi {
     return this.api.patch<unknown>(`/tasks/${taskId}/position`, { columnId, position });
   }
 
-  /** At the right end of the board. The columns change for owners and projects.manage only. */
-  addColumn(projectId: string, name: string, isDone: boolean): Observable<BoardColumnDto> {
-    return this.api.post<BoardColumnDto>(`/projects/${projectId}/board-columns`, { name, isDone });
+  /** A column of the project's own. The columns change for owners and projects.manage only. */
+  addColumn(projectId: string, name: string): Observable<BoardColumnDto> {
+    return this.api.post<BoardColumnDto>(`/projects/${projectId}/board-columns`, { name });
   }
 
-  /** Turning a column done completes the open tasks in it, and back opens them (docs/SPEC.md §5.1). */
-  updateColumn(
-    projectId: string,
-    columnId: string,
-    name: string,
-    isDone: boolean,
-  ): Observable<BoardColumnDto> {
+  /** Another name; the kind never changes (docs/SPEC.md §4.4). */
+  updateColumn(projectId: string, columnId: string, name: string): Observable<BoardColumnDto> {
     return this.api.put<BoardColumnDto>(`/projects/${projectId}/board-columns/${columnId}`, {
       name,
-      isDone,
     });
   }
 

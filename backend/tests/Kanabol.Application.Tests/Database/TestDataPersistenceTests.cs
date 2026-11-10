@@ -23,7 +23,7 @@ public sealed class TestDataPersistenceTests(PostgresFixture postgres) : Postgre
 
         await using var read = Postgres.CreateContext();
         var stored = await read.Projects.Include(p => p.Columns).Include(p => p.Members).SingleAsync();
-        stored.Columns.Should().HaveCount(3);
+        stored.Columns.Should().HaveCount(4);
         stored.Members.Should().ContainSingle(member => member.UserId == owner.Id);
         (await read.TaskItems.SingleAsync()).Assignees.Should().ContainSingle(assignee => assignee.UserId == owner.Id);
     }

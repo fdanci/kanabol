@@ -12,9 +12,9 @@ public static class ColumnQueries
             .AsNoTracking()
             .Where(column => column.ProjectId == projectId)
             .OrderBy(column => column.Position)
-            .Select(column => new BoardColumnDto(column.Id, column.Name, column.Position, column.IsDone));
+            .Select(column => new BoardColumnDto(column.Id, column.Name, column.Position, column.Kind));
 
-    public static BoardColumnDto ToDto(this BoardColumn column) => new(column.Id, column.Name, column.Position, column.IsDone);
+    public static BoardColumnDto ToDto(this BoardColumn column) => new(column.Id, column.Name, column.Position, column.Kind);
 
     public static BoardColumnDto[] ColumnsInOrder(this Project project) =>
         [.. project.Columns.OrderBy(column => column.Position).Select(ToDto)];

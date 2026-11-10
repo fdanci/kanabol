@@ -399,8 +399,8 @@ entered_at() { # entered_at <task id> <column id> <moment>: the history's entry 
     in_db "UPDATE task_items SET completed_at = '$3' WHERE id = '$1' AND column_id = '$2' AND completed_at IS NOT NULL" >/dev/null
 }
 
-columns_of() { # columns_of <project id> <name prefix>: its columns' ids in <prefix>_todo, _doing and _done
-  for place in 0:todo 1:doing 2:done; do
+columns_of() { # columns_of <project id> <name prefix>: its columns' ids in <prefix>_todo, _doing, _paused and _done
+  for place in 0:todo 1:doing 2:paused 3:done; do
     eval "$2_${place#*:}=$(in_db "SELECT id FROM board_columns WHERE project_id = '$1' AND position = ${place%%:*}")"
   done
 }
@@ -572,13 +572,13 @@ the_lead_and_cycle_times_are_measured() {
   is '6 534600/522000 345600/216000 null' "$(json b.count) $(durations leadTime) $(durations cycleTime) $(json b.perColumn)"
 }
 
-# PAN-1: De făcut 5 d 1 h, În lucru 2 d; PAN-2: În lucru 12 d; PAN-3: De făcut 3 d 2 h, În lucru 2 d.
+# PAN-1: Backlog 5 d 1 h, În lucru 2 d; PAN-2: În lucru 12 d; PAN-3: Backlog 3 d 2 h, În lucru 2 d.
 each_column_has_its_time_in_a_project() {
   work_is_ready || return 1
   report "$admin_token" cycle-time "$october&projectId=$pan_id" || return 1
-  is 'De făcut 351000/351000, În lucru 460800/172800, Gata 0/0' \
+  is 'Backlog 351000/351000, În lucru 460800/172800, În pauză null/null, Gata 0/0' \
     "$(json "b.perColumn.map(c => c.name + ' ' + c.averageSeconds + '/' + c.medianSeconds).join(', ')")" &&
-    is "$pan_todo $pan_doing $pan_done" "$(json "b.perColumn.map(c => c.columnId).join(' ')")"
+    is "$pan_todo $pan_doing $pan_paused $pan_done" "$(json "b.perColumn.map(c => c.columnId).join(' ')")"
 }
 
 a_persons_times_are_theirs() {

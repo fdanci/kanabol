@@ -35,9 +35,9 @@ describe('BoardStore', () => {
       ),
       move: vi.fn(() => of({})),
       create: vi.fn(() => of({ id: 'id-KAN-6', key: 'KAN-6' })),
-      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, isDone: false })),
-      updateColumn: vi.fn((_: string, columnId: string, name: string, isDone: boolean) =>
-        of({ ...board.columns.find((column) => column.id === columnId)!, name, isDone }),
+      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, kind: 'Custom' })),
+      updateColumn: vi.fn((_: string, columnId: string, name: string) =>
+        of({ ...board.columns.find((column) => column.id === columnId)!, name }),
       ),
       moveColumn: vi.fn(() => of([])),
       deleteColumn: vi.fn(() => of(undefined)),
@@ -259,7 +259,7 @@ describe('BoardStore', () => {
 
       expect(await store.renameColumn(store.columns()[1], 'Lucrez')).toBe(true);
 
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez', false);
+      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez');
       expect(store.columns().map((column) => column.name)).toEqual(['De făcut', 'Lucrez', 'Gata']);
       TestBed.tick();
       expect(api['board']).toHaveBeenCalledTimes(1);
@@ -267,9 +267,9 @@ describe('BoardStore', () => {
 
     it('takes the order the API gives after a move', async () => {
       const order: BoardColumnDto[] = [
-        { id: 'c3', name: 'Gata', position: 0, isDone: true },
-        { id: 'c1', name: 'De făcut', position: 1, isDone: false },
-        { id: 'c2', name: 'În lucru', position: 2, isDone: false },
+        { id: 'c3', name: 'Gata', position: 0, kind: 'Done' },
+        { id: 'c1', name: 'De făcut', position: 1, kind: 'Backlog' },
+        { id: 'c2', name: 'În lucru', position: 2, kind: 'InProgress' },
       ];
       api['moveColumn'].mockReturnValue(of(order));
       await opened();
@@ -284,17 +284,14 @@ describe('BoardStore', () => {
       ]);
     });
 
-    // docs/SPEC.md §5.1: the tasks of a column turned done are completed, so the board is read again.
-    it('reads the board again after a column is marked done, added or deleted', async () => {
+    it('reads the board again after a column is added or deleted', async () => {
       await opened();
 
-      await store.markColumnDone(store.columns()[1], true);
       await store.addColumn('Review');
       await store.deleteColumn(store.columns()[2]);
       await settle();
 
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'În lucru', true);
-      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review', false);
+      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review');
       expect(api['deleteColumn']).toHaveBeenCalledWith('p1', 'c3');
       expect(api['board'].mock.calls.length).toBeGreaterThanOrEqual(2);
     });

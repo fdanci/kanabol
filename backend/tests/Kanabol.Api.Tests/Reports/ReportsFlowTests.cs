@@ -90,7 +90,7 @@ public sealed class ReportsFlowTests(ApiFixture api) : ProjectApiTest(api)
             rate.ValueKind == System.Text.Json.JsonValueKind.Null ? "null" : rate.GetDouble().ToString(CultureInfo.InvariantCulture));
     }
 
-    private static Guid DoneColumnOf(Project project) => project.Columns.Single(column => column.IsDone).Id;
+    private static Guid DoneColumnOf(Project project) => project.Columns.Single(column => column.Kind == ColumnKind.Done).Id;
 
     private static Guid FirstColumnOf(Project project) => project.Columns.Single(column => column.Position == 0).Id;
 

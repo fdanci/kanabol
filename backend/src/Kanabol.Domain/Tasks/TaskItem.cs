@@ -54,7 +54,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public int Position { get; private set; }
 
-    /// <summary>When the task last entered a done column, and null while it's outside one.</summary>
+    /// <summary>When the task last entered Gata, the Done column, and null while it's outside it.</summary>
     public DateTimeOffset? CompletedAt { get; private set; }
 
     public DateTimeOffset? ArchivedAt { get; private set; }
@@ -72,7 +72,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     /// <summary>
     /// A new task in an open project, with the number the database took from the project's counter
-    /// (ITaskNumbers). One created straight into a done column is completed at once, and one created for
+    /// (ITaskNumbers). One created straight into Gata is completed at once, and one created for
     /// people is assigned to them, which they hear of like any assignment (SPEC section 4.3). Whether they
     /// are active members is the handler's to check first.
     /// </summary>
@@ -107,7 +107,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         {
             Number = number,
             DueDate = dueDate?.ToUniversalTime(),
-            CompletedAt = column.IsDone ? now : null,
+            CompletedAt = column.Kind == ColumnKind.Done ? now : null,
         };
         task._assignees.AddRange(assigneeIds.Select(userId => new TaskAssignee(task.Id, userId, createdById, now)));
         task.Raise(new TaskCreatedEvent(task.Id, project.Id, task.Number, createdById));
@@ -194,7 +194,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     }
 
     /// <summary>
-    /// To a column of the same project, at a place in it. Entering a done column completes the task,
+    /// To a column of the same project, at a place in it. Entering Gata completes the task,
     /// leaving it clears that. Only a change of column goes in the history: a reorder in the same
     /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1).
     /// </summary>
@@ -220,7 +220,7 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         }
 
         Position = position;
-        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
+        CompletedAt = column.Kind == ColumnKind.Done ? CompletedAt ?? now : null;
         Raise(new TaskMovedEvent(Id, ProjectId, from, column.Id, position, changedById));
     }
 
@@ -228,20 +228,6 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// Another place in the same column, to keep the column's order without gaps around a move. It isn't
     /// a change of this task, so it writes no history and raises nothing: the moved task's event says it all.
     /// </summary>
-    /// <summary>
-    /// Its column became a done column, or stopped being one: the task is completed now, or open again,
-    /// as if it had just entered that column (SPEC section 5.1). Its place and its history stay.
-    /// </summary>
-    public void FollowColumn(BoardColumn column, DateTimeOffset now)
-    {
-        if (column.Id != ColumnId)
-        {
-            throw new ArgumentException("A task follows only the column it's in.", nameof(column));
-        }
-
-        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
-    }
-
     public void ShiftTo(int position)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);

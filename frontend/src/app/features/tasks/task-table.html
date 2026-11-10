@@ -44,7 +44,7 @@
       <td mat-cell *matCellDef="let task" class="column">
         <span class="column-name">
           {{ task.columnName }}
-          @if (task.columnIsDone) {
+          @if (task.columnKind === 'Done') {
             <span
               class="material-symbols-outlined done"
               role="img"
@@ -82,7 +82,7 @@
         @if (task.dueDate) {
           <kb-deadline-chip
             [dueDate]="task.dueDate"
-            [done]="task.columnIsDone || task.completedAt !== null"
+            [done]="task.columnKind === 'Done' || task.completedAt !== null"
           />
         }
       </td>

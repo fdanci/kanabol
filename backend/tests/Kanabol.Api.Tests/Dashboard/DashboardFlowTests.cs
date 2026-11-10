@@ -70,7 +70,7 @@ public sealed class DashboardFlowTests(ApiFixture api) : ProjectApiTest(api)
             $"{project.GetProperty("key").GetString()}:{project.GetProperty("openTaskCount").GetInt32()}:{project.GetProperty("completedTaskCount").GetInt32()}"));
     }
 
-    private static Guid DoneColumnOf(Project project) => project.Columns.Single(column => column.IsDone).Id;
+    private static Guid DoneColumnOf(Project project) => project.Columns.Single(column => column.Kind == ColumnKind.Done).Id;
 
     private static Guid FirstColumnOf(Project project) => project.Columns.Single(column => column.Position == 0).Id;
 

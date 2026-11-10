@@ -21,7 +21,7 @@ public sealed class TaskItemTests
 
     private BoardColumn InProgress => _project.Columns.Single(column => column.Position == 1);
 
-    private BoardColumn Done => _project.Columns.Single(column => column.IsDone);
+    private BoardColumn Done => _project.Columns.Single(column => column.Kind == ColumnKind.Done);
 
     private TaskItem NewTask() => new TaskItemBuilder().InProject(_project).WithTitle("Login SSO").Build();
 

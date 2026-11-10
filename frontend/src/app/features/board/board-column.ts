@@ -73,7 +73,7 @@ export interface NewCard {
             (blur)="rename(renameField)"
           />
         }
-        @if (column().isDone) {
+        @if (column().kind === 'Done') {
           <span
             class="material-symbols-outlined done"
             role="img"
@@ -111,17 +111,6 @@ export interface NewCard {
                 <span i18n>Mută la dreapta</span>
               </button>
             }
-            @if (column().isDone) {
-              <button mat-menu-item type="button" (click)="doneChanged.emit(false)">
-                <mat-icon>remove_done</mat-icon>
-                <span i18n>Nu mai e de task-uri terminate</span>
-              </button>
-            } @else {
-              <button mat-menu-item type="button" (click)="doneChanged.emit(true)">
-                <mat-icon>check_circle</mat-icon>
-                <span i18n>Marchează ca terminată</span>
-              </button>
-            }
             @if (canDelete()) {
               <button mat-menu-item class="kb-menu-danger" type="button" (click)="deleted.emit()">
                 <mat-icon>delete</mat-icon>
@@ -145,7 +134,7 @@ export interface NewCard {
             [cdkDragData]="task"
             [cdkDragDisabled]="!canMove()"
             [task]="task"
-            [done]="column().isDone"
+            [done]="column().kind === 'Done'"
             [pulse]="pulses().get(task.id) ?? 0"
             [class.lifted]="task.id === liftedId()"
             [attr.data-task-id]="task.id"
@@ -316,7 +305,6 @@ export class BoardColumn {
   readonly renamed = output<string>();
   /** -1 to the left, 1 to the right. */
   readonly moved = output<-1 | 1>();
-  readonly doneChanged = output<boolean>();
   readonly deleted = output();
 
   protected readonly adding = signal(false);

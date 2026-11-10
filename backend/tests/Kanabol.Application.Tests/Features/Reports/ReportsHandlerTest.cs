@@ -39,7 +39,7 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
     }
 
     /// <summary>
-    /// KAN (Ana owns it, Dan is a member), columns De făcut, În lucru, Gata:
+    /// KAN (Ana owns it, Dan is a member), columns Backlog, În lucru, În pauză, Gata:
     /// KAN-1 Dan's and Ana's, created 1 Oct 09:00, În lucru 6 Oct, Gata 8 Oct, due 10 Oct (on time);
     /// KAN-2 Dan's, created straight in În lucru 2 Oct 09:00, Gata 14 Oct 09:00, due 13 Oct (late);
     /// KAN-3 Dan's and Ana's, created 15 Oct, În lucru 18 Oct 12:00, Gata 20 Oct 12:00, archived 21 Oct, no deadline;

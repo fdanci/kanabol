@@ -1,3 +1,4 @@
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 
 namespace Kanabol.Application.Features.Tasks;
@@ -23,7 +24,7 @@ internal sealed class TaskListRow
 
     public int ColumnPosition { get; init; }
 
-    public bool ColumnIsDone { get; init; }
+    public ColumnKind ColumnKind { get; init; }
 
     public TaskPriority Priority { get; init; }
 
@@ -48,7 +49,7 @@ internal sealed class TaskListRow
         Title,
         ColumnId,
         ColumnName,
-        ColumnIsDone,
+        ColumnKind,
         Priority,
         DueDate,
         Assignees,
@@ -66,7 +67,7 @@ internal sealed class TaskListRow
         Title,
         ColumnId,
         ColumnName,
-        ColumnIsDone,
+        ColumnKind,
         Priority,
         DueDate,
         Assignees,

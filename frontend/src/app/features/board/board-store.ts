@@ -231,26 +231,18 @@ export class BoardStore {
    * API took it; refused, errorInterceptor says why, and the board is read again to be sure.
    */
   addColumn(name: string): Promise<boolean> {
-    return this.changeColumns((board) => this.api.addColumn(board.projectId, name, false), true);
+    return this.changeColumns((board) => this.api.addColumn(board.projectId, name), true);
   }
 
   renameColumn(column: BoardColumnDto, name: string): Promise<boolean> {
     return this.changeColumns(
-      (board) => this.api.updateColumn(board.projectId, column.id, name, column.isDone),
+      (board) => this.api.updateColumn(board.projectId, column.id, name),
       false,
       (saved) => {
         this.placeColumns((columns) =>
           columns.map((found) => (found.id === saved.id ? saved : found)),
         );
       },
-    );
-  }
-
-  /** The tasks in it are completed now, or open again, so the board is read again. */
-  markColumnDone(column: BoardColumnDto, isDone: boolean): Promise<boolean> {
-    return this.changeColumns(
-      (board) => this.api.updateColumn(board.projectId, column.id, column.name, isDone),
-      true,
     );
   }
 

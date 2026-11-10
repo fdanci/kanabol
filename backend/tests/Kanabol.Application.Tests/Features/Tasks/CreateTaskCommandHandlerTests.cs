@@ -40,7 +40,7 @@ public sealed class CreateTaskCommandHandlerTests(PostgresFixture postgres) : Ta
             DueDate = Now.AddDays(3),
             Assignees = Array.Empty<TaskPersonDto>(),
             ColumnId = ColumnAt(project, 0).Id,
-            ColumnName = "De făcut",
+            ColumnName = "Backlog",
             Position = 0,
             CompletedAt = (DateTimeOffset?)null,
             ArchivedAt = (DateTimeOffset?)null,

@@ -1,3 +1,4 @@
+import { ColumnKind } from '../../shared/models/column-kind';
 import { TaskPriority } from '../../shared/models/task-filters';
 
 /** GET /api/me/summary (docs/SPEC.md §4.4, "Panoul principal și task-urile mele"): the four tiles. */
@@ -27,7 +28,7 @@ export interface DashboardTaskDto {
   projectName: string;
   priority: TaskPriority;
   dueDate: string | null;
-  columnIsDone: boolean;
+  columnKind: ColumnKind;
   completedAt: string | null;
 }
 

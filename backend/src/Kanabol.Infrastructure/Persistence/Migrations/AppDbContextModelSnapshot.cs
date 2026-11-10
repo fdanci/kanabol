@@ -170,9 +170,10 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by_id");
 
-                    b.Property<bool>("IsDone")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_done");
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -207,6 +208,11 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_board_columns_project_id");
+
+                    b.HasIndex("ProjectId", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("ux_board_columns_project_id_kind")
+                        .HasFilter("kind <> 'Custom'");
 
                     b.ToTable("board_columns", (string)null);
                 });

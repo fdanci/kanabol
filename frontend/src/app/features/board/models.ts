@@ -1,5 +1,7 @@
+import { ColumnKind } from '../../shared/models/column-kind';
 import { TaskPriority } from '../../shared/models/task-filters';
 
+export type { ColumnKind } from '../../shared/models/column-kind';
 export type { TaskPriority } from '../../shared/models/task-filters';
 
 export interface BoardPersonDto {
@@ -12,8 +14,8 @@ export interface BoardColumnDto {
   name: string;
   /** From 0 on the left, with no gaps. */
   position: number;
-  /** A task in it is completed (docs/SPEC.md §5.1). */
-  isDone: boolean;
+  /** The four fixed kinds and the project's own; a task in Done, Gata, is completed (docs/SPEC.md §4.4). */
+  kind: ColumnKind;
 }
 
 /** A card: what docs/UI_UX_SPEC.md §7.4 puts on it, and its place. Assignees come by name, none for nobody. */

@@ -95,7 +95,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
 
         var report = (await CycleTime(From, To, team.Kan.Id)).Value;
 
-        PerColumn(report).Should().Be($"De făcut 291600/{(3 * Day) + (2 * Hour)}, În lucru 379800/{2 * Day}, Gata 0/0");
+        PerColumn(report).Should().Be($"Backlog 291600/{(3 * Day) + (2 * Hour)}, În lucru 379800/{2 * Day}, În pauză -/-, Gata 0/0");
         report.PerColumn!.Select(column => column.ColumnId).Should().Equal(team.Kan.Columns.OrderBy(column => column.Position).Select(column => column.Id));
     }
 
@@ -132,7 +132,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
         report.Count.Should().Be(0);
         report.LeadTime.Should().Be(new ReportDurationDto(null, null));
         report.CycleTime.Should().Be(new ReportDurationDto(null, null));
-        PerColumn(report).Should().Be("De făcut -/-, În lucru -/-, Gata -/-");
+        PerColumn(report).Should().Be("Backlog -/-, În lucru -/-, În pauză -/-, Gata -/-");
     }
 
     // Done on the 6th, back in În lucru on the 7th, done again on the 20th: it was finished on the 20th.
@@ -152,7 +152,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
         var report = (await CycleTime(From, To, project.Id)).Value;
 
         (report.LeadTime.AverageSeconds, report.CycleTime.AverageSeconds).Should().Be((15 * Day, 14 * Day));
-        PerColumn(report).Should().Be($"De făcut {Day}/{Day}, În lucru {13 * Day}/{13 * Day}, Gata {Day}/{Day}");
+        PerColumn(report).Should().Be($"Backlog {Day}/{Day}, În lucru {13 * Day}/{13 * Day}, În pauză -/-, Gata {Day}/{Day}");
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
     {
         var team = await FinishedWork();
         var (ana, project) = await AProjectOfItsOwn(team, "REV");
-        var review = project.AddColumn("Review", isDone: false);
+        var review = project.AddColumn("Review");
         await using (var db = Postgres.CreateContext())
         {
             db.BoardColumns.Add(review);
@@ -180,7 +180,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
 
         var report = (await CycleTime(From, To, project.Id)).Value;
 
-        PerColumn(report).Should().Be($"De făcut {Day}/{Day}, În lucru -/-, Gata 0/0");
+        PerColumn(report).Should().Be($"Backlog {Day}/{Day}, În lucru -/-, În pauză -/-, Gata 0/0");
         report.CycleTime.AverageSeconds.Should().Be(3 * Day);
     }
 
@@ -200,7 +200,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
         var report = (await CycleTime(From, To, project.Id)).Value;
 
         (report.LeadTime.AverageSeconds, report.CycleTime.AverageSeconds).Should().Be((3 * Day, 3 * Day));
-        PerColumn(report).Should().Be($"De făcut {3 * Day}/{3 * Day}, În lucru -/-, Gata -/-");
+        PerColumn(report).Should().Be($"Backlog {3 * Day}/{3 * Day}, În lucru -/-, În pauză -/-, Gata -/-");
     }
 
     [Fact]

@@ -44,10 +44,8 @@ public sealed class ProjectBuilder
 
     public Project Build()
     {
+        // The project makes its four fixed columns itself.
         var project = new Project(_name, _key, _description);
-        project.AddColumn("De făcut", isDone: false);
-        project.AddColumn("În lucru", isDone: false);
-        project.AddColumn("Gata", isDone: true);
         _members.ForEach(member => project.AddMember(member.UserId, member.Role));
         return project;
     }

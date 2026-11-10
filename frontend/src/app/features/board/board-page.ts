@@ -273,16 +273,6 @@ export class BoardPage {
     void this.store.moveColumn(column, column.position + by);
   }
 
-  protected async markDone(column: BoardColumnDto, isDone: boolean): Promise<void> {
-    if (await this.store.markColumnDone(column, isDone)) {
-      this.snackbar.show(
-        isDone
-          ? $localize`«${column.name}:column:» e acum o coloană de task-uri terminate.`
-          : $localize`«${column.name}:column:» nu mai e o coloană de task-uri terminate.`,
-      );
-    }
-  }
-
   protected async deleteColumn(column: BoardColumnDto): Promise<void> {
     const sure = await this.confirmation.ask({
       title: $localize`Ștergi coloana «${column.name}:column:»?`,

@@ -34,9 +34,9 @@ public sealed class TestDataBuilderTests
     {
         var project = new ProjectBuilder().Build();
 
-        project.Columns.Select(column => column.Name).Should().Equal("De făcut", "În lucru", "Gata");
-        project.Columns.Select(column => column.Position).Should().Equal(0, 1, 2);
-        project.Columns.Select(column => column.IsDone).Should().Equal(false, false, true);
+        project.Columns.Select(column => column.Name).Should().Equal("Backlog", "În lucru", "În pauză", "Gata");
+        project.Columns.Select(column => column.Position).Should().Equal(0, 1, 2, 3);
+        project.Columns.Select(column => column.Kind).Should().Equal(ColumnKind.Backlog, ColumnKind.InProgress, ColumnKind.Paused, ColumnKind.Done);
         project.Columns.Should().OnlyContain(column => column.ProjectId == project.Id);
     }
 

@@ -1,17 +1,15 @@
 using Kanabol.Domain.Projects;
-using Kanabol.Domain.Tasks;
 using Kanabol.Tests.Shared.Builders;
 
 namespace Kanabol.Domain.Tests.Projects;
 
 /// <summary>
-/// A project's columns (UI spec section 7.4): added at the end, renamed, marked done, moved, and removed
-/// only when empty and not the last one. The places stay 0, 1, 2... whatever happens.
+/// A project's columns (UI spec section 7.4): the four fixed ones every project starts with (SPEC section
+/// 4.4, group 22), and its own, added, renamed, moved, and removed only when empty. The places stay
+/// 0, 1, 2... whatever happens.
 /// </summary>
 public sealed class ProjectColumnTests
 {
-    private static readonly DateTimeOffset _now = new(2026, 11, 6, 12, 0, 0, TimeSpan.Zero);
-
     private readonly Project _project = new ProjectBuilder().Build();
 
     private BoardColumn At(int position) => _project.Columns.Single(column => column.Position == position);
@@ -19,58 +17,61 @@ public sealed class ProjectColumnTests
     private IEnumerable<string> Names => _project.Columns.OrderBy(column => column.Position).Select(column => column.Name);
 
     [Fact]
-    public void AddColumn_Always_PutsItLastWithItsNameTrimmed()
+    public void NewProject_Always_HasEachFixedKindOnceInOrder()
     {
-        var column = _project.AddColumn("  Review ", isDone: true);
+        var project = new Project("Kanabol", "KAN", null);
 
-        column.Position.Should().Be(3);
+        project.Columns.OrderBy(column => column.Position).Select(column => (column.Name, column.Kind)).Should().Equal(
+            ("Backlog", ColumnKind.Backlog),
+            ("În lucru", ColumnKind.InProgress),
+            ("În pauză", ColumnKind.Paused),
+            ("Gata", ColumnKind.Done));
+        project.Columns.Should().OnlyContain(column => column.ProjectId == project.Id && column.IsFixed);
+    }
+
+    [Fact]
+    public void AddColumn_Always_MakesACustomOneWithItsNameTrimmed()
+    {
+        var column = _project.AddColumn("  Review ");
+
         column.Name.Should().Be("Review");
-        column.IsDone.Should().BeTrue();
+        column.Kind.Should().Be(ColumnKind.Custom);
+        column.IsFixed.Should().BeFalse();
         column.ProjectId.Should().Be(_project.Id);
-        Names.Should().Equal("De făcut", "În lucru", "Gata", "Review");
+        _project.Columns.Select(other => other.Position).Order().Should().Equal(0, 1, 2, 3, 4);
     }
 
     [Fact]
     public void AddColumn_WithABlankName_Throws()
     {
-        var add = () => _project.AddColumn("  ", isDone: false);
+        var add = () => _project.AddColumn("  ");
 
         add.Should().Throw<ArgumentException>();
-        _project.Columns.Should().HaveCount(3);
+        _project.Columns.Should().HaveCount(4);
     }
 
     [Fact]
     public void RenameColumn_Always_ChangesOnlyItsName()
     {
-        var change = _project.RenameColumn(At(1).Id, " Lucrez ");
+        var review = _project.AddColumn("Review");
+
+        var change = _project.RenameColumn(review.Id, " Verificare ");
 
         change.Should().Be(ColumnChange.Done);
-        Names.Should().Equal("De făcut", "Lucrez", "Gata");
-        At(1).IsDone.Should().BeFalse();
+        review.Name.Should().Be("Verificare");
+        review.Kind.Should().Be(ColumnKind.Custom);
     }
 
     [Fact]
-    public void MarkColumnDone_Always_SetsTheFlagEitherWay()
+    public void MoveColumn_ToAPlace_PutsItThereAndTheOthersAroundIt()
     {
-        _project.MarkColumnDone(At(1).Id, isDone: true).Should().Be(ColumnChange.Done);
-        At(1).IsDone.Should().BeTrue();
+        var review = _project.AddColumn("Review");
 
-        _project.MarkColumnDone(At(2).Id, isDone: false).Should().Be(ColumnChange.Done);
-        At(2).IsDone.Should().BeFalse();
-    }
-
-    [Theory]
-    [InlineData(0, new[] { "Gata", "De făcut", "În lucru" })]
-    [InlineData(1, new[] { "De făcut", "Gata", "În lucru" })]
-    [InlineData(2, new[] { "De făcut", "În lucru", "Gata" })]
-    [InlineData(9, new[] { "De făcut", "În lucru", "Gata" })]
-    public void MoveColumn_ToAPlace_PutsItThereAndTheOthersAroundIt(int position, string[] expected)
-    {
-        var change = _project.MoveColumn(At(2).Id, position);
+        var change = _project.MoveColumn(review.Id, 2);
 
         change.Should().Be(ColumnChange.Done);
-        Names.Should().Equal(expected);
-        _project.Columns.Select(column => column.Position).Order().Should().Equal(0, 1, 2);
+        Names.Should().Equal("Backlog", "În lucru", "Review", "În pauză", "Gata");
+        _project.Columns.Select(column => column.Position).Order().Should().Equal(0, 1, 2, 3, 4);
     }
 
     [Fact]
@@ -84,29 +85,24 @@ public sealed class ProjectColumnTests
     [Fact]
     public void RemoveColumn_WhenEmpty_TakesItOutAndClosesTheGap()
     {
-        var change = _project.RemoveColumn(At(1).Id, holdsTasks: false);
+        var review = _project.AddColumn("Review");
+        _project.MoveColumn(review.Id, 1);
+
+        var change = _project.RemoveColumn(review.Id, holdsTasks: false);
 
         change.Should().Be(ColumnChange.Done);
-        Names.Should().Equal("De făcut", "Gata");
-        _project.Columns.Select(column => column.Position).Order().Should().Equal(0, 1);
+        Names.Should().Equal("Backlog", "În lucru", "În pauză", "Gata");
+        _project.Columns.Select(column => column.Position).Order().Should().Equal(0, 1, 2, 3);
     }
 
     [Fact]
     public void RemoveColumn_ThatHoldsTasks_IsRefused()
     {
-        _project.RemoveColumn(At(0).Id, holdsTasks: true).Should().Be(ColumnChange.NotEmpty);
+        var review = _project.AddColumn("Review");
 
-        _project.Columns.Should().HaveCount(3);
-    }
+        _project.RemoveColumn(review.Id, holdsTasks: true).Should().Be(ColumnChange.NotEmpty);
 
-    [Fact]
-    public void RemoveColumn_TheLastOne_IsRefused()
-    {
-        _project.RemoveColumn(At(2).Id, holdsTasks: false);
-        _project.RemoveColumn(At(1).Id, holdsTasks: false);
-
-        _project.RemoveColumn(At(0).Id, holdsTasks: false).Should().Be(ColumnChange.LastColumn);
-        Names.Should().Equal("De făcut");
+        _project.Columns.Should().HaveCount(5);
     }
 
     [Fact]
@@ -115,37 +111,7 @@ public sealed class ProjectColumnTests
         var elsewhere = new ProjectBuilder().Build().Columns.First().Id;
 
         _project.RenameColumn(elsewhere, "X").Should().Be(ColumnChange.NotFound);
-        _project.MarkColumnDone(elsewhere, isDone: true).Should().Be(ColumnChange.NotFound);
         _project.MoveColumn(elsewhere, 0).Should().Be(ColumnChange.NotFound);
         _project.RemoveColumn(elsewhere, holdsTasks: false).Should().Be(ColumnChange.NotFound);
-    }
-
-    // SPEC section 5.1: a task in a column that becomes done is completed, and open again when it stops being one.
-    [Fact]
-    public void FollowColumn_WhenItsColumnBecomesDoneAndStops_CompletesTheTaskThenOpensIt()
-    {
-        var task = new TaskItemBuilder().InProject(_project).InColumn(At(1)).Build();
-
-        _project.MarkColumnDone(At(1).Id, isDone: true);
-        task.FollowColumn(At(1), _now);
-        task.CompletedAt.Should().Be(_now);
-
-        task.FollowColumn(At(1), _now.AddHours(1));
-        task.CompletedAt.Should().Be(_now, "it was completed already");
-
-        _project.MarkColumnDone(At(1).Id, isDone: false);
-        task.FollowColumn(At(1), _now.AddHours(2));
-        task.CompletedAt.Should().BeNull();
-        task.History.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void FollowColumn_OfAnotherColumn_Throws()
-    {
-        var task = new TaskItemBuilder().InProject(_project).InColumn(At(0)).Build();
-
-        var follow = () => task.FollowColumn(At(2), _now);
-
-        follow.Should().Throw<ArgumentException>();
     }
 }

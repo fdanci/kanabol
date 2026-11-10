@@ -718,7 +718,7 @@ creates_the_board_project() {
   brd_id=$(body_field id)
   todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 0")
   doing=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 1")
-  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND is_done")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND kind = 'Done'")
   for title in A B C D; do
     status_is 201 "$(as "$admin_token" POST "$(tasks_of "$brd_id")" "{\"title\":\"$title\",\"priority\":\"Low\"}")" || return 1
     eval "task_$title=\$(body_field id)"

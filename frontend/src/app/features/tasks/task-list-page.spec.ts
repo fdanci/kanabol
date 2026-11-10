@@ -43,7 +43,7 @@ function row(key: string, extra: Partial<TaskSummaryDto> = {}): TaskSummaryDto {
     title: `Titlul ${key}`,
     columnId: 'c1',
     columnName: 'De făcut',
-    columnIsDone: false,
+    columnKind: 'Backlog',
     priority: 'Medium',
     dueDate: null,
     assignees: [],
@@ -74,7 +74,7 @@ describe('TaskListPage', () => {
           { userId: 'u3', displayName: 'Dan Ionescu' },
         ],
       }),
-      row('KAN-2', { columnName: 'Gata', columnIsDone: true, completedAt: '2026-11-05T08:00:00Z' }),
+      row('KAN-2', { columnName: 'Gata', columnKind: 'Done', completedAt: '2026-11-05T08:00:00Z' }),
       row('KAN-1'),
     ];
     project = aProject();

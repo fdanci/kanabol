@@ -366,7 +366,7 @@ team_is_ready() {
   for member in "$dan_id" "$ioana_id"; do
     status_is 201 "$(as "$admin_token" POST "/api/projects/$alr_id/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
   done
-  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$alr_id' AND is_done")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$alr_id' AND kind = 'Done'")
   [ -n "$done_column" ]
 }
 

@@ -43,7 +43,7 @@ public sealed class GetProjectsQueryHandler(IAppDbContext db, ICurrentUser curre
 
         var now = clock.UtcNow;
         var openTasks = db.TaskItems.Where(task => task.ArchivedAt == null
-            && !db.BoardColumns.Any(column => column.Id == task.ColumnId && column.IsDone));
+            && !db.BoardColumns.Any(column => column.Id == task.ColumnId && column.Kind == ColumnKind.Done));
 
         // By name whatever its case. PostgreSQL runs this as upper(), which takes no culture to give.
 #pragma warning disable CA1304, CA1311

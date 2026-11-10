@@ -23,7 +23,7 @@ public sealed class BoardEndpointTests(ApiFixture api) : ProjectApiTest(api)
         body.RootElement.GetProperty("projectKey").GetString().Should().Be("BRD");
         body.RootElement.GetProperty("canMove").GetBoolean().Should().BeTrue();
         body.RootElement.GetProperty("canManage").GetBoolean().Should().BeFalse();
-        body.RootElement.GetProperty("columns").GetArrayLength().Should().Be(3);
+        body.RootElement.GetProperty("columns").GetArrayLength().Should().Be(4);
         var card = body.RootElement.GetProperty("tasks").EnumerateArray().Single();
         card.GetProperty("key").GetString().Should().Be("BRD-1");
         card.GetProperty("priority").GetString().Should().Be("High");

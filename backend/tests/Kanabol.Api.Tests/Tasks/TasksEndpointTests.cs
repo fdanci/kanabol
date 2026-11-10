@@ -32,7 +32,7 @@ public sealed class TasksEndpointTests(ApiFixture api) : ProjectApiTest(api)
         response.Headers.Location!.ToString().Should().Be($"/api/tasks/{id}");
         body.RootElement.GetProperty("key").GetString().Should().Be("KAN-1");
         body.RootElement.GetProperty("priority").GetString().Should().Be("High");
-        body.RootElement.GetProperty("columnName").GetString().Should().Be("De făcut");
+        body.RootElement.GetProperty("columnName").GetString().Should().Be("Backlog");
         body.RootElement.GetProperty("canChange").GetBoolean().Should().BeTrue();
     }
 

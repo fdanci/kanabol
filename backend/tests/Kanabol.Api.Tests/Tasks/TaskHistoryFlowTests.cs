@@ -166,7 +166,7 @@ public sealed class TaskHistoryFlowTests(ApiFixture api) : ProjectApiTest(api)
         await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/assignees", new { assigneeIds = new[] { member.Id } });
         await Sent(HttpStatusCode.OK, token, HttpMethod.Put, $"/api/tasks/{taskId}/assignees", new { assigneeIds = Array.Empty<Guid>() });
         await Sent(HttpStatusCode.NoContent, token, HttpMethod.Delete, $"/api/projects/{project.Id}/members/{member.Id}");
-        var added = await Send(HttpMethod.Post, $"/api/projects/{project.Id}/board-columns", token, new { name = "Temporar", isDone = false });
+        var added = await Send(HttpMethod.Post, $"/api/projects/{project.Id}/board-columns", token, new { name = "Temporar" });
         added.StatusCode.Should().Be(HttpStatusCode.Created);
         using var column = await JsonFrom(added);
         var temporary = column.RootElement.GetProperty("id").GetGuid();
