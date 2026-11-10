@@ -31,6 +31,7 @@ services:
       Storage__Root: /data/attachments
       # The allowed extensions have a default in appsettings.json; override the whole list here as Storage__AllowedExtensions=pdf,png (one value, commas; group 16)
       # The overdue check runs every 15 minutes by default: Alerts__OverdueCheckInterval=00:05:00 changes it, Alerts__OverdueCheckEnabled=false stops it (group 17)
+      # The work schedule's time zone is Europe/Bucharest by default: Schedule__TimeZone=Europe/Vienna changes it (group 22)
       Database__MigrateOnStartup: "true"
     volumes: [attachments:/data/attachments]
     depends_on:

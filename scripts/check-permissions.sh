@@ -234,7 +234,7 @@ token_lists_every_permission() {
       console.log([].concat(payload.permission).sort().join(" "));
     });
   ' | tr -d '\r')
-  is 'projects.create projects.manage projects.view_all reports.view roles.manage tasks.archive tasks.create users.manage' "$claims"
+  is 'projects.create projects.manage projects.view_all reports.view roles.manage settings.manage tasks.archive tasks.create users.manage' "$claims"
 }
 
 default_policy_still_opens_me() {

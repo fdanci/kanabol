@@ -1,6 +1,7 @@
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Notifications;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,8 @@ public interface IAppDbContext
     DbSet<TaskHistoryEntry> TaskHistoryEntries { get; }
 
     DbSet<Notification> Notifications { get; }
+
+    DbSet<WorkSchedule> WorkSchedules { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -32,6 +32,14 @@
 #      to 500 characters once trimmed (400 on pauseReason otherwise, nothing moved), which the task keeps
 #      and the history writes next to the move, at its moment; leaving forgets it without an entry, a reorder
 #      there asks for none, and one sent on any other move is ignored. Docker, PostgreSQL.
+#   3  the general settings: the tests (the schedule, its handlers, Schedule:TimeZone, the migration's row and
+#      back, the endpoints); then the real API in Production: settings.manage seeded and the Admin's, GET
+#      /api/settings/work-schedule for anyone signed in (Monday to Friday, 08:30–16:30, Europe/Bucharest),
+#      PUT for settings.manage only (403 Auth.PermissionRequired otherwise), 400 on the field that's wrong,
+#      the change logged with who and the schedule before and after; Schedule__TimeZone unknown stops the
+#      start, naming it; the API image built from backend/ carries the zone data, starts past the options with
+#      Europe/Vienna and stops on an unknown zone; compose.yaml's comment names Schedule__TimeZone. Docker,
+#      PostgreSQL.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -64,6 +72,7 @@ jwt_secret=columns-check-secret-with-at-least-32-characters
 
 cleanup() {
   stop_api
+  [ -z "${api_image_built:-}" ] || "$docker_cli" image rm -f "kanabol-api:columns-check-$$" >/dev/null 2>&1
   drop_database
   rm -rf "$scratch"
 }
@@ -754,11 +763,153 @@ task_2() {
   check "a reason sent on another move is ignored" a_reason_elsewhere_is_ignored
 }
 
-tasks=${*:-1 2}
+# ---- Task 3: the general settings.
+
+settings_tests_pass() {
+  classes_pass Kanabol.Domain.Tests 15 WorkScheduleTests &&
+    classes_pass Kanabol.Application.Tests 20 WorkScheduleHandlerTests ScheduleOptionsTests AddWorkScheduleMigrationTests &&
+    classes_pass Kanabol.Api.Tests 8 SettingsEndpointTests
+}
+
+# Someone signed in with a role of their own; their token in person_token.
+person_signs_in() { # person_signs_in <email> <name> <permissions as a JSON list>
+  the_admin_signs_in || return 1
+  status_is 201 "$(as "$admin_token" POST /api/roles "{\"name\":\"Rol $2\",\"permissions\":$3}")" || return 1
+  role=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"$1\",\"displayName\":\"$2\",\"roleId\":\"$role\",\"initialPassword\":\"$admin_password\"}")" || return 1
+  status_is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.78.0.3' \
+    -d "{\"email\":\"$1\",\"password\":\"$admin_password\"}")" || return 1
+  status_is 200 "$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
+    -H 'Content-Type: application/json' -d "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"parola lui $1 pentru coloane\"}")" || return 1
+  person_token=$(body_field accessToken)
+}
+
+schedule_is() { # schedule_is <token> <expected days start end zone>
+  status_is 200 "$(as "$1" GET /api/settings/work-schedule)" || return 1
+  is "$2" "$(json "b.days.join(',') + ' ' + b.start + ' ' + b.end + ' ' + b.timeZone")"
+}
+
+settings_manage_is_seeded_and_the_admins() {
+  the_admin_signs_in || return 1
+  is 'settings.manage|t' "$(in_db "SELECT p.name, bool_or(r.is_system) FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN roles r ON r.id = rp.role_id WHERE p.name = 'settings.manage' GROUP BY p.name" | sed 's/|True$/|t/')"
+}
+
+anyone_reads_the_schedule() {
+  person_signs_in "mihai@example.com" "Mihai Fără Setări" '["projects.manage"]' || return 1
+  mihai_token=$person_token
+  schedule_is "$mihai_token" '1,2,3,4,5 08:30 16:30 Europe/Bucharest' || return 1
+  is 401 "$(send GET /api/settings/work-schedule)"
+}
+
+only_settings_manage_changes_it() {
+  [ -n "${mihai_token:-}" ] || anyone_reads_the_schedule || return 1
+  code_is 403 Auth.PermissionRequired "$(as "$mihai_token" PUT /api/settings/work-schedule '{"days":[1],"start":"09:00","end":"17:00"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT /api/settings/work-schedule '{"days":[6,1,2,3,4],"start":"09:00","end":"17:30"}')" || return 1
+  schedule_is "$mihai_token" '1,2,3,4,6 09:00 17:30 Europe/Bucharest' || return 1
+  is '1,2,3,4,6|09:00|17:30' "$(in_db "SELECT work_days, to_char(start_time, 'HH24:MI'), to_char(end_time, 'HH24:MI') FROM work_schedules")"
+}
+
+a_wrong_field_is_400_on_it() {
+  the_admin_signs_in || return 1
+  for case in '[]|09:00|17:00|days' '[1,1]|09:00|17:00|days' '[0]|09:00|17:00|days' '[1]|9:00|17:00|start' '[1]|09:00|24:00|end' '[1]|17:00|09:00|end'; do
+    days=${case%%|*}
+    rest=${case#*|}
+    start=${rest%%|*}
+    rest=${rest#*|}
+    end=${rest%%|*}
+    field=${rest#*|}
+    status_is 400 "$(as "$admin_token" PUT /api/settings/work-schedule "{\"days\":$days,\"start\":\"$start\",\"end\":\"$end\"}")" || return 1
+    is "$field" "$(json "Object.keys(b.errors).join(',')")" || return 1
+  done
+}
+
+the_change_is_logged() {
+  grep -q '"@mt":"Work schedule changed by {UserId} from {OldSchedule} to {NewSchedule}"' "$api_log" &&
+    grep -q '"OldSchedule":"1,2,3,4,5 08:30-16:30","NewSchedule":"1,2,3,4,6 09:00-17:30"' "$api_log" || {
+    grep 'Work schedule' "$api_log" | tail -n 3
+    return 1
+  }
+}
+
+an_unknown_zone_stops_the_start() {
+  stop_api
+  need_database || return 1
+  (
+    cd "$api_dir" || exit 1
+    exec env ASPNETCORE_ENVIRONMENT=Production ConnectionStrings__Default="$(connection_to "$check_db")" \
+      Jwt__Secret="$jwt_secret" Storage__Root="$scratch/attachments" Admin__InitialPassword="$initial_password" \
+      Alerts__OverdueCheckEnabled=false Serilog__WriteTo__1__Args__serverUrl=http://127.0.0.1:9 Schedule__TimeZone=Europe/Atlantida \
+      timeout 90 dotnet bin/Debug/net10.0/Kanabol.Api.dll --urls "$API_URL"
+  ) >"$scratch/zone.log" 2>&1
+  status=$?
+  [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || {
+    echo "the API ran on with an unknown zone (exit $status)"
+    return 1
+  }
+  grep -q 'Schedule:TimeZone has to be a time zone this system knows' "$scratch/zone.log"
+}
+
+api_image() {
+  [ -n "${api_image_built:-}" ] && return 0
+  "$docker_cli" build -q -t "kanabol-api:columns-check-$$" backend >"$scratch/image.log" 2>&1 || {
+    tail -n 20 "$scratch/image.log"
+    return 1
+  }
+  api_image_built=1
+}
+
+# The image starts with no database it can reach: past the options it stops on the database, before them on the zone.
+image_started_with() { # image_started_with <zone>: the container's log
+  "$docker_cli" run --rm -e Schedule__TimeZone="$1" -e Jwt__Secret="$jwt_secret" -e Storage__Root=/data/attachments \
+    -e 'ConnectionStrings__Default=Host=127.0.0.1;Port=9;Database=none;Username=none;Password=none;Timeout=2' \
+    -e Serilog__WriteTo__1__Args__serverUrl=http://127.0.0.1:9 "kanabol-api:columns-check-$$" 2>&1 | tr -d '\r'
+}
+
+the_image_carries_the_zone_data() {
+  docker_is_running >/dev/null && api_image || return 1
+  "$docker_cli" run --rm --entrypoint sh "kanabol-api:columns-check-$$" -c 'test -s /usr/share/zoneinfo/Europe/Bucharest && test -s /usr/share/zoneinfo/Europe/Vienna' || {
+    echo "the image has no zone data"
+    return 1
+  }
+  image_started_with Europe/Vienna >"$scratch/image-vienna.log"
+  if grep -q 'Schedule:TimeZone' "$scratch/image-vienna.log"; then
+    echo "the image doesn't know Europe/Vienna"
+    return 1
+  fi
+  grep -qiE 'npgsql|connect|database' "$scratch/image-vienna.log" || {
+    echo "the image didn't get past the options"
+    tail -n 5 "$scratch/image-vienna.log"
+    return 1
+  }
+  image_started_with Europe/Atlantida >"$scratch/image-atlantida.log"
+  grep -q 'Schedule:TimeZone has to be a time zone this system knows' "$scratch/image-atlantida.log"
+}
+
+compose_names_the_zone() {
+  grep -qF "# The work schedule's time zone is Europe/Bucharest by default: Schedule__TimeZone=Europe/Vienna changes it (group 22)" compose.yaml
+}
+
+task_3() {
+  use_database "$api_db"
+  echo "22.3 the general settings"
+  check "Docker is running" docker_is_running
+  check "the tests pass: the schedule, its handlers, the time zone, the migration and the endpoints" settings_tests_pass
+  check "the real API in Production seeds settings.manage, which the Admin has" settings_manage_is_seeded_and_the_admins
+  check "anyone signed in reads the schedule: Monday to Friday, 08:30-16:30, Europe/Bucharest" anyone_reads_the_schedule
+  check "only settings.manage changes it, 403 Auth.PermissionRequired otherwise" only_settings_manage_changes_it
+  check "a wrong field is 400 on it" a_wrong_field_is_400_on_it
+  check "the change is logged with who, the schedule before and after" the_change_is_logged
+  check "an unknown Schedule__TimeZone stops the start, naming it" an_unknown_zone_stops_the_start
+  check "the API image carries the zone data, knows Europe/Vienna and refuses an unknown zone" the_image_carries_the_zone_data
+  check "compose.yaml's comment names Schedule__TimeZone" compose_names_the_zone
+}
+
+tasks=${*:-1 2 3}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
+    3) task_3 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

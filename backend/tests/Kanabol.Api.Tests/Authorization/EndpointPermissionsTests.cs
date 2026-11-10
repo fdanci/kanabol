@@ -106,6 +106,20 @@ public sealed class EndpointPermissionsTests(ApiFixture api) : ApiTest(api)
         found.Should().OnlyContain(endpoint => !endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any());
     }
 
+    // Anyone signed in reads the work schedule; settings.manage changes it, checked again in the database (SPEC section 4.4).
+    [Fact]
+    public void Settings_OnlyChangingTheSchedule_NeedsSettingsManage()
+    {
+        var found = RealActions
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ControllerName == "Settings")
+            .ToList();
+
+        found.Should().HaveCount(2);
+        found.Where(endpoint => endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Any())
+            .Select(endpoint => (endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()!.ActionName, endpoint.Metadata.GetMetadata<HasPermissionAttribute>()!.Permission))
+            .Should().BeEquivalentTo([("SetWorkSchedule", Permissions.SettingsManage)]);
+    }
+
     [Fact]
     public void HasPermission_InTheApiThatShips_NamesOnlyPermissionsThatExist() =>
         RealActions

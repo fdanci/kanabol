@@ -311,6 +311,49 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                     b.ToTable("project_members", (string)null);
                 });
 
+            modelBuilder.Entity("Kanabol.Domain.Settings.WorkSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<TimeOnly>("EndTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("end_time");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("start_time");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("WorkDays")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("work_days");
+
+                    b.HasKey("Id")
+                        .HasName("pk_work_schedules");
+
+                    b.HasIndex("UpdatedById")
+                        .HasDatabaseName("ix_work_schedules_updated_by_id");
+
+                    b.ToTable("work_schedules", (string)null);
+                });
+
             modelBuilder.Entity("Kanabol.Domain.Tasks.Attachment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -793,6 +836,15 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_project_members_users_user_id");
+                });
+
+            modelBuilder.Entity("Kanabol.Domain.Settings.WorkSchedule", b =>
+                {
+                    b.HasOne("Kanabol.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_work_schedules_users_updated_by_id");
                 });
 
             modelBuilder.Entity("Kanabol.Domain.Tasks.Attachment", b =>
