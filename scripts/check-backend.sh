@@ -981,6 +981,8 @@ Has("changed_at timestamp with time zone NOT NULL");
 Has("kind text NOT NULL");
 Has("estimated_minutes integer");
 Has("pause_reason character varying(500)");
+Has("worked_seconds integer NOT NULL");
+Has("work_started_at timestamp with time zone");
 // The work schedule, one row (docs/SPEC.md §4.4, §5.1, group 22).
 Has("CREATE TABLE work_schedules (");
 Has("work_days character varying(20) NOT NULL");

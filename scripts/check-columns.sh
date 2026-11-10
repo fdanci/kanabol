@@ -32,14 +32,19 @@
 #      to 500 characters once trimmed (400 on pauseReason otherwise, nothing moved), which the task keeps
 #      and the history writes next to the move, at its moment; leaving forgets it without an entry, a reorder
 #      there asks for none, and one sent on any other move is ignored. Docker, PostgreSQL.
-#   3  the general settings: the tests (the schedule, its handlers, Schedule:TimeZone, the migration's row and
-#      back, the endpoints); then the real API in Production: settings.manage seeded and the Admin's, GET
+#   3  the worked time and the general settings: the tests (the schedule, its handlers, Schedule:TimeZone, the
+#      migration's row and back, the endpoints; WorkingTime.Between, the counter in the domain and through the
+#      handlers, the migration AddWorkedTime, which starts it for the open tasks already in În lucru, and the
+#      DTOs' fields); then the real API in Production: settings.manage seeded and the Admin's, GET
 #      /api/settings/work-schedule for anyone signed in (Monday to Friday, 08:30–16:30, Europe/Bucharest),
 #      PUT for settings.manage only (403 Auth.PermissionRequired otherwise), 400 on the field that's wrong,
-#      the change logged with who and the schedule before and after; Schedule__TimeZone unknown stops the
-#      start, naming it; the API image built from backend/ carries the zone data, starts past the options with
-#      Europe/Vienna and stops on an unknown zone; compose.yaml's comment names Schedule__TimeZone. Docker,
-#      PostgreSQL.
+#      the change logged with who and the schedule before and after; with every hour of every day in the
+#      schedule, a task entering În lucru starts counting, its GET, the board and the list give isWorking and
+#      the seconds up to now, which only leaving stores, without history; with today out of the schedule,
+#      back in În lucru it counts nothing, the archive stops it and the restore starts it again, the seconds
+#      kept; Schedule__TimeZone unknown stops the start, naming it; the API image built from backend/ carries
+#      the zone data, starts past the options with Europe/Vienna and stops on an unknown zone; compose.yaml's
+#      comment names Schedule__TimeZone. Docker, PostgreSQL, Node.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -889,16 +894,83 @@ compose_names_the_zone() {
   grep -qF "# The work schedule's time zone is Europe/Bucharest by default: Schedule__TimeZone=Europe/Vienna changes it (group 22)" compose.yaml
 }
 
+worked_time_tests_pass() {
+  classes_pass Kanabol.Domain.Tests 28 WorkingTimeTests TaskWorkedTimeTests &&
+    classes_pass Kanabol.Application.Tests 9 WorkedTimeHandlerTests AddWorkedTimeMigrationTests &&
+    classes_pass Kanabol.Api.Tests 1 WorkedTimeEndpointTests
+}
+
+# The schedule's day in Bucharest, ISO (1 = Monday), and the minutes since its midnight.
+bucharest_now() {
+  node -e "const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Bucharest', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map((x) => [x.type, x.value])); console.log(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(p.weekday) + 1, Number(p.hour) * 60 + Number(p.minute))"
+}
+
+worked_of() { # worked_of <task id>: isWorking and workedSeconds of its GET, and worked_seconds and work_started_at set or not in the database
+  status_is 200 "$(as "$admin_token" GET "/api/tasks/$1")" || return 1
+  echo "$(json "b.isWorking + ' ' + b.workedSeconds") $(in_db "SELECT worked_seconds, work_started_at IS NOT NULL FROM task_items WHERE id = '$1'" | sed 's/|True$/|t/; s/|False$/|f/')"
+}
+
+at_least() { # at_least <minimum> <seconds>
+  [ "$2" -ge "$1" ] 2>/dev/null || {
+    echo "expected at least $1 seconds, got $2"
+    return 1
+  }
+}
+
+# Every hour of every day counts first, then none of today's: an open interval goes by the schedule of now.
+the_counter_runs_in_in_progress_by_the_schedule() {
+  a_board_to_move_on || return 1
+  set -- $(bucharest_now)
+  if [ "$2" -ge 1437 ]; then
+    sleep $(((1440 - $2) * 60 + 5)) # past midnight, so the next seconds stay inside 00:00-23:59
+    set -- $(bucharest_now)
+  fi
+  today=$1
+  status_is 200 "$(as "$admin_token" PUT /api/settings/work-schedule '{"days":[1,2,3,4,5,6,7],"start":"00:00","end":"23:59"}')" || return 1
+  new_task_in "Cronometrat" '"estimatedMinutes":60' || return 1
+  timed=$new_task
+  is 'false 0 0|f' "$(worked_of "$timed")" || return 1
+  moved_to "$timed" "$mut_InProgress" 200 || return 1
+  is 'true 60' "$(json "b.isWorking + ' ' + b.estimatedMinutes")" || return 1
+  sleep 3
+  read_now=$(worked_of "$timed") || return 1
+  set -- $read_now
+  is 'true 0|t' "$1 $3" || return 1
+  at_least 2 "$2" || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$mut/board")" || return 1
+  is 'true 60 null' "$(json "(t => t.isWorking + ' ' + t.estimatedMinutes + ' ' + t.pauseReason)(b.tasks.find((t) => t.id === process.argv[3]))" "$timed")" || return 1
+  at_least 2 "$(json "b.tasks.find((t) => t.id === process.argv[3]).workedSeconds" "$timed")" || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$mut/tasks?search=Cronometrat")" || return 1
+  is 'true 60' "$(json "b.items[0].isWorking + ' ' + b.items[0].estimatedMinutes")" || return 1
+  moved_to "$timed" "$mut_Paused" 200 || return 1
+  worked=$(json b.workedSeconds)
+  at_least 3 "$worked" || return 1
+  is "false $worked $worked|f" "$(worked_of "$timed")" || return 1
+  is 'ColumnId,ColumnId,PauseReason' "$(in_db "SELECT string_agg(field, ',' ORDER BY field) FROM task_history_entries WHERE task_id = '$timed'")" || return 1
+  others=$(node -e "console.log(JSON.stringify([1, 2, 3, 4, 5, 6, 7].filter((d) => d !== Number(process.argv[1]))))" "$today")
+  status_is 200 "$(as "$admin_token" PUT /api/settings/work-schedule "{\"days\":$others,\"start\":\"00:00\",\"end\":\"23:59\"}")" || return 1
+  moved_to "$timed" "$mut_InProgress" 200 || return 1
+  sleep 2
+  is "true $worked $worked|t" "$(worked_of "$timed")" || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$timed")" || return 1
+  is "$worked|f" "$(in_db "SELECT worked_seconds, work_started_at IS NOT NULL FROM task_items WHERE id = '$timed'" | sed 's/|False$/|f/')" || return 1
+  status_is 200 "$(as "$admin_token" POST "/api/tasks/$timed/restore")" || return 1
+  is "true $worked" "$(json "b.isWorking + ' ' + b.workedSeconds")" || return 1
+  is "$worked|t" "$(in_db "SELECT worked_seconds, work_started_at IS NOT NULL FROM task_items WHERE id = '$timed'" | sed 's/|True$/|t/')"
+}
+
 task_3() {
   use_database "$api_db"
-  echo "22.3 the general settings"
+  echo "22.3 the worked time and the general settings"
   check "Docker is running" docker_is_running
   check "the tests pass: the schedule, its handlers, the time zone, the migration and the endpoints" settings_tests_pass
+  check "the tests pass: WorkingTime, the counter, its handlers, the migration AddWorkedTime and the DTOs" worked_time_tests_pass
   check "the real API in Production seeds settings.manage, which the Admin has" settings_manage_is_seeded_and_the_admins
   check "anyone signed in reads the schedule: Monday to Friday, 08:30-16:30, Europe/Bucharest" anyone_reads_the_schedule
   check "only settings.manage changes it, 403 Auth.PermissionRequired otherwise" only_settings_manage_changes_it
   check "a wrong field is 400 on it" a_wrong_field_is_400_on_it
   check "the change is logged with who, the schedule before and after" the_change_is_logged
+  check "the counter runs in În lucru by the schedule of now, changed through the API, and stops in the archive" the_counter_runs_in_in_progress_by_the_schedule
   check "an unknown Schedule__TimeZone stops the start, naming it" an_unknown_zone_stops_the_start
   check "the API image carries the zone data, knows Europe/Vienna and refuses an unknown zone" the_image_carries_the_zone_data
   check "compose.yaml's comment names Schedule__TimeZone" compose_names_the_zone

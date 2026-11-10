@@ -10,7 +10,8 @@ public sealed class GetTaskByIdQueryHandler(
     IAppDbContext db,
     ICurrentUser currentUser,
     IProjectAccess projectAccess,
-    ArchivedTasksAccess archivedTasks) : IQueryHandler<GetTaskByIdQuery, TaskItemDto>
+    ArchivedTasksAccess archivedTasks,
+    WorkedTime workedTime) : IQueryHandler<GetTaskByIdQuery, TaskItemDto>
 {
     public async Task<Result<TaskItemDto>> Handle(GetTaskByIdQuery query, CancellationToken ct)
     {
@@ -35,6 +36,6 @@ public sealed class GetTaskByIdQueryHandler(
             return access.Error;
         }
 
-        return (await db.ReadTask(query.Id, currentUser, query.IncludeArchived, ct))!;
+        return (await db.ReadTask(query.Id, currentUser, query.IncludeArchived, workedTime, ct))!;
     }
 }

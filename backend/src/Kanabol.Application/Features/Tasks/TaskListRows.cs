@@ -122,6 +122,10 @@ internal static class TaskListRows
             CompletedAt = task.CompletedAt,
             ArchivedAt = task.ArchivedAt,
             UpdatedAt = task.UpdatedAt ?? task.CreatedAt,
+            EstimatedMinutes = task.EstimatedMinutes,
+            WorkedSeconds = task.WorkedSeconds,
+            WorkStartedAt = task.WorkStartedAt,
+            PauseReason = task.PauseReason,
         };
 
     private static IOrderedQueryable<TaskListRow> First<TKey>(IQueryable<TaskListRow> rows, Expression<Func<TaskListRow, TKey>> key, bool descending) =>

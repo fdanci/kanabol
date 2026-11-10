@@ -43,6 +43,10 @@ function row(key: string, extra: Partial<MyTaskDto> = {}): MyTaskDto {
     completedAt: null,
     archivedAt: null,
     updatedAt: new Date(Date.now() - 60_000).toISOString(),
+    estimatedMinutes: null,
+    workedSeconds: 0,
+    isWorking: false,
+    pauseReason: null,
     ...extra,
   };
 }

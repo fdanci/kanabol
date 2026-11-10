@@ -1,6 +1,7 @@
 using Kanabol.Application.Tests.Features.Tasks;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Kanabol.Tests.Shared.Builders;
@@ -25,6 +26,9 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
 
     protected static DateTimeOffset October(int day, int hour = 10) => new(2026, 10, day, hour, 0, 0, TimeSpan.Zero);
 
+    /// <summary>The default schedule in UTC, for the moves out of În lucru, which stop the worked time's counter.</summary>
+    protected static readonly WorkingHours Hours = new(WorkSchedule.Default(), TimeZoneInfo.Utc);
+
     /// <summary>A task created at the moment given, then moved into each column given at its moment, by Ana.</summary>
     protected static TaskItem Through(TaskItemBuilder builder, DateTimeOffset createdAt, User by, params (BoardColumn Column, DateTimeOffset At)[] moves)
     {
@@ -32,7 +36,7 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
         task.CreatedAt = createdAt;
         foreach (var (column, at) in moves)
         {
-            task.MoveTo(column, 0, by.Id, at);
+            task.MoveTo(column, 0, by.Id, at, hours: Hours);
         }
 
         return task;
@@ -77,8 +81,8 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
             Through(In(kan).WithTitle("La început").AssignedTo(dan).DueAt(October(4)), October(1), ana, (kanDoing, October(3)), (kanDone, From)),
             Through(In(kan).WithTitle("La capăt").AssignedTo(dan), October(26), ana, (kanDone, To)),
         ];
-        kanTasks[2].Archive(ana.Id, October(21));
-        kanTasks[3].Archive(ana.Id, October(9));
+        kanTasks[2].Archive(ana.Id, October(21), Hours);
+        kanTasks[3].Archive(ana.Id, October(9), Hours);
         await AddTasks(kan, kanTasks);
 
         TaskItem[] webTasks =

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Kanabol.Domain.Common;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks.Events;
 
 namespace Kanabol.Domain.Tasks;
@@ -74,6 +75,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     /// <summary>Why the task is in În pauză, kept while it stays there, archived or not; none elsewhere.</summary>
     public string? PauseReason { get; private set; }
+
+    /// <summary>The schedule's seconds of the intervals the task spent in În lucru, closed ones only (SPEC section 4.4).</summary>
+    public int WorkedSeconds { get; private set; }
+
+    /// <summary>When the open interval began: the task is in În lucru and not archived. None otherwise.</summary>
+    public DateTimeOffset? WorkStartedAt { get; private set; }
+
+    public bool IsWorking => WorkStartedAt is not null;
 
     public IReadOnlyCollection<Comment> Comments => _comments;
 
@@ -238,9 +247,11 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// leaving it clears that. Only a change of column goes in the history: a reorder in the same
     /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1). Entering
     /// În pauză takes a reason, which a PauseReason entry writes next to the move; leaving it forgets the
-    /// reason without one (SPEC section 4.4).
+    /// reason without one (SPEC section 4.4). Entering În lucru starts the worked time's counter, leaving it adds
+    /// the schedule's seconds since then, which only the working hours can tell, so a task that leaves În lucru
+    /// needs them; the counter writes no history.
     /// </summary>
-    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now, string? pauseReason = null)
+    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now, string? pauseReason = null, WorkingHours? hours = null)
     {
         if (column.ProjectId != ProjectId)
         {
@@ -254,6 +265,11 @@ public sealed class TaskItem : AuditableEntity, IArchivable
             throw new ArgumentException("A task enters În pauză with a reason: one line of 1 to 500 characters.", nameof(pauseReason));
         }
 
+        if (column.Id != ColumnId && IsWorking)
+        {
+            ArgumentNullException.ThrowIfNull(hours);
+        }
+
         if (column.Id == ColumnId && position == Position)
         {
             return;
@@ -262,9 +278,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         var from = ColumnId;
         if (column.Id != from)
         {
+            StopWorking(now, hours);
             Record(TaskHistoryFields.ColumnId, from.ToString(), column.Id.ToString(), changedById, now);
             ColumnId = column.Id;
             PauseReason = null;
+            if (column.Kind == ColumnKind.InProgress)
+            {
+                WorkStartedAt = now;
+            }
         }
 
         if (pausing)
@@ -341,13 +362,24 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new AttachmentsChangedEvent(Id, ProjectId, removedById));
     }
 
-    /// <summary>Archiving twice keeps the first time, and who did it.</summary>
-    public void Archive(Guid archivedById, DateTimeOffset now)
+    /// <summary>The worked seconds with the open interval counted up to now, as the task's DTOs give them.</summary>
+    public long WorkedSecondsAt(DateTimeOffset now, WorkingHours hours) =>
+        WorkedSeconds + (WorkStartedAt is { } started ? hours.Between(started, now) : 0);
+
+    /// <summary>Archiving twice keeps the first time, and who did it. A task in În lucru stops working, so it needs the hours.</summary>
+    public void Archive(Guid archivedById, DateTimeOffset now, WorkingHours? hours = null)
     {
         if (ArchivedAt is not null)
         {
             return;
         }
+
+        if (IsWorking)
+        {
+            ArgumentNullException.ThrowIfNull(hours);
+        }
+
+        StopWorking(now, hours);
 
         Record(TaskHistoryFields.ArchivedAt, null, Format(now), archivedById, now);
         ArchivedAt = now;
@@ -355,17 +387,40 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new TaskArchivedEvent(Id, ProjectId, archivedById));
     }
 
-    public void Restore(Guid restoredById, DateTimeOffset now)
+    /// <summary>
+    /// Back in its column, with its estimate, worked time and pause's reason. Given its column, and that column
+    /// is În lucru, the counter starts again (SPEC section 4.4, "Coloana Arhivate").
+    /// </summary>
+    public void Restore(Guid restoredById, DateTimeOffset now, BoardColumn? column = null)
     {
         if (ArchivedAt is null)
         {
             return;
         }
 
+        if (column is not null && column.Id != ColumnId)
+        {
+            throw new ArgumentException("A task comes back to its own column.", nameof(column));
+        }
+
+        if (column?.Kind == ColumnKind.InProgress)
+        {
+            WorkStartedAt = now;
+        }
+
         Record(TaskHistoryFields.ArchivedAt, Format(ArchivedAt), null, restoredById, now);
         ArchivedAt = null;
         ArchivedById = null;
         Raise(new TaskRestoredEvent(Id, ProjectId, restoredById));
+    }
+
+    private void StopWorking(DateTimeOffset now, WorkingHours? hours)
+    {
+        if (WorkStartedAt is { } started && hours is not null)
+        {
+            WorkedSeconds = checked(WorkedSeconds + (int)hours.Between(started, now));
+            WorkStartedAt = null;
+        }
     }
 
     private static string NormalizeTitle(string title)

@@ -5,6 +5,7 @@ using Kanabol.Api.Tests.Support;
 using Kanabol.Application.Abstractions;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Kanabol.Tests.Shared.Builders;
@@ -48,7 +49,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
             task.CreatedAt = createdAt;
             foreach (var (column, at) in moves)
             {
-                task.MoveTo(column, 0, ana.Id, at);
+                task.MoveTo(column, 0, ana.Id, at, hours: new WorkingHours(WorkSchedule.Default(), TimeZoneInfo.Utc));
             }
 
             return task;

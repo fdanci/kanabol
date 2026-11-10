@@ -20,7 +20,8 @@ public sealed class MoveTaskCommandHandler(
     IAppDbContext db,
     TaskChanges changes,
     ICurrentUser currentUser,
-    IClock clock) : ICommandHandler<MoveTaskCommand, TaskItemDto>
+    IClock clock,
+    WorkedTime workedTime) : ICommandHandler<MoveTaskCommand, TaskItemDto>
 {
     public async Task<Result<TaskItemDto>> Handle(MoveTaskCommand command, CancellationToken ct)
     {
@@ -82,7 +83,8 @@ public sealed class MoveTaskCommandHandler(
             PlaceInOrder(neighbours.Where(other => other.ColumnId == task.ColumnId), except: task);
         }
 
-        task.MoveTo(column, place, currentUser.Id, now, command.PauseReason);
+        var hours = task.IsWorking && column.Id != task.ColumnId ? await workedTime.Hours(ct) : null;
+        task.MoveTo(column, place, currentUser.Id, now, command.PauseReason, hours);
 
         try
         {

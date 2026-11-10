@@ -31,6 +31,10 @@ export interface TaskItemDto {
   position: number;
   /** Why the task is in În pauză, while it's there (docs/SPEC.md §4.4). */
   pauseReason: string | null;
+  /** The schedule's seconds in În lucru, the open interval counted up to now (docs/SPEC.md §4.4). */
+  workedSeconds: number;
+  /** In În lucru and not archived: the counter runs. */
+  isWorking: boolean;
   completedAt: string | null;
   archivedAt: string | null;
   createdAt: string;
@@ -85,7 +89,10 @@ export interface TaskHistoryEntryDto {
   names: Record<string, string | null>;
 }
 
-/** A row of the project's List view. Assignees come by name; updatedAt is the last change, or the creation. */
+/**
+ * A row of the project's List view. Assignees come by name; updatedAt is the last change, or the creation. The
+ * estimate, the worked time, isWorking and the pause's reason are the task's (docs/SPEC.md §4.4).
+ */
 export interface TaskSummaryDto {
   id: string;
   key: string;
@@ -100,6 +107,10 @@ export interface TaskSummaryDto {
   completedAt: string | null;
   archivedAt: string | null;
   updatedAt: string;
+  estimatedMinutes: number | null;
+  workedSeconds: number;
+  isWorking: boolean;
+  pauseReason: string | null;
 }
 
 /**

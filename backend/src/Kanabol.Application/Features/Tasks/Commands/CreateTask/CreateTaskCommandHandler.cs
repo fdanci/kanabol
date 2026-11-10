@@ -21,6 +21,7 @@ public sealed class CreateTaskCommandHandler(
     ICurrentUser currentUser,
     IProjectAccess projectAccess,
     IClock clock,
+    WorkedTime workedTime,
     ILogger<CreateTaskCommandHandler> logger) : ICommandHandler<CreateTaskCommand, TaskItemDto>
 {
     public async Task<Result<TaskItemDto>> Handle(CreateTaskCommand command, CancellationToken ct)
@@ -93,6 +94,6 @@ public sealed class CreateTaskCommandHandler(
             created.Id,
             TaskKey.Format(project.Key, created.Number),
             project.Id);
-        return (await db.ReadTask(created.Id, currentUser, includeArchived: false, ct))!;
+        return (await db.ReadTask(created.Id, currentUser, includeArchived: false, workedTime, ct))!;
     }
 }

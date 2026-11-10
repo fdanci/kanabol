@@ -33,6 +33,11 @@ export interface BoardTaskDto {
   completedAt: string | null;
   commentCount: number;
   attachmentCount: number;
+  /** The task's estimate, worked time up to now, whether it's working and the pause's reason (docs/SPEC.md §4.4). */
+  estimatedMinutes: number | null;
+  workedSeconds: number;
+  isWorking: boolean;
+  pauseReason: string | null;
 }
 
 /**

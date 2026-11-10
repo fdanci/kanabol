@@ -42,7 +42,15 @@ internal sealed class TaskListRow
 
     public DateTimeOffset UpdatedAt { get; init; }
 
-    public TaskSummaryDto ToSummaryDto() => new(
+    public int? EstimatedMinutes { get; init; }
+
+    public int WorkedSeconds { get; init; }
+
+    public DateTimeOffset? WorkStartedAt { get; init; }
+
+    public string? PauseReason { get; init; }
+
+    public TaskSummaryDto ToSummaryDto(long workedSeconds) => new(
         Id,
         TaskKey.Format(ProjectKey, Number),
         Number,
@@ -55,9 +63,13 @@ internal sealed class TaskListRow
         Assignees,
         CompletedAt,
         ArchivedAt,
-        UpdatedAt);
+        UpdatedAt,
+        EstimatedMinutes,
+        workedSeconds,
+        WorkStartedAt is not null,
+        PauseReason);
 
-    public MyTaskDto ToMyTaskDto() => new(
+    public MyTaskDto ToMyTaskDto(long workedSeconds) => new(
         Id,
         ProjectId,
         ProjectKey,
@@ -73,5 +85,9 @@ internal sealed class TaskListRow
         Assignees,
         CompletedAt,
         ArchivedAt,
-        UpdatedAt);
+        UpdatedAt,
+        EstimatedMinutes,
+        workedSeconds,
+        WorkStartedAt is not null,
+        PauseReason);
 }

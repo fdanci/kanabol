@@ -16,7 +16,8 @@ public sealed class GetProjectTasksQueryHandler(
     ICurrentUser currentUser,
     IProjectAccess projectAccess,
     ArchivedTasksAccess archivedTasks,
-    IClock clock) : IQueryHandler<GetProjectTasksQuery, Page<TaskSummaryDto>>
+    IClock clock,
+    WorkedTime workedTime) : IQueryHandler<GetProjectTasksQuery, Page<TaskSummaryDto>>
 {
     public async Task<Result<Page<TaskSummaryDto>>> Handle(GetProjectTasksQuery query, CancellationToken ct)
     {
@@ -48,6 +49,12 @@ public sealed class GetProjectTasksQueryHandler(
             .Sorted(sort)
             .ToPage(query.Page, query.PageSize, ct);
 
-        return new Page<TaskSummaryDto>([.. page.Items.Select(row => row.ToSummaryDto())], page.Number, page.PageSize, page.TotalCount);
+        var items = new List<TaskSummaryDto>(page.Items.Count);
+        foreach (var row in page.Items)
+        {
+            items.Add(row.ToSummaryDto(await workedTime.SecondsOf(row.WorkedSeconds, row.WorkStartedAt, ct)));
+        }
+
+        return new Page<TaskSummaryDto>(items, page.Number, page.PageSize, page.TotalCount);
     }
 }

@@ -21,4 +21,8 @@ public sealed record TaskSummaryDto(
     IReadOnlyList<TaskPersonDto> Assignees,
     DateTimeOffset? CompletedAt,
     DateTimeOffset? ArchivedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int? EstimatedMinutes,
+    long WorkedSeconds,
+    bool IsWorking,
+    string? PauseReason);

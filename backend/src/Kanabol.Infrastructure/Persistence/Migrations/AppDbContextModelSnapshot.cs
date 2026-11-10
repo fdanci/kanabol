@@ -624,6 +624,14 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<DateTimeOffset?>("WorkStartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("work_started_at");
+
+                    b.Property<int>("WorkedSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("worked_seconds");
+
                     b.HasKey("Id")
                         .HasName("pk_task_items");
 

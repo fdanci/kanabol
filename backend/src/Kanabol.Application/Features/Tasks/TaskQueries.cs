@@ -27,8 +27,11 @@ public static class TaskQueries
             && db.ProjectMembers.Any(member => member.ProjectId == task.ProjectId && member.UserId == userId)
             && db.Users.Any(user => user.Id == userId && user.IsActive));
 
-    /// <summary>The task as the caller sees it, in a project archived or not. Access is the caller's to check first.</summary>
-    public static async Task<TaskItemDto?> ReadTask(this IAppDbContext db, Guid taskId, ICurrentUser caller, bool includeArchived, CancellationToken ct)
+    /// <summary>
+    /// The task as the caller sees it, in a project archived or not, its worked time counted up to now. Access is the
+    /// caller's to check first.
+    /// </summary>
+    public static async Task<TaskItemDto?> ReadTask(this IAppDbContext db, Guid taskId, ICurrentUser caller, bool includeArchived, WorkedTime workedTime, CancellationToken ct)
     {
         var userId = caller.Id;
         var row = await (
@@ -63,6 +66,8 @@ public static class TaskQueries
                     ColumnName = column.Name,
                     task.Position,
                     task.PauseReason,
+                    task.WorkedSeconds,
+                    task.WorkStartedAt,
                     task.CompletedAt,
                     task.ArchivedAt,
                     task.CreatedAt,
@@ -98,6 +103,8 @@ public static class TaskQueries
                 row.ColumnName,
                 row.Position,
                 row.PauseReason,
+                await workedTime.SecondsOf(row.WorkedSeconds, row.WorkStartedAt, ct),
+                row.WorkStartedAt is not null,
                 row.CompletedAt,
                 row.ArchivedAt,
                 row.CreatedAt,

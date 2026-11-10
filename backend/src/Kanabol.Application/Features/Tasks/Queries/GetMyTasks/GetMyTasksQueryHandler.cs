@@ -14,7 +14,8 @@ public sealed class GetMyTasksQueryHandler(
     IAppDbContext db,
     ICurrentUser currentUser,
     ArchivedTasksAccess archivedTasks,
-    IClock clock) : IQueryHandler<GetMyTasksQuery, Page<MyTaskDto>>
+    IClock clock,
+    WorkedTime workedTime) : IQueryHandler<GetMyTasksQuery, Page<MyTaskDto>>
 {
     public async Task<Result<Page<MyTaskDto>>> Handle(GetMyTasksQuery query, CancellationToken ct)
     {
@@ -38,6 +39,12 @@ public sealed class GetMyTasksQueryHandler(
             .Sorted(sort, tiesNewestFirst: true)
             .ToPage(query.Page, query.PageSize, ct);
 
-        return new Page<MyTaskDto>([.. page.Items.Select(row => row.ToMyTaskDto())], page.Number, page.PageSize, page.TotalCount);
+        var items = new List<MyTaskDto>(page.Items.Count);
+        foreach (var row in page.Items)
+        {
+            items.Add(row.ToMyTaskDto(await workedTime.SecondsOf(row.WorkedSeconds, row.WorkStartedAt, ct)));
+        }
+
+        return new Page<MyTaskDto>(items, page.Number, page.PageSize, page.TotalCount);
     }
 }

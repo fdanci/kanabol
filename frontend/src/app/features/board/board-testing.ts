@@ -29,6 +29,10 @@ export function aCard(
     completedAt: null,
     commentCount: 0,
     attachmentCount: 0,
+    estimatedMinutes: null,
+    workedSeconds: 0,
+    isWorking: false,
+    pauseReason: null,
     ...extra,
   };
 }

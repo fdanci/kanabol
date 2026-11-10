@@ -15,7 +15,8 @@ namespace Kanabol.Application.Features.Tasks.Queries.GetBoard;
 public sealed class GetBoardQueryHandler(
     IAppDbContext db,
     IProjectAccess projectAccess,
-    ICurrentUser currentUser) : IQueryHandler<GetBoardQuery, BoardDto>
+    ICurrentUser currentUser,
+    WorkedTime workedTime) : IQueryHandler<GetBoardQuery, BoardDto>
 {
     public async Task<Result<BoardDto>> Handle(GetBoardQuery query, CancellationToken ct)
     {
@@ -67,8 +68,18 @@ public sealed class GetBoardQueryHandler(
                 task.CompletedAt,
                 CommentCount = db.Comments.Count(comment => comment.TaskId == task.Id),
                 AttachmentCount = db.Attachments.Count(attachment => attachment.TaskId == task.Id),
+                task.EstimatedMinutes,
+                task.WorkedSeconds,
+                task.WorkStartedAt,
+                task.PauseReason,
             })
             .ToListAsync(ct);
+
+        var worked = new Dictionary<Guid, long>();
+        foreach (var row in rows)
+        {
+            worked[row.Id] = await workedTime.SecondsOf(row.WorkedSeconds, row.WorkStartedAt, ct);
+        }
 
         return new BoardDto(
             query.ProjectId,
@@ -89,6 +100,10 @@ public sealed class GetBoardQueryHandler(
                 row.Assignees,
                 row.CompletedAt,
                 row.CommentCount,
-                row.AttachmentCount))]);
+                row.AttachmentCount,
+                row.EstimatedMinutes,
+                worked[row.Id],
+                row.WorkStartedAt is not null,
+                row.PauseReason))]);
     }
 }
