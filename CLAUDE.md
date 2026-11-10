@@ -17,12 +17,6 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 
 `docs/UI_UX_SPEC.md` is the visual spec: theme, components, screens and text. It wins over `docs/SPEC.md` on anything visual, so read the section a frontend task points to. It's a copy of the vault's `Atasamente/UI_UX_SPEC.md`.
 
-## Skills
-
-`.claude/skills/angular-developer/` is the Angular team's own skill, copied unchanged from `github.com/angular/skills` (MIT, commit `cae1cc0`, 2026-11-10). Before a frontend task, read the reference it points to for what you are about to write: components, signals, `resource`, effects, dependency injection, routing, tests.
-
-Where the skill and the specs differ, the specs win. Kanabol uses Angular Material, not Angular Aria or Tailwind, has no SSR, keeps its forms as they are, and names things as §7 says. To update the skill, copy the folder again from that repo, whole. `.prettierignore` keeps Prettier off it.
-
 ## After implementing a feature
 
 - Check the task off and move it to **Done** in `Tasks.md`.
