@@ -80,6 +80,14 @@ export function anEntry(extra: Partial<TaskHistoryEntryDto> = {}): TaskHistoryEn
   };
 }
 
+/** The fixed columns of group 22, with În pauză: De făcut (Backlog), În lucru, În pauză and Gata. */
+export const PANEL_COLUMNS: TaskProjectDto['columns'] = [
+  { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
+  { id: 'c2', name: 'În lucru', position: 1, kind: 'InProgress' },
+  { id: 'c4', name: 'În pauză', position: 2, kind: 'Paused' },
+  { id: 'c3', name: 'Gata', position: 3, kind: 'Done' },
+];
+
 export function aProject(): TaskProjectDto {
   return {
     id: 'p1',

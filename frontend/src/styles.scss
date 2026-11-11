@@ -373,8 +373,11 @@ kb-navbar {
   );
 }
 
-/// The ⋮ of a board column: 28px with a 16px icon, as in the toolbar (6.0.12).
-kb-board-column {
+/// The ⋮ of a board column, of an archived card, and the tabs' "Reîncarcă": 28px with a 16px icon, as in the
+/// toolbar (6.0.12, UI spec 7.5).
+kb-board-column,
+kb-archived-column,
+kb-refresh-button {
   --_icon: 16px;
 
   @include mat.icon-button-overrides(

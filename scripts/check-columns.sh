@@ -67,7 +67,11 @@
 #      and the pause's reason on the card, and their specs; Arhivate, for tasks.archive, last, closed at first
 #      in a 44px band with its count, open at 300px, as this browser left it, 50 at a time, a card of the
 #      board archived by a drop on it after the question, one of its own restored into its column by a drop
-#      anywhere or by its ⋮, untouched by the filters, and their specs. The packages only.
+#      anywhere or by its ⋮, untouched by the filters, and their specs; the task's panel with "Estimare" edited
+#      in place, "Timp lucrat" counting now in În lucru against the estimate, "Motivul pauzei", the "Stare"
+#      select asking the board's sheets and keeping a started task from the columns before În lucru, the
+#      "Reîncarcă" of Atașamente and Istoric, the history's lines of the estimate and the pause, and their
+#      specs; the lists on columnKind. The packages only.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1341,6 +1345,45 @@ the_archived_specs_pass() {
     specs_pass 'src/app/features/board/*.spec.ts' 117
 }
 
+# The task's panel (UI §7.5): Estimare in place, Timp lucrat, Motivul pauzei, the Stare select's rules, the
+# tabs' Reîncarcă, and the history's new lines.
+the_panel_is_as_the_spec_says() {
+  tasks_web=$app/features/tasks
+  in_file 'Estimare</dt>' "$tasks_web/task-panel.html" &&
+    in_file 'Fără estimare' "$tasks_web/task-panel.html" &&
+    in_file 'Timp lucrat</dt>' "$tasks_web/task-panel.html" &&
+    in_file 'Se numără acum, în programul de lucru.' "$tasks_web/task-panel.html" &&
+    in_file 'din {{ formatHoursMinutes(task.estimatedMinutes) }} estimate' "$tasks_web/task-panel.html" &&
+    in_file 'Motivul pauzei</dt>' "$tasks_web/task-panel.html" &&
+    in_file '[disabled]="goesBack(task, column)"' "$tasks_web/task-panel.html" &&
+    in_file 'await this.questions.estimate(task.key)' "$tasks_web/task-panel.ts" &&
+    in_file 'await this.questions.pauseReason(task.key)' "$tasks_web/task-panel.ts" &&
+    in_file 'matTooltip="Reîncarcă"' "$app/shared/ui/refresh-button.ts" &&
+    in_file 'prefers-reduced-motion: reduce' "$app/shared/ui/refresh-button.ts" &&
+    in_file '<kb-refresh-button' "$tasks_web/task-attachments.ts" &&
+    in_file '<kb-refresh-button' "$tasks_web/task-timeline.ts" &&
+    in_file 'a estimat task-ul la {{ line.change }}' "$tasks_web/task-timeline.ts" &&
+    in_file 'a pus task-ul pe pauză: «{{ line.change }}»' "$tasks_web/task-timeline.ts" &&
+    in_file "\$localize\`Estimarea\`" "$tasks_web/task-history.ts" &&
+    in_file "task.columnKind === 'Done'" "$tasks_web/task-table.html"
+}
+
+the_panel_specs_pass() {
+  specs_named "$app/features/tasks/task-panel.spec.ts" \
+    'asks for an estimate before a task without one goes into În lucru, and moves with it' \
+    'puts the select back, asking the API nothing, when the estimate is turned down' \
+    'asks why before a pause, and shows the reason under Stare' \
+    'turns off the columns before În lucru for a started task' \
+    'edits the estimate in place: Enter saves it in minutes, with a comma' \
+    'refuses an estimate out of limits under its field, and Esc goes back without closing' \
+    'shows the time worked, counting now in În lucru, against the estimate, danger once over' \
+    'reads the task again for its files from Reîncarcă on Atașamente' || return 1
+  specs_named "$app/features/tasks/task-timeline.spec.ts" \
+    'writes a first estimate, a change of it and a pause with its reason' \
+    'reads the history again from Reîncarcă, the button off and turning while it reads' || return 1
+  specs_pass 'src/app/features/tasks/*.spec.ts' 154
+}
+
 task_5() {
   echo "22.5 the frontend"
   check "the fixed columns' bars and icons reach 3:1 on the column, in light and in dark" fixed_colors_reach_3_to_1
@@ -1352,6 +1395,8 @@ task_5() {
   check "the specs of the questions pass: the sheets, the board's moves by mouse and keyboard, the store" the_asking_specs_pass
   check "Arhivate: for tasks.archive, last, a 44px band or 300px, its state kept, 50 at a time, archive and restore" the_archived_column_is_as_the_spec_says
   check "the specs of Arhivate pass: the band, the pages, archiving by a drop, restoring by a drop or the ⋮" the_archived_specs_pass
+  check "the task's panel: Estimare in place, Timp lucrat, Motivul pauzei, Stare's rules, Reîncarcă, the history's lines" the_panel_is_as_the_spec_says
+  check "the specs of the panel pass: the estimate, the worked time, the pause, the moves, the tabs' Reîncarcă" the_panel_specs_pass
 }
 
 tasks=${*:-1 2 3 4 5}

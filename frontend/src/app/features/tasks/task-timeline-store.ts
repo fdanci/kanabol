@@ -40,6 +40,8 @@ export class TaskTimelineStore {
   readonly entries = this.list.asReadonly();
   readonly state = this.loadState.asReadonly();
   readonly loadingMore = signal(false);
+  /** A read of the first page is on its way, the first one or another (the tab's "Reîncarcă"). */
+  readonly reading = signal(false);
   readonly hasMore = computed(() => this.list().length < this.total());
 
   /** The first page, from the newest. Only the last read asked for lands, however the answers arrive. */
@@ -56,6 +58,7 @@ export class TaskTimelineStore {
     }
     this.taskId = taskId;
     this.loadingMore.set(false);
+    this.reading.set(true);
     try {
       const first = await firstValueFrom(this.api.history(taskId, 1));
       if (request === this.latest) {
@@ -67,6 +70,10 @@ export class TaskTimelineStore {
     } catch {
       if (request === this.latest) {
         this.loadState.set('error');
+      }
+    } finally {
+      if (request === this.latest) {
+        this.reading.set(false);
       }
     }
   }

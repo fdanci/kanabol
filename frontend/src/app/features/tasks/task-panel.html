@@ -140,8 +140,10 @@
             <mat-tab i18n-label label="Atașamente">
               <kb-task-attachments
                 [task]="task"
+                [refreshing]="store.refreshing()"
                 (attached)="store.attached($event)"
                 (detached)="store.detached($event)"
+                (refreshed)="store.refresh()"
               />
             </mat-tab>
             <mat-tab i18n-label label="Istoric">
@@ -168,7 +170,9 @@
                     (selectionChange)="move(columnSelect, $event.value)"
                   >
                     @for (column of store.columns(); track column.id) {
-                      <mat-option [value]="column.id">{{ column.name }}</mat-option>
+                      <mat-option [value]="column.id" [disabled]="goesBack(task, column)">{{
+                        column.name
+                      }}</mat-option>
                     }
                   </mat-select>
                 } @else {
@@ -176,6 +180,13 @@
                 }
               </dd>
             </div>
+
+            @if (task.pauseReason; as reason) {
+              <div class="property">
+                <dt i18n>Motivul pauzei</dt>
+                <dd class="reason">{{ reason }}</dd>
+              </div>
+            }
 
             <div class="property assignees">
               <dt id="kb-task-assignee" i18n>Asignați</dt>
@@ -302,6 +313,81 @@
                   }}</span>
                 } @else {
                   <span class="none" i18n>Fără deadline</span>
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt id="kb-task-estimate" i18n>Estimare</dt>
+              <dd>
+                @if (editingEstimate()) {
+                  <input
+                    #estimateInput
+                    class="kb-field estimate-field"
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    aria-labelledby="kb-task-estimate"
+                    [value]="estimateDraft()"
+                    [attr.aria-invalid]="estimateError() !== null"
+                    [attr.aria-describedby]="
+                      estimateError() !== null ? 'kb-task-estimate-error' : null
+                    "
+                    (input)="estimateDraft.set($any($event.target).value)"
+                    (keydown.enter)="saveEstimate()"
+                    (keydown.escape)="cancelEstimate($event)"
+                    (blur)="saveEstimate()"
+                  />
+                  <span class="unit" i18n>ore</span>
+                  @if (estimateError(); as error) {
+                    <p id="kb-task-estimate-error" class="kb-field-error">{{ error }}</p>
+                  }
+                } @else if (task.canChange) {
+                  <button
+                    type="button"
+                    class="value-button"
+                    i18n-matTooltip
+                    matTooltip="Schimbă estimarea"
+                    (click)="editEstimate()"
+                  >
+                    @if (task.estimatedMinutes !== null) {
+                      {{ formatHoursMinutes(task.estimatedMinutes) }}
+                    } @else {
+                      <span class="none" i18n>Fără estimare</span>
+                    }
+                  </button>
+                } @else if (task.estimatedMinutes !== null) {
+                  {{ formatHoursMinutes(task.estimatedMinutes) }}
+                } @else {
+                  <span class="none" i18n>Fără estimare</span>
+                }
+              </dd>
+            </div>
+
+            <div class="property">
+              <dt i18n>Timp lucrat</dt>
+              <dd class="worked">
+                <span class="worked-time">
+                  @if (task.isWorking) {
+                    <span
+                      class="material-symbols-outlined working"
+                      role="img"
+                      i18n-aria-label
+                      aria-label="Se numără acum"
+                      i18n-matTooltip
+                      matTooltip="Se numără acum, în programul de lucru."
+                      >play_circle</span
+                    >
+                  }
+                  {{ formatWorked(task.workedSeconds) }}
+                </span>
+                @if (task.estimatedMinutes !== null) {
+                  <span
+                    class="of-estimate"
+                    [class.over]="isOverEstimate(task.workedSeconds, task.estimatedMinutes)"
+                    i18n
+                    >din {{ formatHoursMinutes(task.estimatedMinutes) }} estimate</span
+                  >
                 }
               </dd>
             </div>
