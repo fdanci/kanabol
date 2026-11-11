@@ -345,7 +345,8 @@ admin_role_stays_fixed() {
   admin_role=$(admin_role_id)
   code_is 409 Role.SystemRoleIsFixed "$(as "$admin_token" PUT "/api/roles/$admin_role" '{"name":"Sef","permissions":[]}')" || return 1
   code_is 409 Role.SystemRoleIsFixed "$(as "$admin_token" DELETE "/api/roles/$admin_role")" || return 1
-  is 'Admin|True|8' "$(sql "$(connection_to "$check_db")" "select r.name, r.is_system, count(*) from roles r join role_permissions p on p.role_id = r.id where r.is_system group by r.name, r.is_system" | tr -d '\r')"
+  # Every permission there is, however many the groups have added (settings.manage made them 9 in group 22).
+  is 'Admin|True|t' "$(sql "$(connection_to "$check_db")" "select r.name, r.is_system, count(*) = (select count(*) from permissions) from roles r join role_permissions p on p.role_id = r.id where r.is_system group by r.name, r.is_system" | tr -d '\r' | sed 's/|True$/|t/; s/|False$/|f/')"
 }
 
 admin_name_stays_reserved() {
