@@ -411,9 +411,11 @@ old_database_sorts_byte_by_byte() {
   is 0 "$(in_db "SELECT count(*) FROM task_items WHERE strpos(upper(title), upper('ștampilă')) > 0")"
 }
 
+# AddRomanianCollation applied, and every migration after it up to the newest of the code (group 22 added some).
 api_migrates_the_old_database() {
   api_is_up || return 1
-  is AddRomanianCollation "$(in_db 'SELECT migration_id FROM "__EFMigrationsHistory" ORDER BY migration_id DESC LIMIT 1' | sed 's/^[0-9]*_//')"
+  newest=$(ls backend/src/Kanabol.Infrastructure/Persistence/Migrations | sed -n 's/^\([0-9]*_[A-Za-z0-9]*\)\.cs$/\1/p' | sort | tail -n 1)
+  is "1|$newest" "$(in_db "SELECT count(*) FILTER (WHERE migration_id LIKE '%_AddRomanianCollation'), max(migration_id) FROM \"__EFMigrationsHistory\"")"
 }
 
 every_old_row_is_kept() {
