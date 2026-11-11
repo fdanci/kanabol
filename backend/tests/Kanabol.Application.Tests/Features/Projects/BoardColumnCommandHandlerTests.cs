@@ -200,14 +200,17 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         (await Add(project, new string('a', 100))).IsSuccess.Should().BeTrue();
     }
 
-    // SPEC section 4.4: the fixed names are taken, in any case, for a new column and for a new name.
+    // SPEC section 4.4: the fixed names are taken, in any case, for a new column and for a new name, and
+    // from group 23 Arhivate's too.
     [Theory]
     [InlineData("Backlog")]
     [InlineData("backlog")]
     [InlineData("ÎN LUCRU")]
     [InlineData(" În pauză ")]
     [InlineData("gata")]
-    public async Task AddAndUpdate_WithTheNameOfAFixedColumn_ReturnAValidationErrorOnName(string name)
+    [InlineData("Arhivate")]
+    [InlineData(" ARHIVATE ")]
+    public async Task AddAndUpdate_WithAReservedName_ReturnAValidationErrorOnName(string name)
     {
         var (owner, project) = await AProject();
         var review = await AColumnOfItsOwn(project, owner);

@@ -245,6 +245,11 @@ public sealed class ProjectColumnTests
     [InlineData("Review", false)]
     [InlineData("Gata!", false)]
     [InlineData("În lucru 2", false)]
-    public void IsAFixedName_SaysWhetherTheNameIsOneOfTheFourInAnyCase(string name, bool isFixed) =>
-        BoardColumn.IsAFixedName(name).Should().Be(isFixed);
+    [InlineData("Arhivate", true)]
+    [InlineData(" ARHIVATE ", true)]
+    [InlineData("arhivate", true)]
+    [InlineData("Arhivate 2", false)]
+    [InlineData("Arhivat", false)]
+    public void IsAReservedName_SaysWhetherTheNameIsOneOfTheFourOrArhivateInAnyCase(string name, bool isReserved) =>
+        BoardColumn.IsAReservedName(name).Should().Be(isReserved);
 }

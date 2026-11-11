@@ -1990,6 +1990,21 @@ an_archived_task_holds_it_and_an_empty_one_goes_anywhere() {
   is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gol:Custom,Gata:Done' "$(columns_of "$crs")"
 }
 
+# Arhivate, the board's last column, is taken as the four fixed names are, in any case (400 on name).
+arhivate_is_a_reserved_name() {
+  a_project_whose_columns_a_member_manages || return 1
+  before=$(columns_of "$prm")
+  column=$(column_id "$prm" 'În review')
+  [ -n "$column" ] || return 1
+  for name in Arhivate ARHIVATE ' arhivate '; do
+    status_is 400 "$(as "$admin_token" POST "/api/projects/$prm/board-columns" "{\"name\":\"$name\"}")" || return 1
+    is true "$(json "'name' in b.errors")" || return 1
+    status_is 400 "$(as "$admin_token" PUT "/api/projects/$prm/board-columns/$column" "{\"name\":\"$name\"}")" || return 1
+    is true "$(json "'name' in b.errors")" || return 1
+  done
+  is "$before" "$(columns_of "$prm")"
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2022,6 +2037,7 @@ task_7() {
   check "columns.manage is read from the database: Mara's token outlives her role's permission" columns_manage_is_read_from_the_database
   check "a column holding tasks doesn't cross În lucru, either way (409 Column.CrossesInProgress), but moves on its side" a_column_with_tasks_stays_on_its_side_of_in_progress
   check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere
+  check "Arhivate is a reserved name, in any case: 400 on name to POST and PUT, nothing changed" arhivate_is_a_reserved_name
   check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }

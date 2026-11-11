@@ -48,9 +48,16 @@ public sealed class BoardColumn : AuditableEntity
     public static string FixedName(ColumnKind kind) =>
         _fixed.Single(column => column.Kind == kind).Name;
 
-    /// <summary>Whether the name is one of the four, in any case: a column of the project's own can't take it.</summary>
-    public static bool IsAFixedName(string name) =>
-        _fixed.Any(column => string.Equals(column.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+    /// <summary>The name of the column Arhivate, which the board shows last and isn't a row (SPEC section 4.4).</summary>
+    public const string ArchivedName = "Arhivate";
+
+    /// <summary>
+    /// Whether the name is one of the four, or Arhivate (group 23), in any case: a column of the project's own
+    /// can't take it.
+    /// </summary>
+    public static bool IsAReservedName(string name) =>
+        _fixed.Select(column => column.Name).Append(ArchivedName)
+            .Any(reserved => string.Equals(reserved, name.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Whether a move takes a task in În lucru, or in a column after it, back to a column before În lucru,
