@@ -565,6 +565,10 @@ internal sealed class NoAccess : IProjectAccess
 
     public Task<Result> EnsureRealMemberAsync(Guid projectId, Guid userId, CancellationToken ct) =>
         Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
+
+    // Group 23: the board's columns, for an owner, projects.manage or a member with columns.manage.
+    public Task<Result> EnsureColumnManagerAsync(Guid projectId, Guid userId, CancellationToken ct) =>
+        Task.FromResult(Result.Failure(Error.Forbidden("c", "m")));
 }
 
 internal sealed class NullStorage : IFileStorage
