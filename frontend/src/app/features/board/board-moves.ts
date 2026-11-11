@@ -74,3 +74,22 @@ export function placeAmong(
   const after = column.findIndex((task) => task.id === last.id);
   return after < 0 ? column.length : after + 1;
 }
+
+/**
+ * The columns with one of them at a new place from 0, the others closing up around it, numbered 0, 1, 2...
+ * as the API numbers them (docs/SPEC.md §4.4).
+ */
+export function placeColumn(
+  columns: readonly BoardColumnDto[],
+  columnId: string,
+  position: number,
+): BoardColumnDto[] {
+  const ordered = [...columns].sort((a, b) => a.position - b.position);
+  const moving = ordered.find((column) => column.id === columnId);
+  if (!moving) {
+    return [...columns];
+  }
+  const others = ordered.filter((column) => column.id !== columnId);
+  others.splice(Math.max(0, Math.min(position, others.length)), 0, moving);
+  return others.map((column, index) => ({ ...column, position: index }));
+}

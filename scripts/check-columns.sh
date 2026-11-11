@@ -2122,6 +2122,43 @@ the_estimate_is_asked_only_once() {
     specs_pass "src/app/features/tasks/task-panel.spec.ts" 30
 }
 
+# Dragging the columns (UI §7.4 "Tragerea coloanelor"): the board is the columns' horizontal drop list, between
+# Backlog and Gata only; each column of the project's own drags by its head (grab), for canManageColumns; the
+# one in hand has shadow-drag and 0.9 opacity, its place a dashed border-300 outline of its width; it takes the
+# place at once, goes back when refused, and the screen reader hears where it went. A drop list gives the lists
+# inside it no group, so the cards' lists keep theirs on a box of no size under the board's: their specs say the
+# cards still go from column to column and the two kinds of lists stay apart.
+the_columns_drag_by_their_head() {
+  in_file 'cdkDropListOrientation="horizontal"' "$board/board-page.html" &&
+    in_file '[cdkDropListSortPredicate]="columnSlot"' "$board/board-page.html" &&
+    in_file '[cdkDropListDisabled]="!store.canManageColumns()"' "$board/board-page.html" &&
+    in_file '<div class="cards-group" cdkDropListGroup>' "$board/board-page.html" &&
+    in_file '[cdkDragDisabled]="!canDrag(column)"' "$board/board-page.html" &&
+    in_file '<div *cdkDragPlaceholder class="column-placeholder"></div>' "$board/board-page.html" &&
+    in_file 'display: contents;' "$board/board-page.scss" &&
+    in_file 'border: 1px dashed var(--kb-border-300);' "$board/board-page.scss" &&
+    in_file 'cdkDragHandle' "$board/board-column.ts" &&
+    in_file 'cursor: grab;' "$board/board-column.ts" &&
+    in_file 'opacity: 0.9;' "$board/board-column.ts" &&
+    in_file 'box-shadow: var(--kb-shadow-drag);' "$board/board-column.ts" &&
+    in_file 'index > 0 && index < this.store.columns().length - 1;' "$board/board-page.ts" &&
+    in_file '«${column.name}:column:» mutată pe poziția ${position + 1}:place: din ${count}:count:.' "$board/board-page.ts" &&
+    in_file 'Mută la stânga' "$board/board-column.ts" &&
+    in_file 'Mută la dreapta' "$board/board-column.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'drags the columns of its own by their head, the fixed ones never' \
+      'lets a column go only between Backlog and Gata' \
+      'takes the new place at once, keeps it once the API agrees, and says where it went' \
+      'goes back to its place when the API refuses, and the board reads itself again' \
+      'asks nothing when a column is let go where it was' \
+      'lets no one drag a column without canManageColumns' \
+      'keeps the lists of the cards connected to each other and to Arhivate, apart from the list of the columns' \
+      'keeps the cards and the columns apart: the board holds the columns, each column its cards' \
+      'keeps the board still while a column is dragged, and reads it once the column is let go' \
+      'says where the menu moved a column too' &&
+    specs_named "$board/board-store.spec.ts" 'moves a column at once, before the API answers, and puts it back when refused'
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2169,6 +2206,7 @@ task_7() {
   check "the board reads itself again on ColumnsChanged from another tab" the_board_listens_to_columns_changed
   check "Arhivate's band counts with archivedCount, and its cards are read only when it opens" the_archived_column_reads_when_it_opens
   check "back from În pauză a task with an estimate asks nothing: the board's mouse and keyboard, the panel's Stare" the_estimate_is_asked_only_once
+  check "the columns of the project's own drag by their head between Backlog and Gata, the cards still between columns" the_columns_drag_by_their_head
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 

@@ -342,6 +342,26 @@ describe('BoardStore', () => {
       ]);
     });
 
+    // docs/UI_UX_SPEC.md §7.4 (group 23): a column moved takes its place at once, before the API answers.
+    it('moves a column at once, before the API answers, and puts it back when refused', async () => {
+      const answer = new Subject<BoardColumnDto[]>();
+      api['moveColumn'].mockReturnValue(answer);
+      await opened();
+      const before = store.columns().map((column) => column.name);
+
+      const moving = store.moveColumn(store.columns()[2], 1);
+      TestBed.tick();
+
+      expect(store.columns().map((column) => `${column.name}:${String(column.position)}`)).toEqual([
+        `${before[0]}:0`,
+        `${before[2]}:1`,
+        `${before[1]}:2`,
+      ]);
+      answer.error(new Error('refused'));
+      expect(await moving).toBe(false);
+      expect(store.columns().map((column) => column.name)).toEqual(before);
+    });
+
     it('reads the board again after a column is added or deleted', async () => {
       await opened();
 

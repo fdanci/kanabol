@@ -1,5 +1,11 @@
 import { LiveAnnouncer } from '@angular/cdk/a11y';
-import { CdkDragDrop, CdkDropListGroup } from '@angular/cdk/drag-drop';
+import {
+  CdkDrag,
+  CdkDragDrop,
+  CdkDragPlaceholder,
+  CdkDropList,
+  CdkDropListGroup,
+} from '@angular/cdk/drag-drop';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -76,6 +82,9 @@ const MOVES: Record<string, [columns: number, places: number] | undefined> = {
   providers: [BoardStore, ArchivedStore],
   imports: [
     CdkDropListGroup,
+    CdkDropList,
+    CdkDrag,
+    CdkDragPlaceholder,
     BoardColumn,
     ArchivedColumn,
     EmptyState,
@@ -345,8 +354,35 @@ export class BoardPage {
     void this.store.renameColumn(column, name);
   }
 
+  /** A column of the project's own drags by its head, for canManageColumns (docs/UI_UX_SPEC.md §7.4, group 23). */
+  protected canDrag(column: BoardColumnDto): boolean {
+    return column.kind === 'Custom' && this.store.canManageColumns();
+  }
+
+  /** Between Backlog, always first, and Gata, always last: the CDK keeps the place there while dragging. */
+  protected readonly columnSlot = (index: number): boolean =>
+    index > 0 && index < this.store.columns().length - 1;
+
+  protected columnDropped(
+    event: CdkDragDrop<BoardColumnDto[], BoardColumnDto[], BoardColumnDto>,
+  ): void {
+    if (event.previousIndex !== event.currentIndex) {
+      void this.moveColumnTo(event.item.data, event.currentIndex);
+    }
+  }
+
   protected moveColumn(column: BoardColumnDto, by: -1 | 1): void {
-    void this.store.moveColumn(column, column.position + by);
+    void this.moveColumnTo(column, column.position + by);
+  }
+
+  /** Dragged or moved from its ⋮, the column takes its place at once and the screen reader hears where. */
+  private async moveColumnTo(column: BoardColumnDto, position: number): Promise<void> {
+    if (await this.store.moveColumn(column, position)) {
+      const count = this.store.columns().length;
+      void this.announcer.announce(
+        $localize`«${column.name}:column:» mutată pe poziția ${position + 1}:place: din ${count}:count:.`,
+      );
+    }
   }
 
   protected async deleteColumn(column: BoardColumnDto): Promise<void> {

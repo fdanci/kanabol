@@ -1,4 +1,4 @@
-import { CdkDrag, CdkDragDrop, CdkDropList } from '@angular/cdk/drag-drop';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -52,6 +52,7 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
   imports: [
     CdkDropList,
     CdkDrag,
+    CdkDragHandle,
     TaskCard,
     MatButton,
     MatIconButton,
@@ -66,7 +67,13 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
       [class]="'kind-' + column().kind.toLowerCase()"
       [attr.aria-labelledby]="'kb-column-' + column().id"
     >
-      <header class="head">
+      <!-- The column drags by its head, a column of the project's own for canManageColumns (group 23). -->
+      <header
+        class="head"
+        cdkDragHandle
+        [cdkDragHandleDisabled]="!canDrag() || renaming()"
+        [class.grab]="canDrag()"
+      >
         @if (icon(); as icon) {
           <span class="material-symbols-outlined kind-icon" aria-hidden="true">{{ icon }}</span>
         }
@@ -239,6 +246,23 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
       padding: 0 2px;
     }
 
+    .head.grab {
+      cursor: grab;
+    }
+
+    /* The column in hand (docs/UI_UX_SPEC.md §7.4, group 23): shadow-drag and 0.9 opacity. */
+    :host(.cdk-drag-preview) {
+      opacity: 0.9;
+    }
+
+    :host(.cdk-drag-preview) .column {
+      box-shadow: var(--kb-shadow-drag);
+    }
+
+    :host(.cdk-drag-preview) .head.grab {
+      cursor: grabbing;
+    }
+
     .name {
       margin: 0;
       overflow: hidden;
@@ -330,6 +354,8 @@ export class BoardColumn {
   readonly created = output<NewCard>();
   /** An owner, or projects.manage, of an open project. */
   readonly canManage = input(false);
+  /** A column of the project's own, for canManageColumns: its head drags it (docs/UI_UX_SPEC.md §7.4). */
+  readonly canDrag = input(false);
   /** Only an empty column of the project's own. */
   readonly canDelete = input(false);
   /** A column of the project's own, with room before Gata or after Backlog. */

@@ -14,7 +14,7 @@ import { PERMISSIONS } from '../../core/auth/permissions';
 import { ProjectMessage, TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
 import { Realtime } from '../../core/realtime/realtime';
 import { BoardApi } from './board-api';
-import { cardsIn, moveCard } from './board-moves';
+import { cardsIn, moveCard, placeColumn } from './board-moves';
 import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto, MoveAnswers } from './models';
 
 export type BoardState = 'loading' | 'ready' | 'error';
@@ -265,12 +265,25 @@ export class BoardStore {
     );
   }
 
+  /**
+   * The column takes its new place at once (docs/UI_UX_SPEC.md §7.4, group 23), then the order the API
+   * answers; refused, it goes back, and the board is read again.
+   */
   moveColumn(column: BoardColumnDto, position: number): Promise<boolean> {
+    const before = this.board()?.columns;
+    if (before && this.board()?.canManageColumns) {
+      this.placeColumns((columns) => placeColumn(columns, column.id, position));
+    }
     return this.changeColumns(
       (board) => this.api.moveColumn(board.projectId, column.id, position),
       false,
       (columns) => {
         this.placeColumns(() => columns);
+      },
+      () => {
+        if (before) {
+          this.placeColumns(() => before);
+        }
       },
     );
   }
@@ -283,6 +296,7 @@ export class BoardStore {
     call: (board: BoardDto) => Observable<T>,
     readAgain: boolean,
     apply?: (saved: T) => void,
+    undo?: () => void,
   ): Promise<boolean> {
     const board = this.board();
     if (!board?.canManageColumns) {
@@ -296,6 +310,7 @@ export class BoardStore {
       }
       return true;
     } catch {
+      undo?.();
       this.reload();
       return false;
     }
