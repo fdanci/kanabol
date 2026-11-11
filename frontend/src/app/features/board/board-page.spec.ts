@@ -1016,6 +1016,31 @@ describe('BoardPage', () => {
       expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c2', 1);
     });
 
+    // docs/SPEC.md §4.4 (group 23, an explicit check): back from În pauză, a card that has an estimate goes
+    // into În lucru without the sheet, by the mouse and by the keyboard.
+    it('moves a paused card with an estimate back into În lucru without asking, by the mouse', async () => {
+      await visit();
+
+      drop(task('D'), 'c5', 'c2', 0, 1);
+      await settle();
+
+      expect(questions.estimate).not.toHaveBeenCalled();
+      expect(questions.pauseReason).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-4', 'c2', 1);
+    });
+
+    it('moves a paused card with an estimate back into În lucru without asking, by the keyboard', async () => {
+      await visit();
+
+      await press('D', ' ');
+      await press('D', 'ArrowLeft');
+      await press('D', ' ');
+      await settle();
+
+      expect(questions.estimate).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-4', 'c2', 0);
+    });
+
     it('asks why before every pause, and shows the reason on the card', async () => {
       await visit();
 

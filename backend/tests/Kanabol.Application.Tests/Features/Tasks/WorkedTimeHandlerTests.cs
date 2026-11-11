@@ -61,6 +61,27 @@ public sealed class WorkedTimeHandlerTests(PostgresFixture postgres) : TaskHandl
         stored.History.Should().NotContain(entry => entry.Field == "WorkedSeconds" || entry.Field == "WorkStartedAt");
     }
 
+    // SPEC section 4.4 (group 23, an explicit check): a task that has an estimate goes back into În lucru without
+    // one and without being asked, keeps it, writes no new estimate, and its counter goes on from where it stopped.
+    // 14:00 to 15:00 in Bucharest, on pause until 16:00, back until 16:30: 5400 seconds.
+    [Fact]
+    public async Task Move_BackIntoInProgressFromAPause_TakesNoEstimateAndTheCounterGoesOnFromWhereItStopped()
+    {
+        var (_, project, task) = await ATask();
+        await Move(task.Id, Kind(project, ColumnKind.InProgress));
+        At(Now.AddHours(1));
+        await Move(task.Id, Kind(project, ColumnKind.Paused));
+        At(Now.AddHours(2));
+
+        var back = await Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, Kind(project, ColumnKind.InProgress).Id, null));
+
+        back.Value.Should().BeEquivalentTo(new { EstimatedMinutes = 240, IsWorking = true, WorkedSeconds = 3600L, PauseReason = (string?)null });
+        At(Now.AddHours(2.5));
+        (await Read(task.Id)).Value.WorkedSeconds.Should().Be(5400);
+        (await Move(task.Id, Kind(project, ColumnKind.Done))).Value.WorkedSeconds.Should().Be(5400);
+        (await Stored(task.Id))!.History.Count(entry => entry.Field == "EstimatedMinutes").Should().Be(1);
+    }
+
     // The evening after 16:30 and the night count nothing: Friday 6 November 09:00 adds the morning's half hour.
     [Fact]
     public async Task Move_OutOfInProgressTheNextMorning_CountsOnlyTheHoursOfTheSchedule()

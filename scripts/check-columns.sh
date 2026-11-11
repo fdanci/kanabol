@@ -1864,7 +1864,7 @@ group_23_tests_pass() {
   classes_pass Kanabol.Domain.Tests 30 PermissionsTests ProjectColumnTests &&
     classes_pass Kanabol.Application.Tests 95 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
     classes_pass Kanabol.Api.Tests 20 BoardColumnsEndpointTests BoardEndpointTests BoardRealtimeFlowTests &&
-    classes_pass Kanabol.Application.Tests 23 BoardEventsHandlerTests GetArchivedTasksQueryHandlerTests &&
+    classes_pass Kanabol.Application.Tests 31 BoardEventsHandlerTests GetArchivedTasksQueryHandlerTests WorkedTimeHandlerTests &&
     classes_pass Kanabol.Api.Tests 5 ArchivedTasksEndpointTests
 }
 
@@ -2061,7 +2061,36 @@ the_archived_column_reads_when_it_opens() {
   in_file '[total]="store.archivedCount()"' "$board/board-page.html" &&
     in_file "readonly archivedCount = computed(() => this.board()?.archivedCount ?? 0);" "$board/board-store.ts" &&
     in_file 'if (projectId === null || !this.open()) {' "$board/archived-store.ts" &&
-    specs_named "$board/board-page.spec.ts"       'reads no card while closed, whatever it hears, and its cards each time it opens'       'counts on its band with the board, which reads it again when someone archives'       'reads its cards again after a reconnection, while it is open'
+    specs_named "$board/board-page.spec.ts" \
+      'reads no card while closed, whatever it hears, and its cards each time it opens' \
+      'counts on its band with the board, which reads it again when someone archives' \
+      'reads its cards again after a reconnection, while it is open'
+}
+
+# SPEC §4.4 (group 23, an explicit check): REI-1, created with 30 minutes, goes into În lucru, on pause after
+# two seconds, and back into În lucru without an estimate: 200, the same 30 minutes and no history of them, the
+# counter where the pause left it, then going on. Every hour of every day worked, as in task 3.
+a_task_with_an_estimate_goes_back_into_in_progress_unasked() {
+  the_admin_signs_in || return 1
+  every_hour_is_worked || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Reintră în lucru","key":"REI"}')" || return 1
+  rei=$(body_field id)
+  rei_in_progress=$(in_db "SELECT id FROM board_columns WHERE project_id = '$rei' AND kind = 'InProgress'")
+  rei_paused=$(in_db "SELECT id FROM board_columns WHERE project_id = '$rei' AND kind = 'Paused'")
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$rei/tasks" '{"title":"Reintră","description":"","priority":"Low","estimatedMinutes":30}')" || return 1
+  rei_task=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$rei_task/position" "{\"columnId\":\"$rei_in_progress\"}")" || return 1
+  sleep 2
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$rei_task/position" "{\"columnId\":\"$rei_paused\",\"pauseReason\":\"O pauză scurtă\"}")" || return 1
+  paused_at=$(json "b.workedSeconds")
+  at_least 1 "$paused_at" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$rei_task/position" "{\"columnId\":\"$rei_in_progress\"}")" || return 1
+  is "30 true $paused_at null" "$(json "[b.estimatedMinutes, b.isWorking, b.workedSeconds, String(b.pauseReason)].join(' ')")" || return 1
+  sleep 2
+  set -- $(worked_of "$rei_task")
+  is true "$1" || return 1
+  at_least $((paused_at + 1)) "$2" || return 1
+  is '' "$(entries_of "$rei_task" | tr ' ' '\n' | grep '^EstimatedMinutes:')"
 }
 
 # The refresh tokens' cleanup (group 19) in compose.yaml word for word as docs/SPEC.md §13.3 has it, after the
@@ -2078,6 +2107,19 @@ compose_says_the_cleanup_as_the_spec_does() {
     return 1
   }
   is 'group 17|group 19|group 22' "$(grep -oE '[(]group (17|19|22)[)]$' compose.yaml | tr -d '()' | paste -sd'|' -)"
+}
+
+# Back from În pauză, a card or task with an estimate goes into În lucru without the sheet: the board by the mouse
+# and the keyboard, the panel's Stare select.
+the_estimate_is_asked_only_once() {
+  in_file "if (column.kind === 'InProgress' && task.estimatedMinutes === null) {" "$board/board-page.ts" &&
+    in_file "if (column.kind === 'InProgress' && task.estimatedMinutes === null) {" "$app/features/tasks/task-panel.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'moves a paused card with an estimate back into În lucru without asking, by the mouse' \
+      'moves a paused card with an estimate back into În lucru without asking, by the keyboard' &&
+    specs_named "$app/features/tasks/task-panel.spec.ts" \
+      'moves a paused task with an estimate back into În lucru from Stare without asking' &&
+    specs_pass "src/app/features/tasks/task-panel.spec.ts" 30
 }
 
 the_columns_permission_reaches_the_ui() {
@@ -2122,9 +2164,11 @@ task_7() {
   check "ColumnsChanged: Petru's board hears each of Mara's four changes from her tab, nothing of his 403" columns_changed_reaches_another_board
   check "the board's archivedCount: the archived tasks of CRS for tasks.archive, null for Petru" the_board_counts_the_archived_for_tasks_archive
   check "compose.yaml has the refresh tokens' cleanup comment of §13.3 word for word, between groups 17 and 22" compose_says_the_cleanup_as_the_spec_does
+  check "a task with an estimate goes back from În pauză into În lucru unasked, its counter going on" a_task_with_an_estimate_goes_back_into_in_progress_unasked
   check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
   check "the board reads itself again on ColumnsChanged from another tab" the_board_listens_to_columns_changed
   check "Arhivate's band counts with archivedCount, and its cards are read only when it opens" the_archived_column_reads_when_it_opens
+  check "back from În pauză a task with an estimate asks nothing: the board's mouse and keyboard, the panel's Stare" the_estimate_is_asked_only_once
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 

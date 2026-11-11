@@ -579,6 +579,27 @@ describe('TaskPanel', () => {
       );
     });
 
+    // docs/SPEC.md §4.4 (group 23, an explicit check): the Stare select asks nothing of a task with an estimate.
+    it('moves a paused task with an estimate back into În lucru from Stare without asking', async () => {
+      api['project'].mockReturnValue(of({ ...aProject(), columns: PANEL_COLUMNS }));
+      task = {
+        ...task,
+        columnId: 'c4',
+        columnName: 'În pauză',
+        estimatedMinutes: 60,
+        workedSeconds: 1_800,
+        pauseReason: 'Aștept clientul',
+      };
+      await open();
+
+      await (await select('kb-task-column')).clickOptions({ text: 'În lucru' });
+      await settle();
+
+      expect(questions.estimate).not.toHaveBeenCalled();
+      expect(questions.pauseReason).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('t1', 'c2', undefined, {});
+    });
+
     it('turns off the columns before În lucru for a started task', async () => {
       task = { ...task, columnId: 'c2', columnName: 'În lucru', estimatedMinutes: 60 };
       await open();
