@@ -4,7 +4,12 @@ import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { QUIET } from '../../core/api/error-interceptor';
 import { ReportFilters, apiInterval } from './report-filters';
-import { aCompletedReport, aCycleTimeReport, aDeadlinesReport } from './reports-testing';
+import {
+  aCompletedReport,
+  aCycleTimeReport,
+  aDeadlinesReport,
+  aWorkTimeReport,
+} from './reports-testing';
 import { ReportsApi } from './reports-api';
 
 const OCTOBER: ReportFilters = {
@@ -77,6 +82,19 @@ describe('ReportsApi', () => {
     const request = http.expectOne((sent) => sent.url === '/api/reports/cycle-time');
     expect(request.request.params.keys()).toEqual(['from', 'to', 'projectId']);
     request.flush(aCycleTimeReport());
+  });
+
+  // Group 22: the estimate against the worked time, as cycle-time without a granularity, and the schedule.
+  it('reads the work time without a granularity, and the work schedule', () => {
+    void firstValueFrom(api.workTime({ ...OCTOBER, user: 'u2' }));
+    void firstValueFrom(api.workSchedule());
+
+    const request = http.expectOne((sent) => sent.url === '/api/reports/work-time');
+    expect(request.request.params.keys()).toEqual(['from', 'to', 'userId']);
+    request.flush(aWorkTimeReport());
+    http
+      .expectOne('/api/settings/work-schedule')
+      .flush({ days: [1, 2, 3, 4, 5], start: '08:30', end: '16:30' });
   });
 
   it('reads every project the person sees, archived ones too', () => {

@@ -25,7 +25,15 @@ import { Crumb, PageHeader } from '../../shared/ui/page-header';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { StatTile } from '../../shared/ui/stat-tile';
 import { formatDuration } from './durations';
-import { CompletedReportDto, CycleTimeReportDto, DeadlinesReportDto } from './models';
+import { openTaskPanel } from '../../shared/task-panel';
+import {
+  CompletedReportDto,
+  CycleTimeReportDto,
+  DeadlinesReportDto,
+  ReportWorkScheduleDto,
+  ReportWorkTimeRow,
+  WorkTimeReportDto,
+} from './models';
 import { csvFileName, csvOf, saveCsv } from './report-csv';
 import {
   ReportFilters,
@@ -125,6 +133,9 @@ export class ReportsPage {
   protected readonly loadFailed = $localize`Nu am putut încărca raportul.`;
   protected readonly noneFinished = $localize`Niciun task finalizat în interval.`;
   protected readonly noneWithDeadline = $localize`Niciun task cu deadline în interval.`;
+  protected readonly noneEstimated = $localize`Niciun task finalizat cu estimare în acest interval.`;
+  protected readonly workTimeColumns = ['name', 'count', 'estimated', 'worked', 'deviation'];
+  protected readonly overColumns = ['task', 'estimated', 'worked', 'overrun'];
   protected readonly every = EVERY;
   protected readonly presets: { value: ReportPreset; label: string }[] = [
     { value: 'week', label: $localize`Săptămâna asta` },
@@ -226,6 +237,32 @@ export class ReportsPage {
       },
     ];
   });
+  /** Estimated and worked of each person, in hours on the axis, the full duration in the tooltip. */
+  protected readonly workTimeChart = computed<readonly ChartSeries[]>(() => {
+    const people = this.store.workTime.value()?.byUser ?? [];
+    return [
+      {
+        label: $localize`Estimat`,
+        values: people.map((person) => hours(person.estimatedSeconds)),
+        tone: 'primary',
+      },
+      {
+        label: $localize`Lucrat`,
+        values: people.map((person) => hours(person.workedSeconds)),
+        tone: 'secondary',
+      },
+    ];
+  });
+  protected readonly workTimeLabels = computed(
+    () => this.store.workTime.value()?.byUser.map((person) => person.name) ?? [],
+  );
+  /** "(luni–vineri, 08:30–16:30)", from the schedule of now. */
+  protected readonly scheduleNote = computed(() => {
+    const schedule = this.store.schedule();
+    return schedule
+      ? $localize`Timpul lucrat se numără doar în programul de lucru (${scheduleText(schedule)}:schedule:).`
+      : $localize`Timpul lucrat se numără doar în programul de lucru.`;
+  });
   protected readonly durationLabels = computed(() => this.durationRows().map((row) => row.name));
   protected readonly formatHours = (value: number) => formatDuration(value * 3600);
   protected readonly formatHourTick = (value: number) => $localize`${HOURS.format(value)} h`;
@@ -234,6 +271,7 @@ export class ReportsPage {
     if (!this.projectFixed) {
       void this.store.loadProjects();
     }
+    void this.store.loadSchedule();
 
     // Only the address starts a load. A wrong interval goes back to the last 30 days, in the address too.
     effect(() => {
@@ -317,6 +355,46 @@ export class ReportsPage {
     ]);
   }
 
+  /** "+18 %" or "−5 %" of the worked time against the estimate, "—" without one. */
+  protected deviation(row: ReportWorkTimeRow | WorkTimeReportDto): string {
+    const value =
+      'deviation' in row
+        ? row.deviation
+        : row.estimatedSeconds > 0
+          ? (row.workedSeconds - row.estimatedSeconds) / row.estimatedSeconds
+          : null;
+    return deviationText(value);
+  }
+
+  protected openTask(key: string): void {
+    void openTaskPanel(this.router, key);
+  }
+
+  protected exportWorkTime(report: WorkTimeReportDto): void {
+    const row = (kind: string, name: string, values: ReportWorkTimeRow) => [
+      kind,
+      name,
+      values.count,
+      values.estimatedSeconds,
+      values.workedSeconds,
+      this.deviation(values),
+    ];
+    this.save('estimare', [
+      [
+        $localize`Tabel`,
+        $localize`Nume`,
+        $localize`Task-uri`,
+        $localize`Estimat (secunde)`,
+        $localize`Lucrat (secunde)`,
+        $localize`Abatere`,
+      ],
+      ...report.byUser.map((person) => row($localize`Pe om`, person.name, person)),
+      ...report.byProject.map((project) =>
+        row($localize`Pe proiect`, `${project.name} (${project.key})`, project),
+      ),
+    ]);
+  }
+
   protected exportDeadlines(report: DeadlinesReportDto): void {
     const rows = this.deadlinePeriods().map((period, index) => [
       period.day,
@@ -369,6 +447,37 @@ export class ReportsPage {
       replaceUrl,
     });
   }
+}
+
+const DAY_NAMES = [
+  $localize`luni`,
+  $localize`marți`,
+  $localize`miercuri`,
+  $localize`joi`,
+  $localize`vineri`,
+  $localize`sâmbătă`,
+  $localize`duminică`,
+];
+
+/** "luni–vineri, 08:30–16:30", or the days one by one when they don't follow each other. */
+function scheduleText(schedule: ReportWorkScheduleDto): string {
+  const days = [...schedule.days].sort((a, b) => a - b);
+  const following =
+    days.length > 2 && days.every((day, index) => index === 0 || day === days[index - 1] + 1);
+  const named = following
+    ? `${DAY_NAMES[days[0] - 1]}–${DAY_NAMES[days[days.length - 1] - 1]}`
+    : days.map((day) => DAY_NAMES[day - 1]).join(', ');
+  return `${named}, ${schedule.start}–${schedule.end}`;
+}
+
+/** A share with its sign, the minus a true one: "+18 %", "−5 %", "0 %", "—" for none. */
+function deviationText(value: number | null): string {
+  if (value === null) {
+    return '—';
+  }
+  const percent = Math.round(value * 100);
+  const sign = percent > 0 ? '+' : percent < 0 ? '−' : '';
+  return `${sign}${String(Math.abs(percent))} %`;
 }
 
 /** The chart's axis is in hours; its tooltip writes the duration in full. */

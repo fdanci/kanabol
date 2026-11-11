@@ -926,8 +926,9 @@ the_page_texts_follow_the_ui_spec() {
       return 1
     }
   done
-  [ "$(grep -c '@defer (on idle)' "$reports_web/reports-page.html")" -eq 3 ] || {
-    echo "the three charts don't each come with @defer"
+  # Four charts since group 22, Estimare și timp lucrat's the fourth.
+  [ "$(grep -c '@defer (on idle)' "$reports_web/reports-page.html")" -eq 4 ] || {
+    echo "the four charts don't each come with @defer"
     return 1
   }
   in_file '`${days} z ${hours} h`' "$reports_web/durations.ts" &&

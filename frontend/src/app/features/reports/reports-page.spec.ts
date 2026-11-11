@@ -22,11 +22,18 @@ import {
   DeadlinesReportDto,
   ReportPersonDto,
   ReportProjectDto,
+  ReportWorkScheduleDto,
+  WorkTimeReportDto,
 } from './models';
 import { ReportFilters, dayOf, presetRange } from './report-filters';
 import { ReportsApi } from './reports-api';
 import { ReportsPage } from './reports-page';
-import { aCompletedReport, aCycleTimeReport, aDeadlinesReport } from './reports-testing';
+import {
+  aCompletedReport,
+  aCycleTimeReport,
+  aDeadlinesReport,
+  aWorkTimeReport,
+} from './reports-testing';
 
 @Component({ changeDetection: ChangeDetectionStrategy.OnPush, template: `` })
 class Elsewhere {}
@@ -46,11 +53,27 @@ type Read<T> = ReturnType<typeof vi.fn<(filters: ReportFilters) => Observable<T>
  * și cycle time" and "Deadline-uri", each read on its own with its tiles, its chart, its table with "Export
  * CSV", its skeleton, its empty text and its error.
  */
+/** A work-time report without a finished task that had an estimate. */
+function noEstimates(): WorkTimeReportDto {
+  return aWorkTimeReport({
+    estimatedCount: 0,
+    estimatedSeconds: 0,
+    workedSeconds: 0,
+    deviation: null,
+    overCount: 0,
+    byUser: [],
+    byProject: [],
+    over: [],
+  });
+}
+
 describe('ReportsPage', () => {
   let api: {
     completed: Read<CompletedReportDto>;
     cycleTime: Read<CycleTimeReportDto>;
     deadlines: Read<DeadlinesReportDto>;
+    workTime: Read<WorkTimeReportDto>;
+    workSchedule: ReturnType<typeof vi.fn<() => Observable<ReportWorkScheduleDto>>>;
     projects: ReturnType<typeof vi.fn<() => Observable<ReportProjectDto[]>>>;
     members: ReturnType<typeof vi.fn<(projectId: string) => Observable<ReportPersonDto[]>>>;
   };
@@ -66,6 +89,8 @@ describe('ReportsPage', () => {
       completed: vi.fn(() => of(aCompletedReport())),
       cycleTime: vi.fn(() => of(aCycleTimeReport())),
       deadlines: vi.fn(() => of(aDeadlinesReport())),
+      workTime: vi.fn(() => of(aWorkTimeReport())),
+      workSchedule: vi.fn(() => of({ days: [1, 2, 3, 4, 5], start: '08:30', end: '16:30' })),
       projects: vi.fn(() =>
         of([
           { id: 'p1', name: 'Kanabol', key: 'KAN', archivedAt: null },
@@ -120,7 +145,10 @@ describe('ReportsPage', () => {
     await harness.fixture.whenStable();
   }
 
-  function section(page: HTMLElement, name: 'completed' | 'durations' | 'deadlines'): HTMLElement {
+  function section(
+    page: HTMLElement,
+    name: 'completed' | 'durations' | 'deadlines' | 'work-time',
+  ): HTMLElement {
     return page.querySelector<HTMLElement>(`section.${name}`)!;
   }
 
@@ -452,6 +480,7 @@ describe('ReportsPage', () => {
   });
 
   it('says "Niciun task finalizat în interval." and "Niciun task cu deadline în interval."', async () => {
+    api.workTime.mockReturnValue(of(noEstimates()));
     api.completed.mockReturnValue(of(aCompletedReport({ total: 0, byUser: [], byProject: [] })));
     api.cycleTime.mockReturnValue(
       of(
@@ -479,6 +508,9 @@ describe('ReportsPage', () => {
     expect(tiles(section(page, 'durations'))[0]).toBe('Lead time mediu | – | mediana –');
     expect(tiles(section(page, 'deadlines'))[3]).toBe(
       'Rata de respectare | – | la timp, din cele cu deadline',
+    );
+    expect(section(page, 'work-time').querySelector('kb-empty-state')?.textContent).toContain(
+      'Niciun task finalizat cu estimare în acest interval.',
     );
     expect(page.querySelectorAll('table')).toHaveLength(0);
     expect(charts).toHaveLength(0);
@@ -537,7 +569,13 @@ describe('ReportsPage', () => {
       expect(page.querySelector('kb-page-header')).toBeNull();
       expect(page.querySelector('h1')).toBeNull();
       expect(page.querySelector('.project')).toBeNull();
-      expect(page.querySelectorAll('section.report')).toHaveLength(3);
+      expect(page.querySelectorAll('section.report')).toHaveLength(4);
+      expect(api.workTime).toHaveBeenLastCalledWith({
+        ...last30,
+        project: 'p1',
+        user: null,
+        granularity: 'week',
+      });
     });
 
     it('keeps the project out of the address', async () => {
@@ -569,6 +607,175 @@ describe('ReportsPage', () => {
         user: null,
         granularity: 'week',
       });
+    });
+  });
+  // docs/UI_UX_SPEC.md §7.8 (group 22): the fourth section, "Estimare și timp lucrat".
+  describe('Estimare și timp lucrat', () => {
+    function workTime(page: HTMLElement): HTMLElement {
+      return page.querySelector<HTMLElement>('section.work-time')!;
+    }
+
+    function rows(table: Element): string[] {
+      return [...table.querySelectorAll('tr.kb-table-row')].map((row) =>
+        [...row.querySelectorAll('td')]
+          .map((cell) => cell.textContent.trim().replace(/\s+/g, ' '))
+          .join(' | '),
+      );
+    }
+
+    it('comes fourth, with the schedule of now under its title', async () => {
+      const page = await open();
+
+      expect(
+        [...page.querySelectorAll('section.report h2')].map((title) => title.textContent.trim()),
+      ).toEqual([
+        'Task-uri finalizate',
+        'Lead time și cycle time',
+        'Deadline-uri',
+        'Estimare și timp lucrat',
+      ]);
+      expect(workTime(page).querySelector('.note')?.textContent.trim()).toBe(
+        'Timpul lucrat se numără doar în programul de lucru (luni–vineri, 08:30–16:30).',
+      );
+      expect(api.workTime).toHaveBeenCalledWith(
+        expect.objectContaining({ from: last30.from, to: last30.to }),
+      );
+    });
+
+    it('names days that do not follow each other one by one', async () => {
+      api.workSchedule.mockReturnValue(of({ days: [1, 3, 5], start: '09:00', end: '17:00' }));
+      const page = await open();
+
+      expect(workTime(page).querySelector('.note')?.textContent).toContain(
+        '(luni, miercuri, vineri, 09:00–17:00)',
+      );
+    });
+
+    it('shows Estimat, Lucrat, Abatere and Peste estimare, the deviation with its sign', async () => {
+      const page = await open();
+
+      expect(tiles(workTime(page))).toEqual([
+        'Estimat | 12 h | al task-urilor estimate și lucrate',
+        'Lucrat | 17 h | în programul de lucru',
+        'Abatere | +42 % | lucrat față de estimat',
+        'Peste estimare | 2 | task-uri',
+      ]);
+    });
+
+    it('writes a deviation under the estimate with a true minus, and none as a dash', async () => {
+      api.workTime.mockReturnValue(of(aWorkTimeReport({ deviation: -0.05 })));
+      const page = await open();
+
+      expect(tiles(workTime(page))[2]).toBe('Abatere | −5 % | lucrat față de estimat');
+      const [people, projects] = [
+        ...workTime(page).querySelectorAll('table.people, table.projects'),
+      ];
+      expect(rows(people)).toEqual([
+        'Dan Ionescu | 2 | 10 h | 16 h | +60 %',
+        'Ana Pop | 1 | 2 h | 1 h | −50 %',
+      ]);
+      expect(rows(projects)).toEqual([
+        'Kanabol KAN | 2 | 10 h | 16 h | +60 %',
+        'Site WEB | 1 | 0 min | 0 min | —',
+      ]);
+    });
+
+    it('draws estimated and worked by person, in hours, in the charts colors', async () => {
+      const page = await open();
+      await settle();
+      expect(workTime(page).querySelector('kb-chart')).not.toBeNull();
+
+      const chart = charts.find((config) => config.data.datasets[0]?.label === 'Estimat')!;
+      expect(chart.data.labels).toEqual(['Dan Ionescu', 'Ana Pop']);
+      expect(chart.data.datasets.map((dataset) => [dataset.label, dataset.data])).toEqual([
+        ['Estimat', [10, 2]],
+        ['Lucrat', [16, 1]],
+      ]);
+    });
+
+    it('lists the tasks over their estimate, at most 20, each opening its task', async () => {
+      const page = await open();
+
+      const over = workTime(page).querySelector('table.over')!;
+      expect(workTime(page).querySelector('#kb-report-over')?.textContent.trim()).toBe(
+        'Task-uri peste estimare',
+      );
+      expect(rows(over)).toEqual([
+        'KAN-1 Login SSO | 4 h | 10 h | +6 h',
+        'WEB-3 Formular | 1 h | 1 h 30 min | +30 min',
+      ]);
+
+      const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      over.querySelector<HTMLButtonElement>('.task-link')!.click();
+
+      expect(navigated).toHaveBeenCalledWith(
+        [{ outlets: { panel: ['task', 'KAN-1'] } }],
+        expect.objectContaining({ queryParamsHandling: 'preserve' }),
+      );
+    });
+
+    it('says when no finished task had an estimate', async () => {
+      api.workTime.mockReturnValue(
+        of(
+          aWorkTimeReport({
+            estimatedCount: 0,
+            estimatedSeconds: 0,
+            workedSeconds: 0,
+            deviation: null,
+            overCount: 0,
+            over: [],
+          }),
+        ),
+      );
+      const page = await open();
+
+      expect(workTime(page).querySelector('kb-empty-state')?.textContent).toContain(
+        'Niciun task finalizat cu estimare în acest interval.',
+      );
+      expect(workTime(page).querySelector<HTMLButtonElement>('header button')?.disabled).toBe(true);
+    });
+
+    it('exports the tables as CSV, named by what it holds and its days', async () => {
+      const blobs: Blob[] = [];
+      Object.assign(URL, {
+        createObjectURL: vi.fn((blob: Blob) => (blobs.push(blob), 'blob:report')),
+        revokeObjectURL: vi.fn(),
+      });
+      const names: string[] = [];
+      const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+        this: HTMLAnchorElement,
+      ) {
+        names.push(this.download);
+      });
+      const page = await open('/reports?from=2026-10-05&to=2026-11-01');
+
+      workTime(page).querySelector<HTMLButtonElement>('header button')!.click();
+
+      expect(names).toEqual(['kanabol-estimare-2026-10-05-2026-11-01.csv']);
+      const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
+        await blobs[0].arrayBuffer(),
+      );
+      expect(text.split('\r\n').slice(0, 3)).toEqual([
+        '﻿"Tabel","Nume","Task-uri","Estimat (secunde)","Lucrat (secunde)","Abatere"',
+        '"Pe om","Dan Ionescu","2","36000","57600","+60 %"',
+        '"Pe om","Ana Pop","1","7200","3600","−50 %"',
+      ]);
+      clicked.mockRestore();
+    });
+
+    it('reads only its own section again on Reîncearcă', async () => {
+      api.workTime.mockReturnValueOnce(throwError(() => new Error('down')));
+      const page = await open();
+      expect(workTime(page).textContent).toContain('Nu am putut încărca raportul.');
+
+      [...workTime(page).querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent.trim() === 'Reîncearcă')!
+        .click();
+      await settle();
+
+      expect(api.workTime).toHaveBeenCalledTimes(2);
+      expect(api.completed).toHaveBeenCalledTimes(1);
+      expect(tiles(workTime(page))[0]).toBe('Estimat | 12 h | al task-urilor estimate și lucrate');
     });
   });
 });

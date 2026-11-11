@@ -74,7 +74,10 @@
 #      specs; the lists on columnKind; "Setări generale" at /settings for settings.manage, in the sidebar
 #      and with its group on the roles screen, its card's texts and specs; the production build without a
 #      warning, its Initial total, printed, under 750 kB, and the settings page in a chunk of its own, not
-#      in what index.html loads. The packages only.
+#      in what index.html loads; the reports' fourth section, "Estimare și timp lucrat", with its tiles, the
+#      schedule of now under its title, its chart by person in the charts' colors, its tables "Pe om" and
+#      "Pe proiect" with their deviation, its CSV and the tasks over their estimate, which open the task, in
+#      the reports' chunk, and its specs. The packages only.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1457,6 +1460,37 @@ lazy_in_a_chunk() { # lazy_in_a_chunk <text the chunk holds>: in a file of the b
   done
 }
 
+# The reports' fourth section (UI §7.8): "Estimare și timp lucrat", its tiles, chart, tables, CSV and list.
+the_work_time_section_is_as_the_spec_says() {
+  reports_web=$app/features/reports
+  in_file 'Estimare și timp lucrat' "$reports_web/reports-page.html" &&
+    in_file "'/reports/work-time'" "$reports_web/reports-api.ts" &&
+    in_file "'/settings/work-schedule'" "$reports_web/reports-api.ts" &&
+    in_file 'Timpul lucrat se numără doar în programul de lucru (${scheduleText(schedule)}:schedule:).' "$reports_web/reports-page.ts" &&
+    in_file 'label="Estimat"' "$reports_web/reports-page.html" &&
+    in_file 'label="Lucrat"' "$reports_web/reports-page.html" &&
+    in_file 'label="Abatere"' "$reports_web/reports-page.html" &&
+    in_file 'label="Peste estimare"' "$reports_web/reports-page.html" &&
+    in_file 'Task-uri peste estimare' "$reports_web/reports-page.html" &&
+    in_file 'Niciun task finalizat cu estimare în acest interval.' "$reports_web/reports-page.ts" &&
+    in_file "this.save('estimare'," "$reports_web/reports-page.ts" &&
+    in_file "const sign = percent > 0 ? '+' : percent < 0 ? '−' : '';" "$reports_web/reports-page.ts" &&
+    in_file "tone: 'secondary'," "$reports_web/reports-page.ts"
+}
+
+the_work_time_specs_pass() {
+  specs_named "$app/features/reports/reports-page.spec.ts" \
+    'comes fourth, with the schedule of now under its title' \
+    'shows Estimat, Lucrat, Abatere and Peste estimare, the deviation with its sign' \
+    'writes a deviation under the estimate with a true minus, and none as a dash' \
+    'draws estimated and worked by person, in hours, in the charts colors' \
+    'lists the tasks over their estimate, at most 20, each opening its task' \
+    'says when no finished task had an estimate' \
+    'exports the tables as CSV, named by what it holds and its days' \
+    'reads only its own section again on Reîncearcă' &&
+    specs_pass 'src/app/features/reports/*.spec.ts' 71
+}
+
 task_5() {
   echo "22.5 the frontend"
   check "the fixed columns' bars and icons reach 3:1 on the column, in light and in dark" fixed_colors_reach_3_to_1
@@ -1474,6 +1508,9 @@ task_5() {
   check "the specs of the settings pass: the page, the sidebar, the roles screen" the_settings_specs_pass
   check "the production build warns of nothing, its Initial total under 750 kB" the_build_is_clean_and_under_750_kb
   check "the settings page comes in a chunk of its own, not in the first bundle" lazy_in_a_chunk 'kb-settings-page'
+  check "the reports' Estimare și timp lucrat: its tiles, the schedule of now, chart, tables, CSV and overruns" the_work_time_section_is_as_the_spec_says
+  check "the specs of the reports pass, Estimare și timp lucrat among them" the_work_time_specs_pass
+  check "the new section comes with the reports' page, not in the first bundle" lazy_in_a_chunk 'Estimare și timp lucrat'
 }
 
 tasks=${*:-1 2 3 4 5}
