@@ -2,7 +2,8 @@
 # Acceptance checks for the fixed columns, the estimate, the worked time and the general settings (group 22
 # in the project's Tasks.md; docs/SPEC.md §4.4, §5.1, §5.1.1, §13.3, §14.7; docs/UI_UX_SPEC.md §5, §7.4,
 # §7.5, §7.8, §7.9). The tests hold the rules, so these checks run them, and add what they can't see: the
-# migration over an old database on the local PostgreSQL, the real API process on it, and its answers.
+# migration over an old database on the local PostgreSQL, the real API process on it, its answers, and one task
+# through all of it, as boards hear it over the hub.
 #
 # Usage: scripts/check-columns.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
@@ -78,6 +79,21 @@
 #      schedule of now under its title, its chart by person in the charts' colors, its tables "Pe om" and
 #      "Pe proiect" with their deviation, its CSV and the tasks over their estimate, which open the task, in
 #      the reports' chunk, and its specs. The packages only.
+#   6  one task from Backlog to Gata: the hub's tests (the board's events, among them the estimate's before its
+#      move, their sender, their flows); then the API built from this code, whatever the tests built, in
+#      Production: CAP with Dan a plain member, ALT, and every hour of every day worked. Ana's board, the
+#      admin's, takes CAP-1, created for Dan, into În lucru, first without an estimate (400 on
+#      estimatedMinutes), then with 30 minutes, for 2.5 seconds, on pause with a reason, into the archive,
+#      back, into În lucru for 1.5 seconds and into Gata, every request with its connection's id; Dan's board
+#      of CAP and the admin's of ALT listen over WebSockets, as a browser does. Both boards of CAP hear every
+#      step in the order it went, TaskUpdated of the estimate before its TaskMoved, each by the admin from
+#      Ana's connection, nothing of the 400; Dan hears of his assignment once, Ana of nothing, ALT's board
+#      nothing at all. The worked time counts only in În lucru and keeps through the pause, the archive and
+#      the restore; Arhivate held the task, from În pauză with its reason and its time, and has it no more;
+#      the board, the database and the history tell it the same way; work-time counts its estimate and time
+#      by Dan and by CAP, cycle-time from În lucru, between the time worked and the lead time. Last,
+#      backend/CLAUDE.md and frontend/CLAUDE.md say what the group changed, and nothing of what it took away.
+#      Docker, PostgreSQL, Node.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -282,7 +298,14 @@ ef() { # ef <arguments...>: runs dotnet ef from backend/, against the built proj
 
 # The API in Production on this run's database, which it migrates at start, without the overdue check.
 api_is_up() {
-  [ -n "$api_pid" ] && return 0
+  # One that died by itself fails the check that finds it, with its log; the next check starts another.
+  if [ -n "$api_pid" ]; then
+    kill -0 "$api_pid" 2>/dev/null && return 0
+    echo "the API stopped by itself:"
+    tail -n 30 "$api_log"
+    api_pid=
+    return 1
+  fi
   need_database || return 1
   [ -f "$api_dir/bin/Debug/net10.0/Kanabol.Api.dll" ] || api_builds || return 1
   (
@@ -357,9 +380,10 @@ code_is() { # code_is <status> <code> <actual status>: the status and the Proble
   is "$2" "$(body_field code)"
 }
 
+# A token of an earlier task stays good, but the tests between them stopped the API: it starts again first.
 the_admin_signs_in() {
-  [ -n "$admin_token" ] && return 0
   api_is_up || return 1
+  [ -n "$admin_token" ] && return 0
   status_is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H 'X-Forwarded-For: 10.78.0.1' \
     -d "{\"email\":\"$admin_email\",\"password\":\"$initial_password\"}")" || return 1
   status_is 200 "$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
@@ -999,16 +1023,22 @@ at_least() { # at_least <minimum> <seconds>
   }
 }
 
-# Every hour of every day counts first, then none of today's: an open interval goes by the schedule of now.
-the_counter_runs_in_in_progress_by_the_schedule() {
-  a_board_to_move_on || return 1
+# Every hour of every day in the schedule, through the API, past midnight first when it's close, so the next
+# seconds stay inside 00:00-23:59; today, ISO, in today.
+every_hour_is_worked() {
   set -- $(bucharest_now)
   if [ "$2" -ge 1437 ]; then
-    sleep $(((1440 - $2) * 60 + 5)) # past midnight, so the next seconds stay inside 00:00-23:59
+    sleep $(((1440 - $2) * 60 + 5))
     set -- $(bucharest_now)
   fi
   today=$1
-  status_is 200 "$(as "$admin_token" PUT /api/settings/work-schedule '{"days":[1,2,3,4,5,6,7],"start":"00:00","end":"23:59"}')" || return 1
+  status_is 200 "$(as "$admin_token" PUT /api/settings/work-schedule '{"days":[1,2,3,4,5,6,7],"start":"00:00","end":"23:59"}')"
+}
+
+# Every hour of every day counts first, then none of today's: an open interval goes by the schedule of now.
+the_counter_runs_in_in_progress_by_the_schedule() {
+  a_board_to_move_on || return 1
+  every_hour_is_worked || return 1
   new_task_in "Cronometrat" '"estimatedMinutes":60' || return 1
   timed=$new_task
   is 'false 0 0|f' "$(worked_of "$timed")" || return 1
@@ -1513,7 +1543,322 @@ task_5() {
   check "the new section comes with the reports' page, not in the first bundle" lazy_in_a_chunk 'Estimare și timp lucrat'
 }
 
-tasks=${*:-1 2 3 4 5}
+# ---- Task 6: one task from Backlog to Gata on the real API, heard by the boards over the hub.
+
+flow_tests_pass() {
+  classes_pass Kanabol.Application.Tests 13 BoardEventsHandlerTests &&
+    classes_pass Kanabol.Api.Tests 12 BoardRealtimeFlowTests BoardSenderTests
+}
+
+# check-realtime.sh's client, with answers kept: a request may keep its answer under a name, whose id a later
+# step's path or body gives as {name}.
+hub_client() {
+  [ -f "$scratch/hub.mjs" ] && return 0
+  cat >"$scratch/hub.mjs" <<'JS'
+// node hub.mjs <API address> <steps file>: runs the steps and writes what happened as JSON. A step connects a
+// name with a token, joins a project's board, waits, or sends a request to the API, with the connection id of
+// one of the names in X-Connection-Id when asked; a request may keep its answer under a name, whose id a later
+// step's path or body gives as {name}. The answers kept, and what each connection heard, come last.
+import { readFileSync } from 'node:fs';
+
+const RS = '\x1e';
+const [base, stepsFile] = process.argv.slice(2);
+const steps = JSON.parse(readFileSync(stepsFile, 'utf8'));
+const kept = {};
+const filled = (text) => text.replace(/\{(\w+)\}/g, (whole, name) => kept[name]?.id ?? whole);
+
+async function connect(token) {
+  const query = `access_token=${encodeURIComponent(token)}`;
+  const negotiated = await fetch(`${base}/hubs/board/negotiate?negotiateVersion=1&${query}`, { method: 'POST' });
+  if (negotiated.status !== 200) throw new Error(`negotiate answered ${negotiated.status}`);
+  const { connectionId, connectionToken } = await negotiated.json();
+  const socket = new WebSocket(`${base.replace(/^http/, 'ws')}/hubs/board?id=${encodeURIComponent(connectionToken)}&${query}`);
+  const heard = [];
+  const waiting = new Map();
+  let shake;
+  const shaken = new Promise((resolve, reject) => (shake = { resolve, reject }));
+  socket.onmessage = (event) => {
+    for (const frame of String(event.data).split(RS).filter(Boolean)) {
+      const message = JSON.parse(frame);
+      if (!('type' in message)) {
+        if (message.error) shake.reject(new Error(message.error));
+        else shake.resolve();
+      } else if (message.type === 1) {
+        heard.push({ event: message.target, payload: message.arguments[0] });
+      } else if (message.type === 3) {
+        waiting.get(message.invocationId)?.(message);
+      } else if (message.type === 7) {
+        heard.push({ event: '(closed)', payload: message.error ?? null });
+      }
+    }
+  };
+  await new Promise((resolve, reject) => {
+    socket.onopen = resolve;
+    socket.onerror = () => reject(new Error('the WebSocket failed'));
+  });
+  socket.send(JSON.stringify({ protocol: 'json', version: 1 }) + RS);
+  await shaken;
+  let next = 0;
+  return {
+    connectionId,
+    heard,
+    async invoke(target, ...args) {
+      const invocationId = String(++next);
+      const done = new Promise((resolve) => waiting.set(invocationId, resolve));
+      socket.send(JSON.stringify({ type: 1, invocationId, target, arguments: args }) + RS);
+      const completion = await done;
+      if (completion.error) throw new Error(completion.error);
+      return completion.result;
+    },
+    close: () => socket.close(),
+  };
+}
+
+const hubs = {};
+const result = { connections: {}, steps: [], kept, heard: {} };
+try {
+  for (const step of steps) {
+    if (step.connect) {
+      try {
+        hubs[step.connect] = await connect(step.token);
+        result.connections[step.connect] = hubs[step.connect].connectionId;
+        result.steps.push('connected');
+      } catch (error) {
+        result.steps.push(`refused: ${error.message}`);
+      }
+    } else if (step.join) {
+      // The hub answers null for a join, or the refusal's code (docs/SPEC.md §9).
+      try {
+        const refusal = await hubs[step.join].invoke('JoinProject', step.project);
+        result.steps.push(refusal === null ? 'joined' : `refused: ${refusal}`);
+      } catch (error) {
+        result.steps.push(`failed: ${error.message}`);
+      }
+    } else if (step.request) {
+      const headers = { Authorization: `Bearer ${step.token}`, 'Content-Type': 'application/json' };
+      if (step.as) headers['X-Connection-Id'] = hubs[step.as].connectionId;
+      const answer = await fetch(`${base}${filled(step.request)}`, {
+        method: step.method,
+        headers,
+        body: step.body === undefined ? undefined : filled(JSON.stringify(step.body)),
+      });
+      result.steps.push(String(answer.status));
+      const text = await answer.text();
+      if (step.keep) kept[step.keep] = text ? JSON.parse(text) : null;
+    } else if (step.wait) {
+      await new Promise((resolve) => setTimeout(resolve, step.wait));
+    }
+  }
+  // Whatever was sent has reached the sockets by the time the requests answered; this is for the wire.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+} finally {
+  for (const [name, hub] of Object.entries(hubs)) {
+    result.heard[name] = hub.heard;
+    hub.close();
+  }
+}
+console.log(JSON.stringify(result));
+JS
+}
+
+flow() { # flow <JavaScript expression on r, the flow's result, in ASCII> [argument]: prints its value; the argument is process.argv[3]
+  node -e "const r = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
+    "$(native "$scratch/flow-result.json")" "$@" | tr -d '\r'
+}
+
+pause_reason='Aștept răspunsul clientului'
+
+# CAP, the admin's, with Dan a plain member, and ALT, another of the admin's; every hour worked.
+a_project_followed_by_two_boards() {
+  the_admin_signs_in || return 1
+  [ -n "${cap:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Cap-coadă","key":"CAP"}')" || return 1
+  cap_id=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Alături","key":"ALT"}')" || return 1
+  alt=$(body_field id)
+  person_signs_in "dan@example.com" "Dan Ascultă" '["tasks.create"]' || return 1
+  dan_token=$person_token
+  dan_id=$(in_db "SELECT id FROM users WHERE email = 'dan@example.com'")
+  admin_id=$(in_db "SELECT id FROM users WHERE email = '$admin_email'")
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$cap_id/members" "{\"userId\":\"$dan_id\",\"role\":\"Member\"}")" || return 1
+  for kind in InProgress Paused Done; do
+    eval "cap_$kind=\$(in_db \"SELECT id FROM board_columns WHERE project_id = '\$cap_id' AND kind = '\$kind'\")"
+  done
+  every_hour_is_worked || return 1
+  cap=$cap_id
+}
+
+# CAP-1, created for Dan, into În lucru (first without an estimate), on pause, archived, restored, back in
+# În lucru and into Gata, every request from Ana's board, the admin's; Dan's board and one of ALT listen. Once
+# per run: the checks after it read what it left.
+the_flow_runs() {
+  a_project_followed_by_two_boards || return 1
+  [ -s "$scratch/flow-result.json" ] && return 0
+  from_ana="\"token\": \"$admin_token\", \"as\": \"ana\""
+  cat >"$scratch/flow-steps.json" <<JSON
+[
+  { "connect": "ana", "token": "$admin_token" },
+  { "connect": "dan", "token": "$dan_token" },
+  { "connect": "alt", "token": "$admin_token" },
+  { "join": "ana", "project": "$cap" },
+  { "join": "dan", "project": "$cap" },
+  { "join": "alt", "project": "$alt" },
+  { "request": "/api/projects/$cap/tasks", "method": "POST", $from_ana, "keep": "task",
+    "body": { "title": "Cap-coadă", "priority": "Medium", "assigneeIds": ["$dan_id"] } },
+  { "request": "/api/tasks/{task}/position", "method": "PATCH", $from_ana, "keep": "refused",
+    "body": { "columnId": "$cap_InProgress" } },
+  { "request": "/api/tasks/{task}/position", "method": "PATCH", $from_ana,
+    "body": { "columnId": "$cap_InProgress", "estimatedMinutes": 30 } },
+  { "wait": 2500 },
+  { "request": "/api/tasks/{task}/position", "method": "PATCH", $from_ana, "keep": "paused",
+    "body": { "columnId": "$cap_Paused", "pauseReason": "$pause_reason" } },
+  { "request": "/api/tasks/{task}", "method": "DELETE", $from_ana },
+  { "request": "/api/projects/$cap/board/archived", "method": "GET", "token": "$admin_token", "keep": "archived" },
+  { "request": "/api/tasks/{task}/restore", "method": "POST", $from_ana, "keep": "restored" },
+  { "request": "/api/tasks/{task}/position", "method": "PATCH", $from_ana, "body": { "columnId": "$cap_InProgress" } },
+  { "wait": 1500 },
+  { "request": "/api/tasks/{task}/position", "method": "PATCH", $from_ana, "keep": "done",
+    "body": { "columnId": "$cap_Done" } }
+]
+JSON
+  hub_client || return 1
+  node "$(native "$scratch/hub.mjs")" "$API_URL" "$(native "$scratch/flow-steps.json")" >"$scratch/flow.json" 2>"$scratch/flow-error.log" || {
+    cat "$scratch/flow-error.log"
+    return 1
+  }
+  mv "$scratch/flow.json" "$scratch/flow-result.json"
+}
+
+the_flow_ran() {
+  [ -s "$scratch/flow-result.json" ] || {
+    echo "the flow didn't run"
+    return 1
+  }
+  task=$(flow r.kept.task.id)
+}
+
+the_flow_answers_as_the_spec_says() {
+  the_flow_ran || return 1
+  is 'connected|connected|connected|joined|joined|joined|201|400|200|200|204|200|200|200|200' "$(flow "r.steps.join('|')")" || {
+    head -c 1500 "$scratch/flow-result.json"
+    return 1
+  }
+  is 'CAP-1 Backlog null false' "$(flow "(t => [t.key, t.columnName, String(t.estimatedMinutes), t.isWorking].join(' '))(r.kept.task)")" || return 1
+  is estimatedMinutes "$(flow "Object.keys(r.kept.refused.errors).join(',')")"
+}
+
+# Ana's board, whose requests these are, and Dan's: the same messages, in the order the requests went, each of
+# CAP-1 by the admin from Ana's connection; nothing of the 400. The estimate comes before its move.
+the_boards_hear_every_step_in_order() {
+  the_flow_ran || return 1
+  expected="TaskCreated,TaskUpdated:Assignees,TaskUpdated:EstimatedMinutes,TaskMoved:$cap_InProgress,TaskMoved:$cap_Paused,TaskArchived,TaskRestored,TaskMoved:$cap_InProgress,TaskMoved:$cap_Done"
+  for board in ana dan; do
+    is "$expected" "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').map((h) => h.event + (h.payload.field ? ':' + h.payload.field : '') + (h.event === 'TaskMoved' ? ':' + h.payload.columnId : '')).join(',')" "$board")" || return 1
+    is true "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').every((h) => h.payload.taskId === r.kept.task.id && h.payload.projectId === '$cap' && h.payload.byUserId === '$admin_id' && h.payload.originConnectionId === r.connections.ana)" "$board")" || return 1
+  done
+}
+
+only_whom_it_concerns_hears() {
+  the_flow_ran || return 1
+  is '1 0 0' "$(flow "[r.heard.dan, r.heard.ana, r.heard.alt].map((h) => h.filter((e) => e.event === 'NotificationCreated').length).join(' ')")" || return 1
+  is "$(in_db "SELECT id FROM notifications WHERE user_id = '$dan_id' AND type = 'TaskAssigned'")" \
+    "$(flow "r.heard.dan.find((e) => e.event === 'NotificationCreated').payload.notificationId")" || return 1
+  is 0 "$(flow r.heard.alt.length)"
+}
+
+# 2.5 seconds in În lucru, then 1.5: the pause, the archive and the restore count nothing and keep what was.
+the_worked_time_counts_only_in_in_progress() {
+  the_flow_ran || return 1
+  paused=$(flow r.kept.paused.workedSeconds)
+  at_least 2 "$paused" || return 1
+  is 'false 30' "$(flow "r.kept.paused.isWorking + ' ' + r.kept.paused.estimatedMinutes")" || return 1
+  is "false $paused" "$(flow "r.kept.restored.isWorking + ' ' + r.kept.restored.workedSeconds")" || return 1
+  finished=$(flow r.kept.done.workedSeconds)
+  at_least $((paused + 1)) "$finished" || return 1
+  is 'false true null 30' "$(flow "(t => [t.isWorking, t.completedAt !== null, String(t.pauseReason), t.estimatedMinutes].join(' '))(r.kept.done)")" || return 1
+  is "$finished|f" "$(in_db "SELECT worked_seconds, work_started_at IS NOT NULL FROM task_items WHERE id = '$task'" | sed 's/|False$/|f/')"
+}
+
+arhivate_held_it_while_archived() {
+  the_flow_ran || return 1
+  paused=$(flow r.kept.paused.workedSeconds)
+  is "1 $task $cap_Paused 30 false $paused $admin_id" "$(flow "(c => [r.kept.archived.items.length, c.id, c.columnId, c.estimatedMinutes, c.isWorking, c.workedSeconds, c.archivedBy.userId].join(' '))(r.kept.archived.items[0])")" || return 1
+  is "În pauză|$pause_reason" "$(flow "r.kept.archived.items[0].columnName + '|' + r.kept.archived.items[0].pauseReason")" || return 1
+  is "$cap_Paused|$pause_reason" "$(flow "r.kept.restored.columnId + '|' + r.kept.restored.pauseReason")" || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$cap/board/archived")" || return 1
+  is 0 "$(json b.items.length)"
+}
+
+the_board_and_the_history_agree() {
+  the_flow_ran || return 1
+  finished=$(flow r.kept.done.workedSeconds)
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$cap/board")" || return 1
+  is "$cap_Done 30 $finished false null" "$(json "(t => [t.columnId, t.estimatedMinutes, t.workedSeconds, t.isWorking, String(t.pauseReason)].join(' '))(b.tasks.find((t) => t.id === process.argv[3]))" "$task")" || return 1
+  is 'ColumnId,EstimatedMinutes,ColumnId,PauseReason,ArchivedAt,ArchivedAt,ColumnId,ColumnId' \
+    "$(in_db "SELECT string_agg(field, ',' ORDER BY changed_at, field) FROM task_history_entries WHERE task_id = '$task'")" || return 1
+  is "30|$pause_reason" "$(in_db "SELECT new_value FROM task_history_entries WHERE task_id = '$task' AND field IN ('EstimatedMinutes', 'PauseReason') ORDER BY field" | paste -sd '|' -)"
+}
+
+# The cycle time from the first entry into În lucru, which holds the pause and the archive, so at least the
+# time worked, and at most the lead time.
+the_reports_count_it() {
+  the_flow_ran || return 1
+  finished=$(flow r.kept.done.workedSeconds)
+  status_is 200 "$(as "$admin_token" GET "/api/reports/work-time?$(around_now)&projectId=$cap")" || return 1
+  is "1 1 1800 $finished 0 0 true" "$(json "[b.count, b.estimatedCount, b.estimatedSeconds, b.workedSeconds, b.overCount, b.over.length, b.deviation < 0].join(' ')")" || return 1
+  is "$dan_id 1 1800 $finished" "$(json "b.byUser.map((u) => [u.userId, u.count, u.estimatedSeconds, u.workedSeconds].join(' ')).join(';')")" || return 1
+  is "CAP 1 1800 $finished" "$(json "b.byProject.map((p) => [p.key, p.count, p.estimatedSeconds, p.workedSeconds].join(' ')).join(';')")" || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/reports/cycle-time?$(around_now)&projectId=$cap")" || return 1
+  is '1 true true' "$(json "[b.count, b.cycleTime.averageSeconds >= Number(process.argv[3]), b.cycleTime.averageSeconds <= b.leadTime.averageSeconds].join(' ')" "$finished")"
+}
+
+notes_say() { # notes_say <file> <text...>: each text, as it is, in the file
+  notes=$1
+  shift
+  for text in "$@"; do
+    in_file "$text" "$notes" || {
+      echo "$notes doesn't say $text"
+      return 1
+    }
+  done
+}
+
+the_backend_notes_are_up_to_date() {
+  notes_say backend/CLAUDE.md '`GET /api/projects/{id}/board-columns`, `GET …/board-columns/{columnId}` | The columns, from the left, each with its `kind`' \
+    '`Column.Fixed`' '`Task.CannotMoveBack`' '`PUT /api/tasks/{id}/estimate`' '`GET /api/projects/{id}/board/archived?page=1&pageSize=50`' \
+    '`canSeeArchived`' '`WorkingTime.Between`' '`AddWorkedTime`' '`GET /api/settings/work-schedule`' '`PUT /api/settings/work-schedule`' \
+    '`Settings.ChangedMeanwhile`' '| `Schedule__TimeZone` ' '`GET /api/reports/work-time?from=' '`EstimatedMinutes`, `Assignees`' \
+    '`scripts/check-columns.sh [task-number...]`' || return 1
+  lacks 'and `isDone`|Column\.LastColumn|MarkColumnDone|done column,|starts in the first one|with the default columns' backend/CLAUDE.md
+}
+
+the_frontend_notes_are_up_to_date() {
+  notes_say frontend/CLAUDE.md '`cdkDropListEnterPredicate`' '`MoveQuestions`' '`EstimateSheet`' '`PauseSheet`' '`kb-archived-column`' \
+    '`kb.board.archived`' '`kb-refresh-button`' '`SettingsPage`' '`ReportsStore.workTime`' '`scripts/check-columns.sh 5`' \
+    'is 707 kB after group 22' || return 1
+  lacks 'isDone|LastColumn|Marchează ca terminată|is 706 kB' frontend/CLAUDE.md
+}
+
+task_6() {
+  use_database "$api_db"
+  echo "22.6 one task from Backlog to Gata on the real API, heard by the boards"
+  check "Docker is running" docker_is_running
+  check "the tests pass: the board's events, their sender and their flows over the hub" flow_tests_pass
+  check "the API builds from this code, whatever the tests built" api_builds
+  check "the real API in Production makes CAP, with Dan a plain member, and ALT, every hour worked" a_project_followed_by_two_boards
+  check "Ana's board takes CAP-1 from Backlog through În lucru, a pause and the archive to Gata" the_flow_runs
+  check "each request answers as the spec says, În lucru without an estimate 400 on it" the_flow_answers_as_the_spec_says
+  check "both boards of CAP hear every step in order, from Ana's connection, and nothing of the 400" the_boards_hear_every_step_in_order
+  check "Dan hears of his assignment once, Ana of nothing, and ALT's board nothing at all" only_whom_it_concerns_hears
+  check "the worked time counts only in În lucru, kept through the pause, the archive and the restore" the_worked_time_counts_only_in_in_progress
+  check "Arhivate held it, from În pauză with its reason, and lets it go at the restore" arhivate_held_it_while_archived
+  check "the board and the history tell it the same way" the_board_and_the_history_agree
+  check "work-time and cycle-time count it: the estimate and the time worked, by Dan and by CAP" the_reports_count_it
+  check "backend/CLAUDE.md says the fixed columns, the moves, the worked time, Arhivate and the settings" the_backend_notes_are_up_to_date
+  check "frontend/CLAUDE.md says the board's rules, the sheets, Arhivate, the settings and the first bundle" the_frontend_notes_are_up_to_date
+}
+
+tasks=${*:-1 2 3 4 5 6}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
@@ -1521,6 +1866,7 @@ for task in $tasks; do
     3) task_3 ;;
     4) task_4 ;;
     5) task_5 ;;
+    6) task_6 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
