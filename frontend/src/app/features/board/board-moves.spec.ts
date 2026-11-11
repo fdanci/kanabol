@@ -71,6 +71,18 @@ describe('board moves', () => {
       expect(kept.completedAt).toBe('2026-11-01T08:00:00Z');
     });
 
+    // docs/SPEC.md §4.4: leaving a column forgets the pause's reason, and the counter runs only in În lucru.
+    it('forgets the reason of a card leaving its column, and counts it working in În lucru only', () => {
+      tasks.push(aCard('KAN-6', 'c2', 1, { title: 'P', pauseReason: 'Aștept clientul' }));
+
+      const started = moved('A', 'c2', 0).find((task) => task.title === 'A')!;
+      expect(started.isWorking).toBe(true);
+      const left = moved('P', 'c3', 0).find((task) => task.title === 'P')!;
+      expect([left.pauseReason, left.isWorking]).toEqual([null, false]);
+      const reordered = moved('P', 'c2', 0).find((task) => task.title === 'P')!;
+      expect(reordered.pauseReason).toBe('Aștept clientul');
+    });
+
     it('changes nothing for a card or a column it does not know, nor the list it was given', () => {
       const before = structuredClone(tasks);
 

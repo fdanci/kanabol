@@ -19,10 +19,12 @@ public static class WorkingTime
         var start = from.UtcDateTime;
         var end = to.UtcDateTime;
         var total = TimeSpan.Zero;
+        // Read once: Days parses the row's text each time.
+        var days = schedule.Days;
         var last = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(end, zone));
         for (var day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(start, zone)); day <= last; day = day.AddDays(1))
         {
-            if (!schedule.IsAWorkDay(day.DayOfWeek))
+            if (!days.Contains(WorkSchedule.IsoDay(day.DayOfWeek)))
             {
                 continue;
             }

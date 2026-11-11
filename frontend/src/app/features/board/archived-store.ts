@@ -46,7 +46,12 @@ export class ArchivedStore {
         void this.read();
       }
     };
-    const stopListening = [realtime.on('TaskArchived', heard), realtime.on('TaskRestored', heard)];
+    const stopListening = [
+      realtime.on('TaskArchived', heard),
+      realtime.on('TaskRestored', heard),
+      // Whatever was archived or restored while the connection was away went unheard.
+      realtime.onReconnected(() => void this.read()),
+    ];
     inject(DestroyRef).onDestroy(() => {
       for (const stop of stopListening) {
         stop();

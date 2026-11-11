@@ -36,10 +36,16 @@ export function moveCard(
       .filter((task) => task.id !== taskId)
       .forEach((task, index) => placed.set(task.id, { position: index }));
   }
+  // docs/SPEC.md §4.4: leaving a column forgets the pause's reason, and the counter runs only in În lucru.
+  const left =
+    moving.columnId === columnId
+      ? {}
+      : { pauseReason: null, isWorking: column.kind === 'InProgress' };
   placed.set(taskId, {
     columnId,
     position: place,
     completedAt: column.kind === 'Done' ? (moving.completedAt ?? now.toISOString()) : null,
+    ...left,
   });
 
   return tasks.map((task) => {

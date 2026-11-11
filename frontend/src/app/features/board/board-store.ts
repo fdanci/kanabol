@@ -198,18 +198,7 @@ export class BoardStore {
     try {
       const answers = ask ? await ask() : undefined;
       if (answers === null) {
-        this.change((board) =>
-          board.tasks.find((task) => task.id === taskId)
-            ? moveCard(
-                board.tasks,
-                board.columns,
-                taskId,
-                moving.columnId,
-                moving.position,
-                new Date(),
-              )
-            : board.tasks,
-        );
+        this.change((board) => this.putBack(board, moving));
         return false;
       }
       if (answers) {
@@ -223,20 +212,7 @@ export class BoardStore {
       return true;
     } catch {
       // Back to where it was, among whatever else moved meanwhile, then the board as the API has it.
-      this.change((board) =>
-        board.tasks.find((task) => task.id === taskId)
-          ? moveCard(
-              board.tasks,
-              board.columns,
-              taskId,
-              moving.columnId,
-              moving.position,
-              new Date(),
-            ).map((task) =>
-              task.id === taskId ? { ...task, completedAt: moving.completedAt } : task,
-            )
-          : board.tasks,
-      );
+      this.change((board) => this.putBack(board, moving));
       this.reload();
       return false;
     } finally {
@@ -378,6 +354,10 @@ export class BoardStore {
         ),
       );
     });
+    // The message has no reason (docs/SPEC.md §9): a card paused elsewhere comes with the board.
+    if (this.columns().find((column) => column.id === message.columnId)?.kind === 'Paused') {
+      this.readAgain();
+    }
   }
 
   private heardChange(message: TaskMessage, pulses: boolean): void {
@@ -395,6 +375,26 @@ export class BoardStore {
   }
 
   /** The moved card as the API now has it: its estimate, whether it works, and its pause's reason. */
+  /** The card back in its place, among whatever else moved meanwhile, as it was before its move. */
+  private putBack(board: BoardDto, moving: BoardTaskDto): BoardTaskDto[] {
+    if (!board.tasks.some((task) => task.id === moving.id)) {
+      return board.tasks;
+    }
+    const { completedAt, estimatedMinutes, pauseReason, isWorking } = moving;
+    return moveCard(
+      board.tasks,
+      board.columns,
+      moving.id,
+      moving.columnId,
+      moving.position,
+      new Date(),
+    ).map((task) =>
+      task.id === moving.id
+        ? { ...task, completedAt, estimatedMinutes, pauseReason, isWorking }
+        : task,
+    );
+  }
+
   private withAnswers(
     board: BoardDto,
     taskId: string,

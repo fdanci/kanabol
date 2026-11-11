@@ -10,7 +10,14 @@ import { AuthStore } from '../../core/auth/auth-store';
 import { FakeRealtime, provideFakeRealtime } from '../../core/realtime/realtime-testing';
 import { BoardApi } from './board-api';
 import { BoardStore } from './board-store';
-import { aBoard, aBoardMember, refusedWith, titlesByColumn } from './board-testing';
+import {
+  OWN_COLUMNS,
+  aBoard,
+  aBoardMember,
+  aCard,
+  refusedWith,
+  titlesByColumn,
+} from './board-testing';
 import { BoardColumnDto, BoardDto, MoveAnswers } from './models';
 
 /**
@@ -267,6 +274,21 @@ describe('BoardStore', () => {
       expect(api['move']).not.toHaveBeenCalled();
       expect(api['board']).toHaveBeenCalledTimes(1);
     });
+
+    it('puts a paused card back with its reason when the person gives up its move', async () => {
+      board.columns = structuredClone(OWN_COLUMNS);
+      board.tasks.push(aCard('KAN-6', 'c5', 0, { title: 'P', pauseReason: 'Aștept clientul' }));
+      await opened();
+
+      const moved = await store.moveTask(id('P'), 'c2', 0, () => Promise.resolve(null));
+
+      expect(moved).toBe(false);
+      expect(store.board()!.tasks.find((task) => task.title === 'P')).toMatchObject({
+        columnId: 'c5',
+        pauseReason: 'Aștept clientul',
+        isWorking: false,
+      });
+    });
   });
 
   describe('creating a card', () => {
@@ -402,6 +424,26 @@ describe('BoardStore', () => {
       expect(store.cardsIn('c1').map((task) => task.position)).toEqual([0, 1]);
       expect(reads()).toBe(1);
       expect(store.pulses().get(id('A'))).toBe(1);
+    });
+
+    // The move's message has no reason (docs/SPEC.md §9): a card paused elsewhere reads the board for it, and
+    // one that left În pauză forgets the reason it had there.
+    it('reads the board again for a card someone else paused, and forgets the reason of one they took out', async () => {
+      board.columns = structuredClone(OWN_COLUMNS);
+      board.tasks.push(aCard('KAN-6', 'c5', 0, { title: 'P', pauseReason: 'Aștept clientul' }));
+      await opened();
+
+      realtime.send('TaskMoved', about('P', { columnId: 'c2', position: 0 }));
+      await settle();
+      expect(store.board()!.tasks.find((task) => task.title === 'P')).toMatchObject({
+        pauseReason: null,
+        isWorking: true,
+      });
+      expect(reads()).toBe(1);
+
+      realtime.send('TaskMoved', about('A', { columnId: 'c5', position: 0 }));
+      await settle();
+      expect(reads()).toBe(2);
     });
 
     it('lets the page draw the move: it measures before, and the cards change when it says', async () => {

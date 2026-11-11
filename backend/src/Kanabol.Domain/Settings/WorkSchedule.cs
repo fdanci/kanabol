@@ -65,8 +65,11 @@ public sealed class WorkSchedule : Entity
         UpdatedById = changedById;
     }
 
-    /// <summary>Whether the day is in the schedule: DayOfWeek counts Sunday as 0, ISO as 7.</summary>
-    public bool IsAWorkDay(DayOfWeek day) => Days.Contains(day == DayOfWeek.Sunday ? 7 : (int)day);
+    /// <summary>Whether the day is in the schedule.</summary>
+    public bool IsAWorkDay(DayOfWeek day) => Days.Contains(IsoDay(day));
+
+    /// <summary>The day as the schedule numbers it: DayOfWeek counts Sunday as 0, ISO as 7.</summary>
+    public static int IsoDay(DayOfWeek day) => day == DayOfWeek.Sunday ? 7 : (int)day;
 
     private static string Format(IEnumerable<int> days) => string.Join(',', days.Order());
 }

@@ -1122,6 +1122,17 @@ describe('BoardPage', () => {
       return archivedColumn()!;
     }
 
+    // What was archived or restored while the connection was away went unheard, as for the board.
+    it('reads its cards again after a reconnection', async () => {
+      await visit();
+      const reads = api['archived'].mock.calls.length;
+
+      realtime.reconnect();
+      await settle();
+
+      expect(api['archived'].mock.calls.length).toBe(reads + 1);
+    });
+
     it('comes last, after + Coloană, only for tasks.archive', async () => {
       await visit();
 
