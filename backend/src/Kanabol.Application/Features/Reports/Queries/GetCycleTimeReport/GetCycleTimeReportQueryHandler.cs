@@ -1,6 +1,7 @@
 using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,16 +39,16 @@ public sealed class GetCycleTimeReportQueryHandler(IAppDbContext db, ReportAcces
                     .ToList()))
             .ToListAsync(ct);
 
-        // The column at position 0 of each project, as the board shows it now.
+        // Each project's În lucru, where the cycle starts.
         var projectIds = timelines.Select(timeline => timeline.ProjectId).Distinct().ToList();
-        var firstColumns = await db.BoardColumns
-            .Where(column => projectIds.Contains(column.ProjectId) && column.Position == 0)
+        var inProgress = await db.BoardColumns
+            .Where(column => projectIds.Contains(column.ProjectId) && column.Kind == ColumnKind.InProgress)
             .ToDictionaryAsync(column => column.ProjectId, column => column.Id, ct);
 
         return new CycleTimeReportDto(
             timelines.Count,
             ReportDurations.Of([.. timelines.Select(timeline => timeline.LeadTime)]),
-            ReportDurations.Of([.. timelines.Select(timeline => timeline.CycleTime(firstColumns.GetValueOrDefault(timeline.ProjectId)))]),
+            ReportDurations.Of([.. timelines.Select(timeline => timeline.CycleTime(inProgress.GetValueOrDefault(timeline.ProjectId)))]),
             query.ProjectId is { } projectId ? await PerColumn(projectId, timelines, ct) : null);
     }
 

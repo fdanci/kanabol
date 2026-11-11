@@ -38,6 +38,8 @@ export function refusedFieldMessage(field: string): string {
       return $localize`Pot fi asignați doar membri activi ai proiectului, fiecare o dată.`;
     case 'columnId':
       return $localize`Coloana nu mai e pe board-ul proiectului. Reîncarcă pagina.`;
+    case 'estimatedMinutes':
+      return $localize`Între 0,25 și 1000 de ore; un task început își păstrează estimarea.`;
     case 'body':
       return $localize`Comentariul e gol, prea lung sau are caractere care nu se văd.`;
     case 'file':

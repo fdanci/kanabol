@@ -15,7 +15,7 @@ export function aDashboardTask(extra: Partial<DashboardTaskDto> = {}): Dashboard
     projectName: 'Kanabol',
     priority: 'High',
     dueDate: '2026-11-04T21:59:59.999Z',
-    columnIsDone: false,
+    columnKind: 'Backlog',
     completedAt: null,
     ...extra,
   };

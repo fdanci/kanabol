@@ -11,7 +11,7 @@ namespace Kanabol.Application.Features.Tasks;
 /// creating one (SPEC section 4.4), and an open project. The entity writes the history; the save turns
 /// a change made meanwhile into a 409, from the task's version (SPEC section 5.3).
 /// </summary>
-public sealed class TaskChanges(IAppDbContext db, IProjectAccess projectAccess, ICurrentUser currentUser, IClock clock)
+public sealed class TaskChanges(IAppDbContext db, IProjectAccess projectAccess, ICurrentUser currentUser, IClock clock, WorkedTime workedTime)
 {
     /// <summary>Loads the task, applies the change as the caller, now, saves it and reads it back.</summary>
     public async Task<Result<TaskItemDto>> Apply(
@@ -111,7 +111,7 @@ public sealed class TaskChanges(IAppDbContext db, IProjectAccess projectAccess, 
     }
 
     public async Task<Result<TaskItemDto>> Read(Guid taskId, CancellationToken ct) =>
-        (await db.ReadTask(taskId, currentUser, includeArchived: true, ct))!;
+        (await db.ReadTask(taskId, currentUser, includeArchived: true, workedTime, ct))!;
 
     private async Task<Result> Allowed(TaskItem task, Func<Guid, Guid, CancellationToken, Task<Result>> ensure, CancellationToken ct)
     {

@@ -32,8 +32,26 @@ public sealed class TasksEndpointTests(ApiFixture api) : ProjectApiTest(api)
         response.Headers.Location!.ToString().Should().Be($"/api/tasks/{id}");
         body.RootElement.GetProperty("key").GetString().Should().Be("KAN-1");
         body.RootElement.GetProperty("priority").GetString().Should().Be("High");
-        body.RootElement.GetProperty("columnName").GetString().Should().Be("De făcut");
+        body.RootElement.GetProperty("columnName").GetString().Should().Be("Backlog");
         body.RootElement.GetProperty("canChange").GetBoolean().Should().BeTrue();
+    }
+
+    // SPEC section 4.4: a new task starts in Backlog; another column of the project is 400 on columnId.
+    [Fact]
+    public async Task Post_InAColumnThatIsntBacklog_Returns400OnColumnId()
+    {
+        var (member, token) = await SignedIn(Permissions.TasksCreate);
+        var project = await CreateProject(builder => builder.OwnedBy(member));
+
+        var response = await Send(HttpMethod.Post, TasksOf(project.Id), token, new
+        {
+            title = "Început",
+            priority = "Low",
+            columnId = project.Columns.Single(column => column.Position == 1).Id,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await FieldErrorsFrom(response)).Should().BeEquivalentTo("columnId");
     }
 
     // SPEC sections 5.1 and 5.3 (decided 2026-11-06): one UPDATE … RETURNING takes the number, so nothing races.

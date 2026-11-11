@@ -3,6 +3,7 @@ using Kanabol.Application.Features.Reports;
 using Kanabol.Application.Features.Reports.Queries.GetCompletedReport;
 using Kanabol.Application.Features.Reports.Queries.GetCycleTimeReport;
 using Kanabol.Application.Features.Reports.Queries.GetDeadlinesReport;
+using Kanabol.Application.Features.Reports.Queries.GetWorkTimeReport;
 using Kanabol.Domain.Authorization;
 using Kanabol.Tests.Shared.Database;
 using Microsoft.Extensions.Logging;
@@ -10,14 +11,14 @@ using Microsoft.Extensions.Logging;
 namespace Kanabol.Application.Tests.Features.Reports;
 
 /// <summary>
-/// Who reads a report (Tasks.md group 18; SPEC section 5.1.1), checked in the handler of each of the three:
+/// Who reads a report (Tasks.md groups 18 and 22; SPEC section 5.1.1), checked in the handler of each of the four:
 /// reports.view, from the token, reads any of them, for every project or any one, archived too; anyone else
 /// only for a projectId they can manage (IProjectAccess.EnsureOwnerAsync: an owner, or projects.manage from
 /// the database), and without one answers 400 on projectId; a plain member or an outsider gets 403.
 /// </summary>
 public sealed class ReportAccessTests(PostgresFixture postgres) : ReportsHandlerTest(postgres)
 {
-    public static TheoryData<string> Reports => ["completed", "cycle-time", "deadlines"];
+    public static TheoryData<string> Reports => ["completed", "cycle-time", "deadlines", "work-time"];
 
     private async Task<(bool IsSuccess, Error? Error)> Read(string report, Guid? projectId, Guid? userId = null)
     {
@@ -32,6 +33,12 @@ public sealed class ReportAccessTests(PostgresFixture postgres) : ReportsHandler
             case "cycle-time":
                 {
                     var result = await Ask<GetCycleTimeReportQuery, CycleTimeReportDto>(new GetCycleTimeReportQuery(From, To, projectId, userId));
+                    return (result.IsSuccess, result.IsFailure ? result.Error : null);
+                }
+
+            case "work-time":
+                {
+                    var result = await Ask<GetWorkTimeReportQuery, WorkTimeReportDto>(new GetWorkTimeReportQuery(From, To, projectId, userId));
                     return (result.IsSuccess, result.IsFailure ? result.Error : null);
                 }
 

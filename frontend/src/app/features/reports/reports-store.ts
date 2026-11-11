@@ -7,6 +7,8 @@ import {
   DeadlinesReportDto,
   ReportPersonDto,
   ReportProjectDto,
+  ReportWorkScheduleDto,
+  WorkTimeReportDto,
 } from './models';
 import { ReportFilters } from './report-filters';
 import { ReportsApi } from './reports-api';
@@ -30,6 +32,9 @@ export class ReportsStore {
   readonly completed = new Section<CompletedReportDto>(() => this.api.completed(this.current()));
   readonly cycleTime = new Section<CycleTimeReportDto>(() => this.api.cycleTime(this.current()));
   readonly deadlines = new Section<DeadlinesReportDto>(() => this.api.deadlines(this.current()));
+  readonly workTime = new Section<WorkTimeReportDto>(() => this.api.workTime(this.current()));
+  /** The schedule the worked time counts in, read once; null until then, or when it can't be read. */
+  readonly schedule = signal<ReportWorkScheduleDto | null>(null);
   readonly projects = signal<ReportProjectDto[]>([]);
 
   /** Whom the user select offers, by name. */
@@ -57,9 +62,18 @@ export class ReportsStore {
     });
     void this.cycleTime.load();
     void this.deadlines.load();
+    void this.workTime.load();
     if (filters.project !== this.membersOf) {
       this.membersOf = filters.project;
       void this.readMembers(filters.project);
+    }
+  }
+
+  async loadSchedule(): Promise<void> {
+    try {
+      this.schedule.set(await firstValueFrom(this.api.workSchedule()));
+    } catch {
+      // The caption then names no schedule.
     }
   }
 

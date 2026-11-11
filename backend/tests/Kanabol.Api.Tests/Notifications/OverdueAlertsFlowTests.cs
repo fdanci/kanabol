@@ -124,7 +124,7 @@ public sealed class OverdueAlertsFlowTests(ApiFixture api) : RealtimeApiTest(api
         var archived = await ATask(team, "Arhivat", _past, team.Dan);
         await ATask(team, "Mai tarziu", _future, team.Dan);
         await ATask(team, "Fara deadline", null, team.Dan);
-        var doneColumn = team.Project.Columns.Single(column => column.IsDone);
+        var doneColumn = team.Project.Columns.Single(column => column.Kind == ColumnKind.Done);
         (await Send(HttpMethod.Patch, $"/api/tasks/{done}/position", team.AnaToken, new { columnId = doneColumn.Id })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await Send(HttpMethod.Delete, $"/api/tasks/{archived}", team.AnaToken)).StatusCode.Should().Be(HttpStatusCode.NoContent);
         var other = await CreateProject(builder => builder.WithKey("OLD").OwnedBy(team.Ana).WithMember(team.Dan));

@@ -33,17 +33,17 @@ public sealed class CreateProjectCommandHandlerTests(PostgresFixture postgres) :
     }
 
     [Fact]
-    public async Task Handle_WhenValid_GivesTheBoardItsDefaultColumns()
+    public async Task Handle_WhenValid_GivesTheBoardTheFourFixedColumns()
     {
         await SignInWith(Permissions.ProjectsCreate);
 
         var result = await Create();
 
-        result.Value.Columns.Select(column => (column.Name, column.Position, column.IsDone))
-            .Should().Equal(("De făcut", 0, false), ("În lucru", 1, false), ("Gata", 2, true));
+        result.Value.Columns.Select(column => (column.Name, column.Position, column.Kind)).Should().Equal(
+            ("Backlog", 0, ColumnKind.Backlog), ("În lucru", 1, ColumnKind.InProgress), ("În pauză", 2, ColumnKind.Paused), ("Gata", 3, ColumnKind.Done));
 
         await using var db = Postgres.CreateContext();
-        (await db.BoardColumns.CountAsync(column => column.ProjectId == result.Value.Id)).Should().Be(3);
+        (await db.BoardColumns.CountAsync(column => column.ProjectId == result.Value.Id)).Should().Be(4);
         (await db.Projects.SingleAsync(project => project.Id == result.Value.Id)).NextTaskNumber.Should().Be(1);
     }
 

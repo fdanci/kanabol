@@ -1,6 +1,7 @@
 using Kanabol.Application.Tests.Features.Tasks;
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Kanabol.Tests.Shared.Builders;
@@ -25,6 +26,9 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
 
     protected static DateTimeOffset October(int day, int hour = 10) => new(2026, 10, day, hour, 0, 0, TimeSpan.Zero);
 
+    /// <summary>The default schedule in UTC, for the moves out of În lucru, which stop the worked time's counter.</summary>
+    protected static readonly WorkingHours Hours = new(WorkSchedule.Default(), TimeZoneInfo.Utc);
+
     /// <summary>A task created at the moment given, then moved into each column given at its moment, by Ana.</summary>
     protected static TaskItem Through(TaskItemBuilder builder, DateTimeOffset createdAt, User by, params (BoardColumn Column, DateTimeOffset At)[] moves)
     {
@@ -32,14 +36,14 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
         task.CreatedAt = createdAt;
         foreach (var (column, at) in moves)
         {
-            task.MoveTo(column, 0, by.Id, at);
+            task.MoveTo(column, 0, by.Id, at, hours: Hours);
         }
 
         return task;
     }
 
     /// <summary>
-    /// KAN (Ana owns it, Dan is a member), columns De făcut, În lucru, Gata:
+    /// KAN (Ana owns it, Dan is a member), columns Backlog, În lucru, În pauză, Gata:
     /// KAN-1 Dan's and Ana's, created 1 Oct 09:00, În lucru 6 Oct, Gata 8 Oct, due 10 Oct (on time);
     /// KAN-2 Dan's, created straight in În lucru 2 Oct 09:00, Gata 14 Oct 09:00, due 13 Oct (late);
     /// KAN-3 Dan's and Ana's, created 15 Oct, În lucru 18 Oct 12:00, Gata 20 Oct 12:00, archived 21 Oct, no deadline;
@@ -77,8 +81,8 @@ public abstract class ReportsHandlerTest(PostgresFixture postgres) : TaskHandler
             Through(In(kan).WithTitle("La început").AssignedTo(dan).DueAt(October(4)), October(1), ana, (kanDoing, October(3)), (kanDone, From)),
             Through(In(kan).WithTitle("La capăt").AssignedTo(dan), October(26), ana, (kanDone, To)),
         ];
-        kanTasks[2].Archive(ana.Id, October(21));
-        kanTasks[3].Archive(ana.Id, October(9));
+        kanTasks[2].Archive(ana.Id, October(21), Hours);
+        kanTasks[3].Archive(ana.Id, October(9), Hours);
         await AddTasks(kan, kanTasks);
 
         TaskItem[] webTasks =

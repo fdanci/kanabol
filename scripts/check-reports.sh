@@ -12,7 +12,8 @@
 #      project archived since, one created straight in the second column, one without a deadline, one
 #      nobody's; the total, by user, by project, the periods by week and by month, from and to with an
 #      offset across summer time, a project and a person; lead and cycle time as averages and medians, the
-#      cycle of the task created in the second column from its creation, the time in each column with a
+#      cycle from the first entry into În lucru (group 22), so from its creation for the task created straight
+#      in the second column and for the one finished from Backlog, the time in each column with a
 #      project only; the tasks overdue now whatever the interval, none in an archived project, those
 #      finished by their deadline and after it, the rate, null without a deadline, and their periods; 400 on
 #      from, to and granularity, 404 for a project that doesn't exist. Docker, PostgreSQL.
@@ -383,8 +384,8 @@ a_task_in() { # a_task_in <project id> <title> <JSON fields to add>
   new_task=$(body_field id)
 }
 
-moved() { # moved <task id> <column id>: by the admin, through the API
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\"}")"
+moved() { # moved <task id> <column id>: by the admin, through the API, with an estimate, which only În lucru takes
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$1/position" "{\"columnId\":\"$2\",\"estimatedMinutes\":60}")"
 }
 
 # The API stamps everything with now: the task's creation, its entry into a column and its completion go
@@ -399,8 +400,8 @@ entered_at() { # entered_at <task id> <column id> <moment>: the history's entry 
     in_db "UPDATE task_items SET completed_at = '$3' WHERE id = '$1' AND column_id = '$2' AND completed_at IS NOT NULL" >/dev/null
 }
 
-columns_of() { # columns_of <project id> <name prefix>: its columns' ids in <prefix>_todo, _doing and _done
-  for place in 0:todo 1:doing 2:done; do
+columns_of() { # columns_of <project id> <name prefix>: its columns' ids in <prefix>_todo, _doing, _paused and _done
+  for place in 0:todo 1:doing 2:paused 3:done; do
     eval "$2_${place#*:}=$(in_db "SELECT id FROM board_columns WHERE project_id = '$1' AND position = ${place%%:*}")"
   done
 }
@@ -432,7 +433,10 @@ work_is_ready() {
   created_at "$pan_1" 2026-10-01T09:00:00Z && entered_at "$pan_1" "$pan_doing" 2026-10-06T10:00:00Z &&
     entered_at "$pan_1" "$pan_done" 2026-10-08T10:00:00Z || return 1
 
-  a_task_in "$pan_id" 'Pagina de start' "\"priority\":\"Low\",\"columnId\":\"$pan_doing\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"2026-10-13T12:00:00Z\"" &&
+  # Created straight in În lucru, as tasks could be before group 22: since then they start in Backlog, so
+  # the database puts it there, without a move in its history.
+  a_task_in "$pan_id" 'Pagina de start' "\"priority\":\"Low\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"2026-10-13T12:00:00Z\"" &&
+    in_db "UPDATE task_items SET column_id = '$pan_doing', position = 0 WHERE id = '$new_task'" >/dev/null &&
     moved "$new_task" "$pan_done" || return 1
   pan_2=$new_task
   created_at "$pan_2" 2026-10-02T09:00:00Z && entered_at "$pan_2" "$pan_done" 2026-10-14T09:00:00Z || return 1
@@ -564,21 +568,22 @@ durations() { # durations <field>: average/median of a duration of the last answ
   json "[b.$1.averageSeconds, b.$1.medianSeconds].map(s => s === null ? '-' : s).join('/')"
 }
 
-# Leads: PAN-1 7 d 1 h, PAN-2 12 d, PAN-3 5 d 2 h, MEU-1 7 d, MEU-2 1 d, ARH-1 5 d. Cycles: PAN-1 2 d,
-# PAN-2 12 d (created in În lucru, so from its creation), PAN-3 2 d, MEU-1 5 d, MEU-2 0, ARH-1 3 d.
+# Leads: PAN-1 7 d 1 h, PAN-2 12 d, PAN-3 5 d 2 h, MEU-1 7 d, MEU-2 1 d, ARH-1 5 d. Cycles, from the first
+# entry into În lucru (group 22): PAN-1 2 d, PAN-2 12 d (created in În lucru, so from its creation), PAN-3 2 d,
+# MEU-1 5 d, MEU-2 1 d (straight from Backlog to Gata, so from its creation), ARH-1 3 d.
 the_lead_and_cycle_times_are_measured() {
   work_is_ready || return 1
   report "$admin_token" cycle-time "$october" || return 1
-  is '6 534600/522000 345600/216000 null' "$(json b.count) $(durations leadTime) $(durations cycleTime) $(json b.perColumn)"
+  is '6 534600/522000 360000/216000 null' "$(json b.count) $(durations leadTime) $(durations cycleTime) $(json b.perColumn)"
 }
 
-# PAN-1: De făcut 5 d 1 h, În lucru 2 d; PAN-2: În lucru 12 d; PAN-3: De făcut 3 d 2 h, În lucru 2 d.
+# PAN-1: Backlog 5 d 1 h, În lucru 2 d; PAN-2: În lucru 12 d; PAN-3: Backlog 3 d 2 h, În lucru 2 d.
 each_column_has_its_time_in_a_project() {
   work_is_ready || return 1
   report "$admin_token" cycle-time "$october&projectId=$pan_id" || return 1
-  is 'De făcut 351000/351000, În lucru 460800/172800, Gata 0/0' \
+  is 'Backlog 351000/351000, În lucru 460800/172800, În pauză null/null, Gata 0/0' \
     "$(json "b.perColumn.map(c => c.name + ' ' + c.averageSeconds + '/' + c.medianSeconds).join(', ')")" &&
-    is "$pan_todo $pan_doing $pan_done" "$(json "b.perColumn.map(c => c.columnId).join(' ')")"
+    is "$pan_todo $pan_doing $pan_paused $pan_done" "$(json "b.perColumn.map(c => c.columnId).join(' ')")"
 }
 
 a_persons_times_are_theirs() {
@@ -654,7 +659,7 @@ task_1() {
   check "an archived project's work is reported" an_archived_project_is_reported
   check "from and to missing, malformed, out of order or over 366 days, and a granularity unknown, answer 400" wrong_intervals_are_refused
   check "a project that doesn't exist answers 404 Project.NotFound" a_project_that_does_not_exist_is_404
-  check "lead and cycle time come as averages and medians in seconds, the cycle from the first exit" the_lead_and_cycle_times_are_measured
+  check "lead and cycle time come as averages and medians in seconds, the cycle from the first entry into În lucru" the_lead_and_cycle_times_are_measured
   check "with a project, each of its columns has its time, in the board's order" each_column_has_its_time_in_a_project
   check "a person's times are those of their tasks, and null when nothing was finished" a_persons_times_are_theirs
   check "cycle-time takes the same interval and refuses the same mistakes" cycle_time_intervals_are_refused
@@ -921,8 +926,9 @@ the_page_texts_follow_the_ui_spec() {
       return 1
     }
   done
-  [ "$(grep -c '@defer (on idle)' "$reports_web/reports-page.html")" -eq 3 ] || {
-    echo "the three charts don't each come with @defer"
+  # Four charts since group 22, Estimare și timp lucrat's the fourth.
+  [ "$(grep -c '@defer (on idle)' "$reports_web/reports-page.html")" -eq 4 ] || {
+    echo "the four charts don't each come with @defer"
     return 1
   }
   in_file '`${days} z ${hours} h`' "$reports_web/durations.ts" &&
@@ -1096,7 +1102,8 @@ finishing_it_counts_it_on_time() {
 
 moving_it_back_takes_it_out() {
   a_live_task_is_ready || return 1
-  moved "$live_task" "$pan_todo" || return 1
+  # Out of Gata to În lucru, never back before it (group 22).
+  moved "$live_task" "$pan_doing" || return 1
   is '0 0 1 0 0 null' "$(numbers_now "$admin_token")" || return 1
   moved "$live_task" "$pan_done" || return 1
   is '1 1 1 1 0 1' "$(numbers_now "$admin_token")"

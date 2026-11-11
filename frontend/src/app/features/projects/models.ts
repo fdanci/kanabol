@@ -1,3 +1,5 @@
+import { ColumnKind } from '../../shared/models/column-kind';
+
 /** A user's role on a project (docs/SPEC.md §4.4), as the API writes it. */
 export type ProjectRole = 'Owner' | 'Member';
 
@@ -32,7 +34,7 @@ export interface BoardColumnDto {
   id: string;
   name: string;
   position: number;
-  isDone: boolean;
+  kind: ColumnKind;
 }
 
 /** GET /api/projects/{id}: the project as the person asking sees it. */

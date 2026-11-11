@@ -1,13 +1,15 @@
+import { formatHoursMinutes } from '../../shared/models/estimate';
 import { PRIORITIES, TaskHistoryEntryDto, TaskPriority, priorityLabel } from './models';
 
 /**
  * A change as the timeline writes it (docs/UI_UX_SPEC.md §7.5): «**Florin** a schimbat *Prioritate*:
  * Medium → High». Most fields are 'changed', with the field's label and old → new; the description,
- * an archiving and a restoring are sentences of their own, the description without its texts.
+ * an archiving and a restoring are sentences of their own, the description without its texts, and so are
+ * a first estimate («a estimat task-ul la 4 h») and a pause with its reason (group 22).
  */
 export interface HistoryLine {
   who: string;
-  kind: 'changed' | 'description' | 'archived' | 'restored';
+  kind: 'changed' | 'description' | 'archived' | 'restored' | 'estimated' | 'paused';
   field: string;
   change: string;
 }
@@ -43,6 +45,12 @@ export function historyLine(entry: TaskHistoryEntryDto): HistoryLine {
           (userId) => entry.names[userId] ?? undefined,
         ),
       };
+    case 'EstimatedMinutes':
+      return entry.oldValue === null
+        ? { who, kind: 'estimated', field: '', change: minutesText(entry.newValue) }
+        : changed($localize`Estimarea`, minutesText);
+    case 'PauseReason':
+      return { who, kind: 'paused', field: '', change: entry.newValue ?? '' };
     case 'Description':
       return { who, kind: 'description', field: '', change: '' };
     case 'ArchivedAt':
@@ -75,6 +83,12 @@ function namesIn(value: string | null, nameOf: (userId: string) => string | unde
     .map((id) => nameOf(id) ?? $localize`un fost membru`)
     .sort((a, b) => a.localeCompare(b, 'ro-RO', { sensitivity: 'base' }))
     .join(', ');
+}
+
+/** Minutes as hours and minutes, "—" for none. */
+function minutesText(value: string | null): string {
+  const minutes = value === null || value === '' ? NaN : Number(value);
+  return Number.isNaN(minutes) ? '—' : formatHoursMinutes(minutes);
 }
 
 /** By the label the UI gives it, or as it is for one the UI doesn't have. */

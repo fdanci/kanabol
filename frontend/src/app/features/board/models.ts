@@ -1,5 +1,7 @@
+import { ColumnKind } from '../../shared/models/column-kind';
 import { TaskPriority } from '../../shared/models/task-filters';
 
+export type { ColumnKind } from '../../shared/models/column-kind';
 export type { TaskPriority } from '../../shared/models/task-filters';
 
 export interface BoardPersonDto {
@@ -12,8 +14,8 @@ export interface BoardColumnDto {
   name: string;
   /** From 0 on the left, with no gaps. */
   position: number;
-  /** A task in it is completed (docs/SPEC.md §5.1). */
-  isDone: boolean;
+  /** The four fixed kinds and the project's own; a task in Done, Gata, is completed (docs/SPEC.md §4.4). */
+  kind: ColumnKind;
 }
 
 /** A card: what docs/UI_UX_SPEC.md §7.4 puts on it, and its place. Assignees come by name, none for nobody. */
@@ -31,6 +33,11 @@ export interface BoardTaskDto {
   completedAt: string | null;
   commentCount: number;
   attachmentCount: number;
+  /** The task's estimate, worked time up to now, whether it's working and the pause's reason (docs/SPEC.md §4.4). */
+  estimatedMinutes: number | null;
+  workedSeconds: number;
+  isWorking: boolean;
+  pauseReason: string | null;
 }
 
 /**
@@ -43,6 +50,8 @@ export interface BoardDto {
   isArchived: boolean;
   canMove: boolean;
   canManage: boolean;
+  /** tasks.archive in the token: the board shows the column Arhivate (docs/SPEC.md §4.4). */
+  canSeeArchived: boolean;
   columns: BoardColumnDto[];
   tasks: BoardTaskDto[];
 }
@@ -53,6 +62,25 @@ export interface BoardMemberDto {
   displayName: string;
   role: 'Owner' | 'Member';
   isActive: boolean;
+}
+
+/**
+ * What a move into În lucru or În pauză asks for first (docs/SPEC.md §4.4): the estimate, in minutes, of a
+ * task that starts without one, and the reason of every pause.
+ */
+export interface MoveAnswers {
+  estimatedMinutes?: number;
+  pauseReason?: string;
+}
+
+/**
+ * A card of the column Arhivate (docs/SPEC.md §4.4): the board's card, with when and by whom it was archived
+ * and the column it comes back to.
+ */
+export interface ArchivedTaskDto extends Omit<BoardTaskDto, 'position'> {
+  columnName: string;
+  archivedAt: string;
+  archivedBy: BoardPersonDto | null;
 }
 
 /** What POST /api/projects/{id}/tasks answers, as far as the board reads it. */

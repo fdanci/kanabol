@@ -124,6 +124,20 @@ describe('layout', () => {
       expect(element.querySelectorAll('h2')[1].textContent).toBe('Administrare');
     });
 
+    // docs/UI_UX_SPEC.md §5 (group 22): "Setări generale" last in Administrare, for settings.manage, /settings.
+    it('adds Setări generale last in Administrare for settings.manage', async () => {
+      auth.held.set(['reports.view', 'settings.manage']);
+
+      const element = await sidenav();
+
+      expect(labels(element).slice(-2)).toEqual(['Rapoarte', 'Setări generale']);
+      const link = [...element.querySelectorAll('a')].find((found) =>
+        found.textContent.includes('Setări generale'),
+      )!;
+      expect(link.getAttribute('href')).toBe('/settings');
+      expect(link.querySelector('.material-symbols-outlined')?.textContent.trim()).toBe('settings');
+    });
+
     it('marks the page the user is on', async () => {
       await TestBed.inject(Router).navigateByUrl('/projects');
 

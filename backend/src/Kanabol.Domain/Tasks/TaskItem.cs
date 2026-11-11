@@ -1,6 +1,7 @@
 using System.Globalization;
 using Kanabol.Domain.Common;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks.Events;
 
 namespace Kanabol.Domain.Tasks;
@@ -16,6 +17,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     /// <summary>Markdown for a task, not a document: about ten pages of text.</summary>
     public const int MaxDescriptionLength = 20_000;
+
+    /// <summary>An estimate goes from a quarter of an hour to 1,000 hours, in whole minutes (SPEC section 4.4).</summary>
+    public const int MinEstimateMinutes = 15;
+
+    public const int MaxEstimateMinutes = 60_000;
+
+    /// <summary>A pause's reason is one line of 1 to 500 characters, its spaces at the ends trimmed (SPEC section 4.4).</summary>
+    public const int MaxPauseReasonLength = 500;
 
     private readonly List<Comment> _comments = [];
     private readonly List<Attachment> _attachments = [];
@@ -54,12 +63,26 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     public int Position { get; private set; }
 
-    /// <summary>When the task last entered a done column, and null while it's outside one.</summary>
+    /// <summary>When the task last entered Gata, the Done column, and null while it's outside it.</summary>
     public DateTimeOffset? CompletedAt { get; private set; }
 
     public DateTimeOffset? ArchivedAt { get; private set; }
 
     public Guid? ArchivedById { get; private set; }
+
+    /// <summary>How long the work should take, in minutes; asked for when the task first enters În lucru.</summary>
+    public int? EstimatedMinutes { get; private set; }
+
+    /// <summary>Why the task is in În pauză, kept while it stays there, archived or not; none elsewhere.</summary>
+    public string? PauseReason { get; private set; }
+
+    /// <summary>The schedule's seconds of the intervals the task spent in În lucru, closed ones only (SPEC section 4.4).</summary>
+    public int WorkedSeconds { get; private set; }
+
+    /// <summary>When the open interval began: the task is in În lucru and not archived. None otherwise.</summary>
+    public DateTimeOffset? WorkStartedAt { get; private set; }
+
+    public bool IsWorking => WorkStartedAt is not null;
 
     public IReadOnlyCollection<Comment> Comments => _comments;
 
@@ -72,9 +95,10 @@ public sealed class TaskItem : AuditableEntity, IArchivable
 
     /// <summary>
     /// A new task in an open project, with the number the database took from the project's counter
-    /// (ITaskNumbers). One created straight into a done column is completed at once, and one created for
+    /// (ITaskNumbers). One created straight into Gata is completed at once, and one created for
     /// people is assigned to them, which they hear of like any assignment (SPEC section 4.3). Whether they
-    /// are active members is the handler's to check first.
+    /// are active members is the handler's to check first. An estimate given here writes no history, as
+    /// nothing of a creation does.
     /// </summary>
     public static TaskItem Create(
         Project project,
@@ -87,7 +111,8 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         IReadOnlyCollection<Guid> assigneeIds,
         DateTimeOffset? dueDate,
         Guid createdById,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        int? estimatedMinutes = null)
     {
         if (project.ArchivedAt is not null)
         {
@@ -102,12 +127,14 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         ArgumentOutOfRangeException.ThrowIfLessThan(number, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(position);
         EnsureEachOnce(assigneeIds);
+        EnsureAnEstimate(estimatedMinutes);
 
         var task = new TaskItem(project, column, title, description, priority, position)
         {
             Number = number,
             DueDate = dueDate?.ToUniversalTime(),
-            CompletedAt = column.IsDone ? now : null,
+            CompletedAt = column.Kind == ColumnKind.Done ? now : null,
+            EstimatedMinutes = estimatedMinutes,
         };
         task._assignees.AddRange(assigneeIds.Select(userId => new TaskAssignee(task.Id, userId, createdById, now)));
         task.Raise(new TaskCreatedEvent(task.Id, project.Id, task.Number, createdById));
@@ -194,11 +221,37 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     }
 
     /// <summary>
-    /// To a column of the same project, at a place in it. Entering a done column completes the task,
-    /// leaving it clears that. Only a change of column goes in the history: a reorder in the same
-    /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1).
+    /// Another estimate, or none (SPEC section 4.4): each change is an EstimatedMinutes entry, the minutes as
+    /// text, and the board hears of it. Whether none is allowed, only before the task first entered În lucru,
+    /// is the handler's to check, since it reads the history.
     /// </summary>
-    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now)
+    public void SetEstimate(int? minutes, Guid changedById, DateTimeOffset now)
+    {
+        EnsureAnEstimate(minutes);
+        if (minutes == EstimatedMinutes)
+        {
+            return;
+        }
+
+        Record(TaskHistoryFields.EstimatedMinutes, FormatMinutes(EstimatedMinutes), FormatMinutes(minutes), changedById, now);
+        EstimatedMinutes = minutes;
+        Raise(new TaskUpdatedEvent(Id, ProjectId, TaskHistoryFields.EstimatedMinutes, changedById));
+    }
+
+    /// <summary>Whether a text can be a pause's reason: one line of 1 to 500 characters once trimmed, without control characters.</summary>
+    public static bool IsAPauseReason(string? reason) =>
+        reason?.Trim() is { Length: > 0 and <= MaxPauseReasonLength } trimmed && !trimmed.Any(char.IsControl);
+
+    /// <summary>
+    /// To a column of the same project, at a place in it. Entering Gata completes the task,
+    /// leaving it clears that. Only a change of column goes in the history: a reorder in the same
+    /// column isn't a change of state, and the reports read the columns (SPEC section 5.1.1). Entering
+    /// În pauză takes a reason, which a PauseReason entry writes next to the move; leaving it forgets the
+    /// reason without one (SPEC section 4.4). Entering În lucru starts the worked time's counter, leaving it adds
+    /// the schedule's seconds since then, which only the working hours can tell, so a task that leaves În lucru
+    /// needs them; the counter writes no history.
+    /// </summary>
+    public void MoveTo(BoardColumn column, int position, Guid changedById, DateTimeOffset now, string? pauseReason = null, WorkingHours? hours = null)
     {
         if (column.ProjectId != ProjectId)
         {
@@ -206,6 +259,16 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         }
 
         ArgumentOutOfRangeException.ThrowIfNegative(position);
+        var pausing = column.Kind == ColumnKind.Paused && column.Id != ColumnId;
+        if (pausing && !IsAPauseReason(pauseReason))
+        {
+            throw new ArgumentException("A task enters În pauză with a reason: one line of 1 to 500 characters.", nameof(pauseReason));
+        }
+
+        if (column.Id != ColumnId && IsWorking)
+        {
+            ArgumentNullException.ThrowIfNull(hours);
+        }
 
         if (column.Id == ColumnId && position == Position)
         {
@@ -215,12 +278,24 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         var from = ColumnId;
         if (column.Id != from)
         {
+            StopWorking(now, hours);
             Record(TaskHistoryFields.ColumnId, from.ToString(), column.Id.ToString(), changedById, now);
             ColumnId = column.Id;
+            PauseReason = null;
+            if (column.Kind == ColumnKind.InProgress)
+            {
+                WorkStartedAt = now;
+            }
+        }
+
+        if (pausing)
+        {
+            PauseReason = pauseReason!.Trim();
+            Record(TaskHistoryFields.PauseReason, null, PauseReason, changedById, now);
         }
 
         Position = position;
-        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
+        CompletedAt = column.Kind == ColumnKind.Done ? CompletedAt ?? now : null;
         Raise(new TaskMovedEvent(Id, ProjectId, from, column.Id, position, changedById));
     }
 
@@ -228,20 +303,6 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// Another place in the same column, to keep the column's order without gaps around a move. It isn't
     /// a change of this task, so it writes no history and raises nothing: the moved task's event says it all.
     /// </summary>
-    /// <summary>
-    /// Its column became a done column, or stopped being one: the task is completed now, or open again,
-    /// as if it had just entered that column (SPEC section 5.1). Its place and its history stay.
-    /// </summary>
-    public void FollowColumn(BoardColumn column, DateTimeOffset now)
-    {
-        if (column.Id != ColumnId)
-        {
-            throw new ArgumentException("A task follows only the column it's in.", nameof(column));
-        }
-
-        CompletedAt = column.IsDone ? CompletedAt ?? now : null;
-    }
-
     public void ShiftTo(int position)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);
@@ -301,13 +362,24 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new AttachmentsChangedEvent(Id, ProjectId, removedById));
     }
 
-    /// <summary>Archiving twice keeps the first time, and who did it.</summary>
-    public void Archive(Guid archivedById, DateTimeOffset now)
+    /// <summary>The worked seconds with the open interval counted up to now, as the task's DTOs give them.</summary>
+    public long WorkedSecondsAt(DateTimeOffset now, WorkingHours hours) =>
+        WorkedSeconds + (WorkStartedAt is { } started ? hours.Between(started, now) : 0);
+
+    /// <summary>Archiving twice keeps the first time, and who did it. A task in În lucru stops working, so it needs the hours.</summary>
+    public void Archive(Guid archivedById, DateTimeOffset now, WorkingHours? hours = null)
     {
         if (ArchivedAt is not null)
         {
             return;
         }
+
+        if (IsWorking)
+        {
+            ArgumentNullException.ThrowIfNull(hours);
+        }
+
+        StopWorking(now, hours);
 
         Record(TaskHistoryFields.ArchivedAt, null, Format(now), archivedById, now);
         ArchivedAt = now;
@@ -315,17 +387,40 @@ public sealed class TaskItem : AuditableEntity, IArchivable
         Raise(new TaskArchivedEvent(Id, ProjectId, archivedById));
     }
 
-    public void Restore(Guid restoredById, DateTimeOffset now)
+    /// <summary>
+    /// Back in its column, with its estimate, worked time and pause's reason. Given its column, and that column
+    /// is În lucru, the counter starts again (SPEC section 4.4, "Coloana Arhivate").
+    /// </summary>
+    public void Restore(Guid restoredById, DateTimeOffset now, BoardColumn? column = null)
     {
         if (ArchivedAt is null)
         {
             return;
         }
 
+        if (column is not null && column.Id != ColumnId)
+        {
+            throw new ArgumentException("A task comes back to its own column.", nameof(column));
+        }
+
+        if (column?.Kind == ColumnKind.InProgress)
+        {
+            WorkStartedAt = now;
+        }
+
         Record(TaskHistoryFields.ArchivedAt, Format(ArchivedAt), null, restoredById, now);
         ArchivedAt = null;
         ArchivedById = null;
         Raise(new TaskRestoredEvent(Id, ProjectId, restoredById));
+    }
+
+    private void StopWorking(DateTimeOffset now, WorkingHours? hours)
+    {
+        if (WorkStartedAt is { } started && hours is not null)
+        {
+            WorkedSeconds = checked(WorkedSeconds + (int)hours.Between(started, now));
+            WorkStartedAt = null;
+        }
     }
 
     private static string NormalizeTitle(string title)
@@ -348,6 +443,17 @@ public sealed class TaskItem : AuditableEntity, IArchivable
     /// <summary>Sorted as text and separated by commas, and empty for nobody, so a list reads the same however it was given.</summary>
     private static string FormatIds(IEnumerable<Guid> ids) =>
         string.Join(',', ids.Select(id => id.ToString()).Order(StringComparer.Ordinal));
+
+    private static void EnsureAnEstimate(int? minutes)
+    {
+        if (minutes is { } value)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, MinEstimateMinutes, nameof(minutes));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, MaxEstimateMinutes, nameof(minutes));
+        }
+    }
+
+    private static string? FormatMinutes(int? minutes) => minutes?.ToString(CultureInfo.InvariantCulture);
 
     private static void EnsureEachOnce(IReadOnlyCollection<Guid> assigneeIds)
     {

@@ -10,6 +10,8 @@ import {
   DeadlinesReportDto,
   ReportPersonDto,
   ReportProjectDto,
+  ReportWorkScheduleDto,
+  WorkTimeReportDto,
 } from './models';
 import { ReportFilters, apiInterval } from './report-filters';
 
@@ -56,6 +58,18 @@ export class ReportsApi {
     return this.api.get<CycleTimeReportDto>('/reports/cycle-time', {
       params: reportParams(filters, false),
     });
+  }
+
+  /** The estimate against the worked time (group 22). */
+  workTime(filters: ReportFilters): Observable<WorkTimeReportDto> {
+    return this.api.get<WorkTimeReportDto>('/reports/work-time', {
+      params: reportParams(filters, false),
+    });
+  }
+
+  /** The schedule the worked time counts in, which the section names. */
+  workSchedule(): Observable<ReportWorkScheduleDto> {
+    return this.api.get<ReportWorkScheduleDto>('/settings/work-schedule');
   }
 
   deadlines(filters: ReportFilters): Observable<DeadlinesReportDto> {

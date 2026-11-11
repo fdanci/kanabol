@@ -34,6 +34,8 @@ export class TaskPanelStore {
   readonly task = this.current.asReadonly();
   readonly state = this.loadState.asReadonly();
   readonly columns = this.columnList.asReadonly();
+  /** The task is read again for its files. */
+  readonly refreshing = signal(false);
   readonly saving = signal(false);
   /** How many changes the panel saved, so its timeline reads the history again after each one. */
   readonly savedChanges = signal(0);
@@ -116,9 +118,39 @@ export class TaskPanelStore {
     return this.change((id) => this.api.schedule(id, dueDate));
   }
 
-  /** From the panel a task goes last in the column chosen. */
-  move(columnId: string): Promise<ChangeOutcome> {
-    return this.change((id) => this.api.move(id, columnId));
+  /** From the panel a task goes last in the column chosen, with what the move asked for. */
+  move(
+    columnId: string,
+    answers: { estimatedMinutes?: number; pauseReason?: string } = {},
+  ): Promise<ChangeOutcome> {
+    return this.change((id) => this.api.move(id, columnId, undefined, answers));
+  }
+
+  /** Minutes, or none. */
+  estimate(estimatedMinutes: number | null): Promise<ChangeOutcome> {
+    return this.change((id) => this.api.estimate(id, estimatedMinutes));
+  }
+
+  /** The task again, quietly, for the "Reîncarcă" of its files (docs/UI_UX_SPEC.md §7.5). */
+  async refresh(): Promise<void> {
+    const task = this.current();
+    if (!task || this.refreshing()) {
+      return;
+    }
+    const request = this.latest;
+    this.refreshing.set(true);
+    try {
+      const fresh = await firstValueFrom(
+        this.api.byKey(task.key, this.auth.has(PERMISSIONS.tasksArchive)),
+      );
+      if (request === this.latest) {
+        this.current.set(fresh);
+      }
+    } catch {
+      // The snackbar said why; the files stay as they were.
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   async archive(): Promise<boolean> {

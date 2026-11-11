@@ -8,11 +8,13 @@ namespace Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
 /// <summary>
 /// DELETE archives: the row, its history, comments and attachments stay, and the reports still read
 /// them (SPEC section 5.1). Any real member can archive; seeing and restoring archived tasks takes tasks.archive.
+/// A task in În lucru stops its worked time's counter (SPEC section 4.4).
 /// </summary>
 public sealed class ArchiveTaskCommandHandler(
     TaskChanges changes,
     ICurrentUser currentUser,
     IClock clock,
+    WorkedTime workedTime,
     ILogger<ArchiveTaskCommandHandler> logger) : ICommandHandler<ArchiveTaskCommand, Unit>
 {
     public async Task<Result<Unit>> Handle(ArchiveTaskCommand command, CancellationToken ct)
@@ -23,7 +25,8 @@ public sealed class ArchiveTaskCommandHandler(
             return loaded.Error;
         }
 
-        loaded.Value.Archive(currentUser.Id, clock.UtcNow);
+        var hours = loaded.Value.IsWorking ? await workedTime.Hours(ct) : null;
+        loaded.Value.Archive(currentUser.Id, clock.UtcNow, hours);
 
         var saved = await changes.Save(ct);
         if (saved.IsFailure)

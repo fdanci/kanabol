@@ -23,7 +23,7 @@ public sealed class ProjectsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         body.RootElement.GetProperty("myRole").GetString().Should().Be("Owner");
         body.RootElement.GetProperty("canManage").GetBoolean().Should().BeTrue();
         body.RootElement.GetProperty("columns").EnumerateArray().Select(column => column.GetProperty("name").GetString())
-            .Should().Equal("De făcut", "În lucru", "Gata");
+            .Should().Equal("Backlog", "În lucru", "În pauză", "Gata");
         (await MembersOf(id)).Should().ContainSingle(member => member.UserId == creator.Id && member.Role == ProjectRole.Owner);
     }
 

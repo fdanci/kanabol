@@ -69,18 +69,11 @@
     </div>
 
     <div class="kb-form-row">
-      <span id="task-column" class="kb-form-label" i18n>Coloană</span>
-      <mat-select
-        class="kb-field kb-select"
-        panelClass="kb-menu"
-        aria-labelledby="task-column"
-        [value]="columnId()"
-        (selectionChange)="columnId.set($event.value)"
-      >
-        @for (column of columns(); track column.id) {
-          <mat-option [value]="column.id">{{ column.name }}</mat-option>
-        }
-      </mat-select>
+      <span class="kb-form-label" i18n>Coloană</span>
+      <div class="column">
+        <span i18n>Backlog</span>
+        <p class="kb-form-help" i18n>Un task nou pornește în Backlog.</p>
+      </div>
     </div>
 
     <div class="kb-form-row">

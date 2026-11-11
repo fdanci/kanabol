@@ -16,16 +16,15 @@ public sealed record FinishedTaskTimeline(
     public TimeSpan LeadTime => Positive(CompletedAt - CreatedAt);
 
     /// <summary>
-    /// From its first exit from the board's first column, when it started there; from its creation when it
-    /// was created in another column, or never left the first one before it was finished.
+    /// From its first entry into În lucru, the project's InProgress column (SPEC section 5.1.1, group 22); from
+    /// its creation when it never entered it before it was finished, as one created there or finished from Backlog.
     /// </summary>
-    public TimeSpan CycleTime(Guid? firstColumnId)
+    public TimeSpan CycleTime(Guid? inProgressColumnId)
     {
-        var first = Moves.Count > 0 ? Moves[0] : null;
-        var start = first is not null && first.At <= CompletedAt && firstColumnId is { } column && IsColumn(first.From, column)
-            ? first.At
-            : CreatedAt;
-        return Positive(CompletedAt - start);
+        var entry = inProgressColumnId is { } column
+            ? Moves.FirstOrDefault(move => move.At <= CompletedAt && IsColumn(move.To, column))
+            : null;
+        return Positive(CompletedAt - (entry?.At ?? CreatedAt));
     }
 
     /// <summary>How long it stayed in each column, its stays in one added up, until it was finished.</summary>

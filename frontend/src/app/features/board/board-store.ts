@@ -15,7 +15,7 @@ import { TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
 import { Realtime } from '../../core/realtime/realtime';
 import { BoardApi } from './board-api';
 import { cardsIn, moveCard } from './board-moves';
-import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto } from './models';
+import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto, MoveAnswers } from './models';
 
 export type BoardState = 'loading' | 'ready' | 'error';
 
@@ -75,6 +75,8 @@ export class BoardStore {
   });
   readonly canMove = computed(() => this.board()?.canMove ?? false);
   readonly canManage = computed(() => this.board()?.canManage ?? false);
+  /** tasks.archive in the token: the column Arhivate (docs/SPEC.md §4.4). */
+  readonly canSeeArchived = computed(() => this.board()?.canSeeArchived ?? false);
   /** tasks.create from the token, and a real membership of an open project (docs/SPEC.md §4.4). */
   readonly canCreate = computed(() => this.canMove() && this.auth.has(PERMISSIONS.tasksCreate));
   readonly members = computed<BoardMemberDto[]>(() =>
@@ -165,8 +167,17 @@ export class BoardStore {
     return this.cardsByColumn().get(columnId) ?? [];
   }
 
-  /** True once the API took the move; false when it refused it, the card being back in its place. */
-  async moveTask(taskId: string, columnId: string, position: number): Promise<boolean> {
+  /**
+   * True once the API took the move; false when it refused it, or the person gave up what the move asked
+   * for, the card being back in its place. The card waits in its new place while ask waits for an answer
+   * (docs/UI_UX_SPEC.md §7.4), the board keeping still meanwhile, then shows what the answer gave it.
+   */
+  async moveTask(
+    taskId: string,
+    columnId: string,
+    position: number,
+    ask?: () => Promise<MoveAnswers | null>,
+  ): Promise<boolean> {
     const before = this.board();
     const moving = before?.tasks.find((task) => task.id === taskId);
     if (!before || !moving || !before.canMove) {
@@ -185,24 +196,23 @@ export class BoardStore {
       moveCard(board.tasks, board.columns, taskId, columnId, position, new Date()),
     );
     try {
-      await firstValueFrom(this.api.move(taskId, columnId, position));
+      const answers = ask ? await ask() : undefined;
+      if (answers === null) {
+        this.change((board) => this.putBack(board, moving));
+        return false;
+      }
+      if (answers) {
+        this.change((board) => this.withAnswers(board, taskId, columnId, answers));
+      }
+      await firstValueFrom(
+        answers
+          ? this.api.move(taskId, columnId, position, answers)
+          : this.api.move(taskId, columnId, position),
+      );
       return true;
     } catch {
       // Back to where it was, among whatever else moved meanwhile, then the board as the API has it.
-      this.change((board) =>
-        board.tasks.find((task) => task.id === taskId)
-          ? moveCard(
-              board.tasks,
-              board.columns,
-              taskId,
-              moving.columnId,
-              moving.position,
-              new Date(),
-            ).map((task) =>
-              task.id === taskId ? { ...task, completedAt: moving.completedAt } : task,
-            )
-          : board.tasks,
-      );
+      this.change((board) => this.putBack(board, moving));
       this.reload();
       return false;
     } finally {
@@ -231,26 +241,18 @@ export class BoardStore {
    * API took it; refused, errorInterceptor says why, and the board is read again to be sure.
    */
   addColumn(name: string): Promise<boolean> {
-    return this.changeColumns((board) => this.api.addColumn(board.projectId, name, false), true);
+    return this.changeColumns((board) => this.api.addColumn(board.projectId, name), true);
   }
 
   renameColumn(column: BoardColumnDto, name: string): Promise<boolean> {
     return this.changeColumns(
-      (board) => this.api.updateColumn(board.projectId, column.id, name, column.isDone),
+      (board) => this.api.updateColumn(board.projectId, column.id, name),
       false,
       (saved) => {
         this.placeColumns((columns) =>
           columns.map((found) => (found.id === saved.id ? saved : found)),
         );
       },
-    );
-  }
-
-  /** The tasks in it are completed now, or open again, so the board is read again. */
-  markColumnDone(column: BoardColumnDto, isDone: boolean): Promise<boolean> {
-    return this.changeColumns(
-      (board) => this.api.updateColumn(board.projectId, column.id, column.name, isDone),
-      true,
     );
   }
 
@@ -352,6 +354,10 @@ export class BoardStore {
         ),
       );
     });
+    // The message has no reason (docs/SPEC.md §9): a card paused elsewhere comes with the board.
+    if (this.columns().find((column) => column.id === message.columnId)?.kind === 'Paused') {
+      this.readAgain();
+    }
   }
 
   private heardChange(message: TaskMessage, pulses: boolean): void {
@@ -366,6 +372,46 @@ export class BoardStore {
 
   private pulse(taskId: string): void {
     this.pulsed.update((pulses) => new Map(pulses).set(taskId, (pulses.get(taskId) ?? 0) + 1));
+  }
+
+  /** The moved card as the API now has it: its estimate, whether it works, and its pause's reason. */
+  /** The card back in its place, among whatever else moved meanwhile, as it was before its move. */
+  private putBack(board: BoardDto, moving: BoardTaskDto): BoardTaskDto[] {
+    if (!board.tasks.some((task) => task.id === moving.id)) {
+      return board.tasks;
+    }
+    const { completedAt, estimatedMinutes, pauseReason, isWorking } = moving;
+    return moveCard(
+      board.tasks,
+      board.columns,
+      moving.id,
+      moving.columnId,
+      moving.position,
+      new Date(),
+    ).map((task) =>
+      task.id === moving.id
+        ? { ...task, completedAt, estimatedMinutes, pauseReason, isWorking }
+        : task,
+    );
+  }
+
+  private withAnswers(
+    board: BoardDto,
+    taskId: string,
+    columnId: string,
+    answers: MoveAnswers,
+  ): BoardTaskDto[] {
+    const kind = board.columns.find((column) => column.id === columnId)?.kind;
+    return board.tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            estimatedMinutes: answers.estimatedMinutes ?? task.estimatedMinutes,
+            isWorking: kind === 'InProgress',
+            pauseReason: kind === 'Paused' ? (answers.pauseReason ?? task.pauseReason) : null,
+          }
+        : task,
+    );
   }
 
   private change(tasks: (board: BoardDto) => BoardTaskDto[]): void {

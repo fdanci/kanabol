@@ -170,9 +170,10 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by_id");
 
-                    b.Property<bool>("IsDone")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_done");
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -207,6 +208,11 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_board_columns_project_id");
+
+                    b.HasIndex("ProjectId", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("ux_board_columns_project_id_kind")
+                        .HasFilter("kind <> 'Custom'");
 
                     b.ToTable("board_columns", (string)null);
                 });
@@ -303,6 +309,49 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_project_members_user_id");
 
                     b.ToTable("project_members", (string)null);
+                });
+
+            modelBuilder.Entity("Kanabol.Domain.Settings.WorkSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<TimeOnly>("EndTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("end_time");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("start_time");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("WorkDays")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("work_days");
+
+                    b.HasKey("Id")
+                        .HasName("pk_work_schedules");
+
+                    b.HasIndex("UpdatedById")
+                        .HasDatabaseName("ix_work_schedules_updated_by_id");
+
+                    b.ToTable("work_schedules", (string)null);
                 });
 
             modelBuilder.Entity("Kanabol.Domain.Tasks.Attachment", b =>
@@ -528,9 +577,18 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("due_date");
 
+                    b.Property<int?>("EstimatedMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("estimated_minutes");
+
                     b.Property<int>("Number")
                         .HasColumnType("integer")
                         .HasColumnName("number");
+
+                    b.Property<string>("PauseReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("pause_reason");
 
                     b.Property<int>("Position")
                         .HasColumnType("integer")
@@ -565,6 +623,14 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset?>("WorkStartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("work_started_at");
+
+                    b.Property<int>("WorkedSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("worked_seconds");
 
                     b.HasKey("Id")
                         .HasName("pk_task_items");
@@ -778,6 +844,15 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_project_members_users_user_id");
+                });
+
+            modelBuilder.Entity("Kanabol.Domain.Settings.WorkSchedule", b =>
+                {
+                    b.HasOne("Kanabol.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_work_schedules_users_updated_by_id");
                 });
 
             modelBuilder.Entity("Kanabol.Domain.Tasks.Attachment", b =>

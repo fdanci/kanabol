@@ -13,7 +13,8 @@ import {
 import { MatButton, MatIconButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
-import { BoardColumnDto, BoardTaskDto } from './models';
+import { ColumnKind } from '../../shared/models/column-kind';
+import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto } from './models';
 import { TaskCard } from './task-card';
 
 /** A title as long as the API takes (docs/SPEC.md §5.1). */
@@ -27,16 +28,27 @@ export interface NewCard {
   title: string;
 }
 
+/** The fixed columns' icons (docs/UI_UX_SPEC.md §7.4), each drawn in its kind's color; the project's own have none. */
+const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
+  Backlog: 'inbox',
+  InProgress: 'play_circle',
+  Paused: 'pause_circle',
+  Done: 'check_circle',
+};
+
 /**
- * A column of the board (docs/UI_UX_SPEC.md §7.4): its name, a check when it's a done column, how
- * many cards it has, the cards themselves as a CDK drop list, and "+ Task" at the bottom, which
- * opens a title field in place. For an owner, a ⋮ renames it in place, moves it, marks it done
- * and deletes it when empty. It shows the cards the page gives it, which the filters and a card
- * picked up from the keyboard decide. It says what happened; the board page decides what it means.
+ * A column of the board (docs/UI_UX_SPEC.md §7.4): its name, after the icon of its kind for a fixed one,
+ * with a bar of that color on its top edge, how many cards it has, the cards themselves as a CDK drop
+ * list, and "+ Task" at the bottom where the page allows it, which opens a title field in place. For an
+ * owner, a column of the project's own has a ⋮ that renames it in place, moves it as far as Backlog and
+ * Gata let it, and deletes it when empty; the fixed ones have none. A column before În lucru takes no
+ * card that already started. It shows the cards the page gives it, which the filters and a card picked
+ * up from the keyboard decide. It says what happened; the board page decides what it means.
  */
 @Component({
   selector: 'kb-board-column',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[attr.data-column-id]': 'column().id' },
   imports: [
     CdkDropList,
     CdkDrag,
@@ -49,8 +61,15 @@ export interface NewCard {
     MatMenuTrigger,
   ],
   template: `
-    <section class="column" [attr.aria-labelledby]="'kb-column-' + column().id">
+    <section
+      class="column"
+      [class]="'kind-' + column().kind.toLowerCase()"
+      [attr.aria-labelledby]="'kb-column-' + column().id"
+    >
       <header class="head">
+        @if (icon(); as icon) {
+          <span class="material-symbols-outlined kind-icon" aria-hidden="true">{{ icon }}</span>
+        }
         <!-- Kept while renaming, out of sight, so the column keeps its name for screen readers. -->
         <h2
           class="kb-subtitle name"
@@ -73,18 +92,9 @@ export interface NewCard {
             (blur)="rename(renameField)"
           />
         }
-        @if (column().isDone) {
-          <span
-            class="material-symbols-outlined done"
-            role="img"
-            i18n-aria-label
-            aria-label="Coloană de task-uri terminate"
-            >check_circle</span
-          >
-        }
         <span class="count" aria-hidden="true">{{ cards().length }}</span>
         <span class="kb-visually-hidden">{{ countLabel() }}</span>
-        @if (canManage()) {
+        @if (canManage() && column().kind === 'Custom') {
           <button
             matIconButton
             class="menu"
@@ -99,27 +109,16 @@ export interface NewCard {
               <mat-icon>edit</mat-icon>
               <span i18n>Redenumește</span>
             </button>
-            @if (!first()) {
+            @if (canMoveLeft()) {
               <button mat-menu-item type="button" (click)="moved.emit(-1)">
                 <mat-icon>arrow_back</mat-icon>
                 <span i18n>Mută la stânga</span>
               </button>
             }
-            @if (!last()) {
+            @if (canMoveRight()) {
               <button mat-menu-item type="button" (click)="moved.emit(1)">
                 <mat-icon>arrow_forward</mat-icon>
                 <span i18n>Mută la dreapta</span>
-              </button>
-            }
-            @if (column().isDone) {
-              <button mat-menu-item type="button" (click)="doneChanged.emit(false)">
-                <mat-icon>remove_done</mat-icon>
-                <span i18n>Nu mai e de task-uri terminate</span>
-              </button>
-            } @else {
-              <button mat-menu-item type="button" (click)="doneChanged.emit(true)">
-                <mat-icon>check_circle</mat-icon>
-                <span i18n>Marchează ca terminată</span>
               </button>
             }
             @if (canDelete()) {
@@ -137,6 +136,7 @@ export interface NewCard {
         cdkDropList
         [cdkDropListData]="column()"
         [cdkDropListDisabled]="!canMove()"
+        [cdkDropListEnterPredicate]="accepts"
         (cdkDropListDropped)="dropped.emit($event)"
       >
         @for (task of cards(); track task.id) {
@@ -145,13 +145,14 @@ export interface NewCard {
             [cdkDragData]="task"
             [cdkDragDisabled]="!canMove()"
             [task]="task"
-            [done]="column().isDone"
+            [kind]="column().kind"
+            [done]="column().kind === 'Done'"
             [pulse]="pulses().get(task.id) ?? 0"
             [class.lifted]="task.id === liftedId()"
             [attr.data-task-id]="task.id"
             tabindex="0"
             role="button"
-            [attr.aria-label]="task.key + ' ' + task.title"
+            [attr.aria-label]="cardLabel(task)"
             [attr.aria-describedby]="canMove() ? keysHelpId() : null"
             (click)="opened.emit(task)"
             (keydown.enter)="opened.emit(task)"
@@ -191,6 +192,7 @@ export interface NewCard {
     }
 
     .column {
+      --kb-kind: transparent;
       display: flex;
       flex-direction: column;
       gap: var(--kb-space-2);
@@ -198,6 +200,30 @@ export interface NewCard {
       padding: 10px;
       border-radius: var(--kb-radius-md);
       background: color-mix(in srgb, var(--kb-navy-900) 4%, var(--kb-surface-50));
+      /* The fixed kinds' 3px bar on the top edge, inside the column's corners. */
+      box-shadow: inset 0 3px 0 var(--kb-kind);
+    }
+
+    .kind-backlog {
+      --kb-kind: var(--kb-text-500);
+    }
+
+    .kind-inprogress {
+      --kb-kind: var(--kb-accent-600);
+    }
+
+    .kind-paused {
+      --kb-kind: var(--kb-warning-600);
+    }
+
+    .kind-done {
+      --kb-kind: var(--kb-success-600);
+    }
+
+    .kind-icon {
+      flex: none;
+      font-size: 16px;
+      color: var(--kb-kind);
     }
 
     .column:has(> .cards.cdk-drop-list-dragging) {
@@ -238,11 +264,6 @@ export interface NewCard {
 
     .menu {
       margin-left: auto;
-    }
-
-    .done {
-      font-size: 16px;
-      color: var(--kb-success-600);
     }
 
     .count {
@@ -309,17 +330,37 @@ export class BoardColumn {
   readonly created = output<NewCard>();
   /** An owner, or projects.manage, of an open project. */
   readonly canManage = input(false);
-  /** Only an empty column, and not the board's last one. */
+  /** Only an empty column of the project's own. */
   readonly canDelete = input(false);
-  readonly first = input(false);
-  readonly last = input(false);
+  /** A column of the project's own, with room before Gata or after Backlog. */
+  readonly canMoveLeft = input(false);
+  readonly canMoveRight = input(false);
+  /** Before În lucru: a card that already started doesn't come back here (docs/UI_UX_SPEC.md §7.4). */
+  readonly beforeInProgress = input(false);
+  /** The columns from În lucru on, where a task has started. */
+  readonly startedColumnIds = input<ReadonlySet<string>>(new Set());
   readonly renamed = output<string>();
   /** -1 to the left, 1 to the right. */
   readonly moved = output<-1 | 1>();
-  readonly doneChanged = output<boolean>();
   readonly deleted = output();
 
   protected readonly adding = signal(false);
+  protected readonly icon = computed(() => KIND_ICONS[this.column().kind] ?? null);
+
+  /** The key and the title, as on the card, and in În pauză its reason too (docs/UI_UX_SPEC.md §7.4). */
+  protected cardLabel(task: BoardTaskDto): string {
+    return this.column().kind === 'Paused' && task.pauseReason
+      ? $localize`${task.key}:key: ${task.title}:title:. Pe pauză: ${task.pauseReason}:reason:`
+      : `${task.key} ${task.title}`;
+  }
+  /**
+   * Kept out while dragged, so the column takes no target border; the page says why when it's let go there.
+   * A card of Arhivate comes in anywhere: it goes back to its own column.
+   */
+  protected readonly accepts = (drag: CdkDrag<BoardTaskDto | ArchivedTaskDto>): boolean =>
+    'archivedAt' in drag.data ||
+    !this.beforeInProgress() ||
+    !this.startedColumnIds().has(drag.data.columnId);
   protected readonly maxTitleLength = MAX_TITLE_LENGTH;
   protected readonly maxNameLength = MAX_NAME_LENGTH;
   protected readonly renaming = signal(false);

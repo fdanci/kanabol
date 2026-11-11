@@ -718,9 +718,10 @@ creates_the_board_project() {
   brd_id=$(body_field id)
   todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 0")
   doing=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND position = 1")
-  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND is_done")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$brd_id' AND kind = 'Done'")
+  # With an estimate, so they enter În lucru without one and their history holds only the moves (group 22).
   for title in A B C D; do
-    status_is 201 "$(as "$admin_token" POST "$(tasks_of "$brd_id")" "{\"title\":\"$title\",\"priority\":\"Low\"}")" || return 1
+    status_is 201 "$(as "$admin_token" POST "$(tasks_of "$brd_id")" "{\"title\":\"$title\",\"priority\":\"Low\",\"estimatedMinutes\":60}")" || return 1
     eval "task_$title=\$(body_field id)"
   done
   [ -n "$task_D" ] && [ -n "$doing" ]
@@ -754,7 +755,8 @@ no_place_means_the_end() {
 the_done_column_completes_it() {
   status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_C/position" "{\"columnId\":\"$done_column\",\"position\":0}")" || return 1
   is 'True' "$(in_db "SELECT completed_at IS NOT NULL FROM task_items WHERE id = '$task_C'")" || return 1
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_C/position" "{\"columnId\":\"$todo\"}")" || return 1
+  # Out of Gata a task goes to În lucru or after it, never back before it (group 22).
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_C/position" "{\"columnId\":\"$doing\"}")" || return 1
   is 'True' "$(in_db "SELECT completed_at IS NULL FROM task_items WHERE id = '$task_C'")"
 }
 
@@ -772,7 +774,8 @@ a_column_of_another_project_is_refused() {
 # Two moves through one column, sent at the same moment: either both land one after the other, or the
 # second gets 409 Task.ChangedMeanwhile. Never a 500, and the places stay 0, 1, 2... either way.
 two_moves_at_once_keep_the_order() {
-  printf '{"columnId":"%s","position":0}' "$todo" >"$scratch/move-1"
+  # Both through În lucru: B, there already, to its top, and D into it. B can't go back to Backlog (group 22).
+  printf '{"columnId":"%s","position":0}' "$doing" >"$scratch/move-1"
   printf '{"columnId":"%s","position":0}' "$doing" >"$scratch/move-2"
   # --next starts the second request with its own body; -Z still sends both at once.
   curl -sS --max-time 60 -Z --parallel-immediate \

@@ -68,7 +68,8 @@ public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api
         var (_, dan, anaToken, danToken, project, taskId) = await ABoardWithATask();
         var anasBoard = await OnTheBoard(anaToken, project);
         var dansTab = await Connect(danToken);
-        var target = project.Columns.Single(column => column.Position == 1);
+        // Gata asks for nothing; În lucru would want an estimate, and the board would hear of it first.
+        var target = project.Columns.Single(column => column.Kind == Kanabol.Domain.Projects.ColumnKind.Done);
 
         (await SendFrom(dansTab, HttpMethod.Patch, $"/api/tasks/{taskId}/position", danToken, new { columnId = target.Id, position = 0 }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
@@ -138,5 +139,26 @@ public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api
 
         await Probe(ana.Id);
         (await anasBoard.NextIs("Probe")).GetProperty("marker").GetString().Should().Be("the end", "Ana assigned Dan, and hears of no notification of her own");
+    }
+
+    // Group 22 (SPEC section 4.4): the estimate a move into În lucru brings is a change of its own, heard before
+    // the move, as PUT …/estimate is, so another board reads the card's "lucrat / estimat" again.
+    [Fact]
+    public async Task PatchPosition_IntoInProgressWithAnEstimate_SendsTaskUpdatedWithEstimatedMinutesBeforeTaskMoved()
+    {
+        var (_, _, anaToken, danToken, project, taskId) = await ABoardWithATask();
+        var dansBoard = await OnTheBoard(danToken, project);
+        var inProgress = project.Columns.Single(column => column.Kind == ColumnKind.InProgress).Id;
+
+        (await SendFrom(null, HttpMethod.Patch, $"/api/tasks/{taskId}/position", anaToken, new { columnId = inProgress, estimatedMinutes = 90 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SendFrom(null, HttpMethod.Put, $"/api/tasks/{taskId}/estimate", anaToken, new { estimatedMinutes = 120 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var estimated = await dansBoard.NextIs("TaskUpdated");
+        NamesIn(estimated).Should().Equal("taskId", "projectId", "byUserId", "originConnectionId", "field");
+        estimated.GetProperty("field").GetString().Should().Be("EstimatedMinutes");
+        (await dansBoard.NextIs("TaskMoved")).GetProperty("columnId").GetGuid().Should().Be(inProgress);
+        (await dansBoard.NextIs("TaskUpdated")).GetProperty("field").GetString().Should().Be("EstimatedMinutes");
     }
 }

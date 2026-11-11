@@ -9,7 +9,7 @@ namespace Kanabol.Application.Features.Tasks;
 /// KAN-123. CanChange says whether the caller can change it: a real member of an open project, while
 /// the task isn't archived. Seeing it through projects.view_all or projects.manage alone doesn't.
 /// Assignees come by name, whatever the case, and an empty list means nobody's. Attachments come from
-/// the first uploaded (SPEC section 4.4).
+/// the first uploaded (SPEC section 4.4). WorkedSeconds counts the open interval up to now, while IsWorking.
 /// </summary>
 public sealed record TaskItemDto(
     Guid Id,
@@ -21,10 +21,14 @@ public sealed record TaskItemDto(
     string? Description,
     [property: JsonConverter(typeof(JsonStringEnumConverter<TaskPriority>))] TaskPriority Priority,
     DateTimeOffset? DueDate,
+    int? EstimatedMinutes,
     IReadOnlyList<TaskPersonDto> Assignees,
     Guid ColumnId,
     string ColumnName,
     int Position,
+    string? PauseReason,
+    long WorkedSeconds,
+    bool IsWorking,
     DateTimeOffset? CompletedAt,
     DateTimeOffset? ArchivedAt,
     DateTimeOffset CreatedAt,

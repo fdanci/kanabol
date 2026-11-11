@@ -1,4 +1,5 @@
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Tasks.Events;
 using Kanabol.Tests.Shared.Builders;
@@ -21,7 +22,7 @@ public sealed class TaskItemTests
 
     private BoardColumn InProgress => _project.Columns.Single(column => column.Position == 1);
 
-    private BoardColumn Done => _project.Columns.Single(column => column.IsDone);
+    private BoardColumn Done => _project.Columns.Single(column => column.Kind == ColumnKind.Done);
 
     private TaskItem NewTask() => new TaskItemBuilder().InProject(_project).WithTitle("Login SSO").Build();
 
@@ -478,7 +479,7 @@ public sealed class TaskItemTests
         task.SetDueDate(_now.AddDays(7), _by, _now);
         task.ChangeDescription("Detalii", _by, _now);
         task.MoveTo(InProgress, 0, _by, _now);
-        task.Archive(_by, _now);
+        task.Archive(_by, _now, new WorkingHours(WorkSchedule.Default(), TimeZoneInfo.Utc));
         task.Restore(_by, _now);
 
         task.History.Select(entry => entry.Field).Should().Equal(

@@ -366,7 +366,7 @@ team_is_ready() {
   for member in "$dan_id" "$ioana_id"; do
     status_is 201 "$(as "$admin_token" POST "/api/projects/$alr_id/members" "{\"userId\":\"$member\",\"role\":\"Member\"}")" || return 1
   done
-  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$alr_id' AND is_done")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$alr_id' AND kind = 'Done'")
   [ -n "$done_column" ]
 }
 
@@ -867,12 +867,12 @@ the_page_has_its_route() {
 }
 
 # docs/SPEC.md §9: the bell reaches Realtime only through import(), and nothing the first bundle loads
-# imports it; the board's store does, in its own chunk.
+# imports it; the board's stores do, in its own chunk, Arhivate's since group 22.
 realtime_comes_only_through_import() {
   in_file "await import('../realtime/realtime')" "$bell_web/bell-store.ts" || return 1
   static=$(grep -rlE "from '[./]*(core/)?realtime/realtime'|from '\./realtime'" "$app" --include='*.ts' |
     grep -vE '\.spec\.ts$|realtime-testing\.ts$|/realtime/realtime\.ts$' | sed "s|$app/||" | sort | tr '\n' ' ' | sed 's/ $//')
-  is 'features/board/board-store.ts' "$static"
+  is 'features/board/archived-store.ts features/board/board-store.ts' "$static"
 }
 
 # The initial bundle is what index.html loads: its scripts and the chunks it preloads.

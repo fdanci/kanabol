@@ -977,7 +977,19 @@ Has("archived_at timestamp with time zone");
 Has("archived_by_id uuid");
 Has("read_at timestamp with time zone");
 Has("changed_at timestamp with time zone NOT NULL");
-Has("is_done boolean NOT NULL");
+// The column's kind, in place of is_done since group 22, each fixed one once per project (docs/SPEC.md §4.4).
+Has("kind text NOT NULL");
+Has("estimated_minutes integer");
+Has("pause_reason character varying(500)");
+Has("worked_seconds integer NOT NULL");
+Has("work_started_at timestamp with time zone");
+// The work schedule, one row (docs/SPEC.md §4.4, §5.1, group 22).
+Has("CREATE TABLE work_schedules (");
+Has("work_days character varying(20) NOT NULL");
+Has("start_time time without time zone NOT NULL");
+Has("end_time time without time zone NOT NULL");
+Has("CREATE UNIQUE INDEX ux_board_columns_project_id_kind ON board_columns (project_id, kind) WHERE kind <> 'Custom'");
+Check.That(!script.Contains("is_done"), "a column has a kind, not is_done");
 Has("size bigint NOT NULL");
 Has("storage_key character varying(500) NOT NULL");
 Has("CONSTRAINT fk_task_items_projects_project_id FOREIGN KEY (project_id) REFERENCES projects (id)");
@@ -1011,7 +1023,7 @@ var role = new Role("Member", isSystem: false);
 var user = new User("ana@example.com", "Ana", "hash", role.Id);
 var project = new Project("Website", "WEB", "The company site");
 project.AddMember(user.Id, ProjectRole.Owner);
-var column = new BoardColumn(project.Id, "To do", 0, isDone: false);
+var column = new BoardColumn(project.Id, "Review", 4, ColumnKind.Custom);
 var task = TaskItem.Create(project, column, 1, "Write the copy", "All pages", TaskPriority.High, 0, [], null, user.Id, DateTimeOffset.UtcNow);
 var comment = new Comment(task.Id, user.Id, "Looks fine");
 var attachment = new Attachment(task.Id, "brief.pdf", "application/pdf", 1234, "2026/11/key.pdf", user.Id);
@@ -1052,8 +1064,10 @@ await database.Run(async db =>
 
     var storedProject = await db.Projects.Include(p => p.Members).Include(p => p.Columns).SingleAsync(p => p.Id == project.Id);
     Check.That(storedProject.Members.Single().Role == ProjectRole.Owner, "a project owns its members");
-    Check.That(storedProject.Columns.Single().Name == "To do", "a project owns its columns");
-    Check.That(!storedProject.Columns.Single().IsDone, "a column knows whether it means done");
+    Check.That(storedProject.Columns.OrderBy(c => c.Position).Select(c => c.Name).SequenceEqual(["Backlog", "În lucru", "În pauză", "Gata", "Review"]), "a project owns its columns, the four fixed ones first");
+    Check.That(storedProject.Columns.Single(c => c.Name == "Review").Kind == ColumnKind.Custom, "a column knows its kind");
+    var kind = await db.Database.SqlQueryRaw<string>("SELECT kind AS \"Value\" FROM board_columns WHERE position = 3").SingleAsync();
+    Check.That(kind == "Done", "the kind is stored as readable text");
 
     var storedNotification = await db.Notifications.SingleAsync();
     Check.That(storedNotification.Type == NotificationType.TaskAssigned && storedNotification.ReadAt is null, "a notification is stored unread");
@@ -1180,17 +1194,17 @@ await database.Run(async db =>
     await db.Database.MigrateAsync();
 
     var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1").ToListAsync();
-    string[] expected = ["__EFMigrationsHistory", "attachments", "board_columns", "comments", "notifications", "permissions", "project_members", "projects", "refresh_tokens", "role_permissions", "roles", "task_assignees", "task_history_entries", "task_items", "users"];
+    string[] expected = ["__EFMigrationsHistory", "attachments", "board_columns", "comments", "notifications", "permissions", "project_members", "projects", "refresh_tokens", "role_permissions", "roles", "task_assignees", "task_history_entries", "task_items", "users", "work_schedules"];
     Check.That(tables.SequenceEqual(expected), $"the tables are the expected ones: {string.Join(", ", tables)}");
 
     var booleans = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT column_name AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'boolean' ORDER BY 1").ToListAsync();
-    Check.That(booleans.SequenceEqual(["is_active", "is_done", "is_system", "must_change_password"]), $"booleans: {string.Join(", ", booleans)}");
+    Check.That(booleans.SequenceEqual(["is_active", "is_system", "must_change_password"]), $"booleans: {string.Join(", ", booleans)}");
 
     var keys = await db.Database.SqlQueryRaw<string>("SELECT DISTINCT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'id'").ToListAsync();
     Check.That(keys.SequenceEqual(["uuid"]), "every id is a uuid");
 
-    var enums = await db.Database.SqlQueryRaw<string>("SELECT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name IN ('priority', 'role', 'type')").ToListAsync();
-    Check.That(enums.Count == 3 && enums.All(type => type == "text"), "enums are text columns");
+    var enums = await db.Database.SqlQueryRaw<string>("SELECT data_type AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name IN ('priority', 'role', 'type', 'kind')").ToListAsync();
+    Check.That(enums.Count == 4 && enums.All(type => type == "text"), "enums are text columns");
 });
 CS
 }
@@ -1206,7 +1220,7 @@ task_9() {
   check "no table or column needs quoting, so all are snake_case" only_ef_identifiers_are_quoted
   check "no column starts with a capital" no_line_in_sql '^ +[A-Z][a-z]'
   check "every timestamp is timestamptz" every_timestamp_is_timestamptz
-  check "nothing is a timestamp without time zone" no_line_in_sql 'without time zone'
+  check "nothing is a timestamp without time zone" no_line_in_sql 'timestamp without time zone'
   check "no unique index is named ix_" no_line_in_sql '^CREATE UNIQUE INDEX ix_'
   check "no plain index is named ux_" no_line_in_sql '^CREATE INDEX ux_'
   check "every unique index is named ux_" no_line_in_sql '^CREATE UNIQUE INDEX [^u]'
@@ -2018,11 +2032,11 @@ task_15() {
 
   seeded=$(fresh_database seeded)
   password=only-for-these-checks-1
-  permissions='projects.create,projects.manage,projects.view_all,reports.view,roles.manage,tasks.archive,tasks.create,users.manage'
+  permissions='projects.create,projects.manage,projects.view_all,reports.view,roles.manage,settings.manage,tasks.archive,tasks.create,users.manage'
   check "the first start seeds a new database" seed_once "$seeded" "$password"
   check "the permissions come from the constants" query_is "$seeded" 'SELECT name FROM permissions ORDER BY name' "$permissions"
   check "there's one role, Admin, and it's a system role" query_is "$seeded" 'SELECT name, is_system FROM roles' 'Admin|True'
-  check "Admin has every permission" query_is "$seeded" 'SELECT count(*) FROM role_permissions' 8
+  check "Admin has every permission" query_is "$seeded" 'SELECT count(*) FROM role_permissions' 9
   check "there's one user" query_is "$seeded" 'SELECT count(*) FROM users' 1
   check "the user has the Admin role" query_is "$seeded" 'SELECT r.name FROM users u JOIN roles r ON r.id = u.role_id' Admin
   check "the user has to change the password" query_is "$seeded" 'SELECT must_change_password, is_active FROM users' 'True|True'
@@ -2034,7 +2048,7 @@ task_15() {
   check "the stored hash verifies against the password" hash_verifies_stored_password "$stored_hash" "$password"
 
   check "the next start needs no admin password" seed_once "$seeded"
-  check "it adds no permission" query_is "$seeded" 'SELECT count(*) FROM permissions' 8
+  check "it adds no permission" query_is "$seeded" 'SELECT count(*) FROM permissions' 9
   check "it adds no role" query_is "$seeded" 'SELECT count(*) FROM roles' 1
   check "it adds no user" query_is "$seeded" 'SELECT count(*) FROM users' 1
   check "it leaves the password alone" query_is "$seeded" 'SELECT password_hash FROM users' "$stored_hash"

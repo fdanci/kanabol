@@ -6,5 +6,10 @@ public enum ColumnChange
     Done,
     NotFound,
     NotEmpty,
-    LastColumn,
+
+    /// <summary>Backlog, În lucru, În pauză and Gata are never renamed, moved or removed.</summary>
+    Fixed,
+
+    /// <summary>A column of the project's own goes only between Backlog and Gata.</summary>
+    OutOfRange,
 }

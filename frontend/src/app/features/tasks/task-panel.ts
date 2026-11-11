@@ -24,6 +24,16 @@ import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectTrigger } from '@angular/material/select';
 import { MatTab, MatTabContent, MatTabGroup } from '@angular/material/tabs';
 import { MatTooltip } from '@angular/material/tooltip';
+import {
+  estimateProblem,
+  formatHoursMinutes,
+  formatWorked,
+  hoursToMinutes,
+  isOverEstimate,
+  minutesToHoursText,
+  parseHours,
+} from '../../shared/models/estimate';
+import { MoveQuestions } from '../../shared/move-questions';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { Avatar } from '../../shared/ui/avatar';
 import { Banner } from '../../shared/ui/banner';
@@ -33,7 +43,7 @@ import { EmptyState } from '../../shared/ui/empty-state';
 import { Markdown } from '../../shared/ui/markdown';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { Snackbar } from '../../shared/ui/snackbar';
-import { PRIORITIES, TaskPriority, priorityLabel } from './models';
+import { PRIORITIES, TaskColumnDto, TaskItemDto, TaskPriority, priorityLabel } from './models';
 import {
   TASK_TITLE_MAX,
   endOfDay,
@@ -121,6 +131,7 @@ export class TaskPanel {
   private readonly ref = inject<MatDialogRef<TaskPanel>>(MatDialogRef);
   private readonly confirmation = inject(Confirmation);
   private readonly snackbar = inject(Snackbar);
+  private readonly questions = inject(MoveQuestions);
 
   protected readonly priorities = PRIORITIES;
   protected readonly priorityLabel = priorityLabel;
@@ -155,6 +166,16 @@ export class TaskPanel {
   protected readonly editingDescription = signal(false);
   protected readonly descriptionDraft = signal('');
   protected readonly descriptionError = signal<string | null>(null);
+  protected readonly editingEstimate = signal(false);
+  protected readonly estimateDraft = signal('');
+  protected readonly estimateError = signal<string | null>(null);
+  protected readonly formatHoursMinutes = formatHoursMinutes;
+  protected readonly formatWorked = formatWorked;
+  protected readonly isOverEstimate = isOverEstimate;
+  /** Where În lucru is: a task there or after it has started (docs/SPEC.md §4.4). */
+  private readonly inProgressPosition = computed(
+    () => this.store.columns().find((column) => column.kind === 'InProgress')?.position ?? 0,
+  );
 
   /** The deadline as the day it falls on, for the date picker. */
   protected readonly dueDay = computed(() => {
@@ -163,12 +184,16 @@ export class TaskPanel {
   });
 
   private readonly titleInput = viewChild<ElementRef<HTMLInputElement>>('titleInput');
+  private readonly estimateInput = viewChild<ElementRef<HTMLInputElement>>('estimateInput');
 
   private readonly unsaved = computed(() => {
     const task = this.store.task();
     return (
       (this.editingTitle() && this.titleDraft().trim() !== (task?.title ?? '')) ||
-      (this.editingDescription() && this.descriptionDraft() !== (task?.description ?? ''))
+      (this.editingDescription() && this.descriptionDraft() !== (task?.description ?? '')) ||
+      (this.editingEstimate() &&
+        this.estimateDraft().trim() !==
+          (task?.estimatedMinutes == null ? '' : minutesToHoursText(task.estimatedMinutes)))
     );
   });
 
@@ -182,12 +207,20 @@ export class TaskPanel {
         input.select();
       }
     });
+    effect(() => {
+      const input = this.estimateInput()?.nativeElement;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
     // Only the address starts a load: what load reads of the store mustn't start another one.
     effect(() => {
       const key = this.data.key();
       untracked(() => {
         this.editingTitle.set(false);
         this.editingDescription.set(false);
+        this.editingEstimate.set(false);
         void this.store.load(key);
       });
     });
@@ -261,8 +294,85 @@ export class TaskPanel {
     }
   }
 
+  /**
+   * The rules of a move (docs/UI_UX_SPEC.md §7.5): În lucru for a task without an estimate, and every
+   * pause, ask first in the board's sheets; one turned down puts the select back, asking the API nothing.
+   */
   protected async move(select: MatSelect, columnId: string): Promise<void> {
-    this.revertIfRefused(select, this.store.task()?.columnId, await this.store.move(columnId));
+    const task = this.store.task();
+    const column = this.store.columns().find((found) => found.id === columnId);
+    if (!task || !column) {
+      return;
+    }
+    let answers: { estimatedMinutes?: number; pauseReason?: string } = {};
+    if (column.kind === 'InProgress' && task.estimatedMinutes === null) {
+      const minutes = await this.questions.estimate(task.key);
+      if (minutes === null) {
+        select.value = task.columnId;
+        return;
+      }
+      answers = { estimatedMinutes: minutes };
+    } else if (column.kind === 'Paused' && column.id !== task.columnId) {
+      const reason = await this.questions.pauseReason(task.key);
+      if (reason === null) {
+        select.value = task.columnId;
+        return;
+      }
+      answers = { pauseReason: reason };
+    }
+    this.revertIfRefused(select, task.columnId, await this.store.move(columnId, answers));
+  }
+
+  /** A started task doesn't go back before În lucru (docs/SPEC.md §4.4): those columns are off. */
+  protected goesBack(task: TaskItemDto, column: TaskColumnDto): boolean {
+    const current = this.store.columns().find((found) => found.id === task.columnId);
+    return (
+      current !== undefined &&
+      current.position >= this.inProgressPosition() &&
+      column.position < this.inProgressPosition()
+    );
+  }
+
+  protected editEstimate(): void {
+    const minutes = this.store.task()?.estimatedMinutes ?? null;
+    this.estimateDraft.set(minutes === null ? '' : minutesToHoursText(minutes));
+    this.estimateError.set(null);
+    this.editingEstimate.set(true);
+  }
+
+  /** Esc goes back to the estimate as it was, and doesn't close the panel. */
+  protected cancelEstimate(event: Event): void {
+    event.stopPropagation();
+    this.editingEstimate.set(false);
+    this.estimateError.set(null);
+  }
+
+  /** On Enter, or when the field is left; an empty field takes the estimate away. */
+  protected async saveEstimate(): Promise<void> {
+    const task = this.store.task();
+    if (!this.editingEstimate() || !task) {
+      return;
+    }
+    const draft = this.estimateDraft().trim();
+    const problem = draft === '' ? null : estimateProblem(draft);
+    if (problem) {
+      this.estimateError.set(problem);
+      return;
+    }
+    const hours = parseHours(draft);
+    const minutes = hours === null ? null : hoursToMinutes(hours);
+    if (minutes === task.estimatedMinutes) {
+      this.editingEstimate.set(false);
+      return;
+    }
+
+    this.editingEstimate.set(false);
+    const outcome = await this.store.estimate(minutes);
+    if (!outcome.saved && outcome.refusedField) {
+      this.estimateDraft.set(draft);
+      this.estimateError.set(refusedFieldMessage(outcome.refusedField));
+      this.editingEstimate.set(true);
+    }
   }
 
   /**

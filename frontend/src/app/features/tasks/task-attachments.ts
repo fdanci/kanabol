@@ -11,6 +11,7 @@ import {
 import { MatIconButton } from '@angular/material/button';
 import { MatTooltip } from '@angular/material/tooltip';
 import { Subscription, firstValueFrom } from 'rxjs';
+import { RefreshButton } from '../../shared/ui/refresh-button';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { UploadItem, UploadZone } from '../../shared/ui/upload-zone';
@@ -52,8 +53,11 @@ function save(file: Blob, fileName: string): void {
 @Component({
   selector: 'kb-task-attachments',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatIconButton, MatTooltip, RelativeTimePipe, UploadZone],
+  imports: [MatIconButton, MatTooltip, RefreshButton, RelativeTimePipe, UploadZone],
   template: `
+    <div class="tab-head">
+      <kb-refresh-button [busy]="refreshing()" (refresh)="refreshed.emit()" />
+    </div>
     @if (task().attachments.length === 0) {
       <p class="empty" i18n>Niciun atașament încă.</p>
     } @else {
@@ -99,6 +103,12 @@ function save(file: Blob, fileName: string): void {
     }
   `,
   styles: `
+    .tab-head {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: var(--kb-space-1);
+    }
+
     :host {
       display: flex;
       flex-direction: column;
@@ -170,6 +180,10 @@ export class TaskAttachments {
   readonly attached = output<AttachmentDto>();
   /** The id of a file deleted. */
   readonly detached = output<string>();
+  /** The panel reads the task again for its files. */
+  readonly refreshing = input(false);
+  /** "Reîncarcă" (docs/UI_UX_SPEC.md §7.5): the files come with the task, which the panel reads again. */
+  readonly refreshed = output();
 
   private readonly api = inject(AttachmentsApi);
   private readonly confirmation = inject(Confirmation);

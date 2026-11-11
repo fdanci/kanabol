@@ -38,6 +38,43 @@ export interface DeadlinesReportDto {
   series: { periodStart: string; onTime: number; late: number }[];
 }
 
+/** What a row of the work-time report sums: the finished tasks, and the seconds of those estimated and worked. */
+export interface ReportWorkTimeRow {
+  count: number;
+  estimatedSeconds: number;
+  workedSeconds: number;
+}
+
+/**
+ * GET /api/reports/work-time (docs/SPEC.md §5.1.1, group 22): only the tasks with an estimate and some time
+ * worked go into the sums; deviation is (worked − estimated) / estimated on the sums, null without any.
+ */
+export interface WorkTimeReportDto {
+  count: number;
+  estimatedCount: number;
+  estimatedSeconds: number;
+  workedSeconds: number;
+  deviation: number | null;
+  overCount: number;
+  byUser: ({ userId: string; name: string } & ReportWorkTimeRow)[];
+  byProject: ({ projectId: string; key: string; name: string } & ReportWorkTimeRow)[];
+  /** At most 20, from the biggest overrun. */
+  over: {
+    taskId: string;
+    key: string;
+    title: string;
+    estimatedSeconds: number;
+    workedSeconds: number;
+  }[];
+}
+
+/** The work schedule the section's caption names (GET /api/settings/work-schedule, anyone signed in). */
+export interface ReportWorkScheduleDto {
+  days: number[];
+  start: string;
+  end: string;
+}
+
 /** A row of GET /api/projects, as much of it as the project select shows. */
 export interface ReportProjectDto {
   id: string;

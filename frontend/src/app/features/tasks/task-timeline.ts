@@ -10,6 +10,7 @@ import {
 import { MatButton } from '@angular/material/button';
 import { MatTooltip } from '@angular/material/tooltip';
 import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
+import { RefreshButton } from '../../shared/ui/refresh-button';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { DescriptionDiff } from './description-diff';
 import { historyLine } from './task-history';
@@ -28,8 +29,11 @@ import { TaskTimelineStore } from './task-timeline-store';
   selector: 'kb-task-timeline',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [TaskTimelineStore],
-  imports: [DescriptionDiff, MatButton, MatTooltip, RelativeTimePipe, Skeleton],
+  imports: [DescriptionDiff, MatButton, MatTooltip, RefreshButton, RelativeTimePipe, Skeleton],
   template: `
+    <div class="tab-head">
+      <kb-refresh-button [busy]="store.reading()" (refresh)="reload()" />
+    </div>
     @switch (store.state()) {
       @case ('loading') {
         <div class="loading" aria-busy="true">
@@ -62,6 +66,14 @@ import { TaskTimelineStore } from './task-timeline-store';
                       }
                       @case ('restored') {
                         <ng-container i18n>l-a restaurat</ng-container>
+                      }
+                      @case ('estimated') {
+                        <ng-container i18n>a estimat task-ul la {{ line.change }}</ng-container>
+                      }
+                      @case ('paused') {
+                        <ng-container i18n
+                          >a pus task-ul pe pauză: «{{ line.change }}»</ng-container
+                        >
                       }
                       @default {
                         <ng-container i18n
@@ -144,6 +156,13 @@ import { TaskTimelineStore } from './task-timeline-store';
     }
   `,
   styles: `
+    /* The tab's first row: its "Reîncarcă" on the right (docs/UI_UX_SPEC.md §7.5). */
+    .tab-head {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: var(--kb-space-1);
+    }
+
     :host {
       display: block;
       padding: var(--kb-space-4) 0;

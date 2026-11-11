@@ -26,6 +26,7 @@ import {
   filtersToQuery,
   hasFilters,
 } from '../../shared/models/task-filters';
+import { MoveQuestions } from '../../shared/move-questions';
 import { TaskChanges } from '../../shared/task-changes';
 import { openTaskPanel } from '../../shared/task-panel';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
@@ -33,11 +34,13 @@ import { EmptyState } from '../../shared/ui/empty-state';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskFilterBar } from '../../shared/ui/task-filter-bar';
+import { ARCHIVED_COLUMN, ArchivedColumn } from './archived-column';
+import { ArchivedStore } from './archived-store';
 import { BoardColumn, NewCard } from './board-column';
 import { cardFilter } from './board-filters';
 import { placeAmong } from './board-moves';
 import { BoardStore } from './board-store';
-import { BoardColumnDto, BoardTaskDto } from './models';
+import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto, MoveAnswers } from './models';
 
 /** A card picked up from the keyboard: where it would land, among the cards that column shows. */
 interface Lifted {
@@ -49,6 +52,9 @@ interface Lifted {
 
 /** docs/UI_UX_SPEC.md §8: a card someone else moved slides to its place in the reordering's time. */
 const MOVE_MS = 200;
+
+/** The API's Task.CannotMoveBack, said before asking it (docs/UI_UX_SPEC.md §7.4). */
+const NO_GOING_BACK = () => $localize`Un task început nu se mai întoarce înainte de «În lucru».`;
 
 const MOVES: Record<string, [columns: number, places: number] | undefined> = {
   ArrowLeft: [-1, 0],
@@ -67,13 +73,23 @@ const MOVES: Record<string, [columns: number, places: number] | undefined> = {
 @Component({
   selector: 'kb-board-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [BoardStore],
-  imports: [CdkDropListGroup, BoardColumn, EmptyState, Skeleton, MatButton, MatIcon, TaskFilterBar],
+  providers: [BoardStore, ArchivedStore],
+  imports: [
+    CdkDropListGroup,
+    BoardColumn,
+    ArchivedColumn,
+    EmptyState,
+    Skeleton,
+    MatButton,
+    MatIcon,
+    TaskFilterBar,
+  ],
   templateUrl: './board-page.html',
   styleUrl: './board-page.scss',
 })
 export class BoardPage {
   protected readonly store = inject(BoardStore);
+  protected readonly archived = inject(ArchivedStore);
   private readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -81,6 +97,7 @@ export class BoardPage {
   private readonly snackbar = inject(Snackbar);
   private readonly announcer = inject(LiveAnnouncer);
   private readonly confirmation = inject(Confirmation);
+  private readonly questions = inject(MoveQuestions);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -106,6 +123,19 @@ export class BoardPage {
     this.store.members().filter((member) => member.isActive),
   );
   protected readonly lifted = signal<Lifted | null>(null);
+  /** Where În lucru is on the board: a task there or after it has started (docs/SPEC.md §4.4). */
+  private readonly inProgressPosition = computed(
+    () => this.store.columns().find((column) => column.kind === 'InProgress')?.position ?? 0,
+  );
+  protected readonly startedColumnIds = computed<ReadonlySet<string>>(
+    () =>
+      new Set(
+        this.store
+          .columns()
+          .filter((column) => column.position >= this.inProgressPosition())
+          .map((column) => column.id),
+      ),
+  );
   protected readonly addingColumn = signal(false);
   private readonly newColumn = viewChild<ElementRef<HTMLInputElement>>('newColumn');
 
@@ -156,6 +186,15 @@ export class BoardPage {
         });
       }
     });
+    // Arhivate, for tasks.archive: its cards are read with the board's.
+    effect(() => {
+      const projectId = this.projectId();
+      if (projectId !== '' && this.store.canSeeArchived()) {
+        untracked(() => {
+          this.archived.show(projectId);
+        });
+      }
+    });
     // The name field takes the focus as it opens.
     effect(() => {
       this.newColumn()?.nativeElement.focus();
@@ -168,6 +207,9 @@ export class BoardPage {
         seen = version;
         untracked(() => {
           this.store.reload();
+          if (this.store.canSeeArchived()) {
+            void this.archived.read();
+          }
         });
       }
     });
@@ -189,7 +231,7 @@ export class BoardPage {
     this.filter(NO_TASK_FILTERS);
   }
 
-  protected open(task: BoardTaskDto): void {
+  protected open(task: Pick<BoardTaskDto, 'key'>): void {
     if (!this.lifted()) {
       void openTaskPanel(this.router, task.key);
     }
@@ -200,8 +242,28 @@ export class BoardPage {
    * API wants the place among all the column's cards, which the filters may hide some of.
    */
   protected dropped(event: CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>): void {
+    // Arhivate (docs/UI_UX_SPEC.md §7.4): a card of the board let go there is archived, after a question;
+    // one of its cards let go anywhere on the board goes back to its own column.
+    const fromArchived = event.previousContainer.data.id === ARCHIVED_COLUMN.id;
+    if (event.container.data.id === ARCHIVED_COLUMN.id) {
+      if (!fromArchived) {
+        void this.archive(event.item.data);
+      }
+      return;
+    }
+    if (fromArchived) {
+      void this.restore(event.item.data as unknown as ArchivedTaskDto);
+      return;
+    }
     const task = event.item.data;
     const column = event.container.data;
+    // A column before În lucru keeps a started card out, so the CDK hands it back to where it was:
+    // let go over such a column, it says why (docs/UI_UX_SPEC.md §7.4).
+    const under = event.isPointerOverContainer ? null : this.columnUnder(event.dropPoint);
+    if (this.goesBack(task, under ?? column)) {
+      this.snackbar.show(NO_GOING_BACK());
+      return;
+    }
     if (event.previousContainer === event.container && event.previousIndex === event.currentIndex) {
       return;
     }
@@ -209,6 +271,7 @@ export class BoardPage {
       task.id,
       column.id,
       this.placeFor(task.id, column.id, event.currentIndex),
+      this.questionsFor(task, column),
     );
   }
 
@@ -253,9 +316,22 @@ export class BoardPage {
     }
   }
 
-  /** Only an empty column, the hidden cards counting, and not the last one (docs/UI_UX_SPEC.md §7.4). */
+  /** Only an empty column of the project's own, the hidden cards counting (docs/UI_UX_SPEC.md §7.4). */
   protected canDelete(column: BoardColumnDto): boolean {
-    return this.store.columns().length > 1 && this.store.cardsIn(column.id).length === 0;
+    return column.kind === 'Custom' && this.store.cardsIn(column.id).length === 0;
+  }
+
+  /** A column of the project's own moves only between Backlog, always first, and Gata, always last. */
+  protected canMoveLeft(column: BoardColumnDto): boolean {
+    return column.kind === 'Custom' && column.position > 1;
+  }
+
+  protected canMoveRight(column: BoardColumnDto): boolean {
+    return column.kind === 'Custom' && column.position < this.store.columns().length - 2;
+  }
+
+  protected beforeInProgress(column: BoardColumnDto): boolean {
+    return column.position < this.inProgressPosition();
   }
 
   protected async addColumn(field: HTMLInputElement): Promise<void> {
@@ -273,16 +349,6 @@ export class BoardPage {
     void this.store.moveColumn(column, column.position + by);
   }
 
-  protected async markDone(column: BoardColumnDto, isDone: boolean): Promise<void> {
-    if (await this.store.markColumnDone(column, isDone)) {
-      this.snackbar.show(
-        isDone
-          ? $localize`«${column.name}:column:» e acum o coloană de task-uri terminate.`
-          : $localize`«${column.name}:column:» nu mai e o coloană de task-uri terminate.`,
-      );
-    }
-  }
-
   protected async deleteColumn(column: BoardColumnDto): Promise<void> {
     const sure = await this.confirmation.ask({
       title: $localize`Ștergi coloana «${column.name}:column:»?`,
@@ -293,6 +359,28 @@ export class BoardPage {
     });
     if (sure && (await this.store.deleteColumn(column))) {
       this.snackbar.show($localize`Coloana «${column.name}:column:» a fost ștearsă.`);
+    }
+  }
+
+  protected async archive(task: BoardTaskDto): Promise<void> {
+    const sure = await this.confirmation.ask({
+      title: $localize`Arhivezi task-ul «${task.title}:title:»?`,
+      message: $localize`Nu mai apare pe board și în listă, dar istoricul lui rămâne. Cine are permisiunea de arhivare îl poate restaura.`,
+      confirmLabel: $localize`Arhivează`,
+      icon: 'archive',
+      destructive: true,
+    });
+    if (sure && (await this.archived.archive(task.id))) {
+      this.store.reload();
+      this.snackbar.show($localize`Task-ul ${task.key}:key: a fost arhivat.`);
+    }
+  }
+
+  /** Back in its own column, wherever it was let go. */
+  protected async restore(card: ArchivedTaskDto): Promise<void> {
+    if (await this.archived.restore(card)) {
+      this.store.reload();
+      this.snackbar.show($localize`«${card.key}:key:» a revenit în «${card.columnName}:column:».`);
     }
   }
 
@@ -317,6 +405,12 @@ export class BoardPage {
     const order = this.store.columns();
     const from = order.findIndex((column) => column.id === lifted.columnId);
     const target = order[Math.max(0, Math.min(order.length - 1, from + columns))];
+    const task = this.store.board()?.tasks.find((found) => found.id === lifted.taskId);
+    // A started card stops at În lucru (docs/UI_UX_SPEC.md §7.4).
+    if (task && this.goesBack(task, target)) {
+      void this.announcer.announce(NO_GOING_BACK());
+      return;
+    }
     const others = this.othersIn(target.id, lifted.taskId).length;
     const index = Math.max(0, Math.min(others, lifted.index + places));
     this.lifted.set({ ...lifted, columnId: target.id, index });
@@ -333,16 +427,75 @@ export class BoardPage {
     }
     const count = this.othersIn(column.id, lifted.taskId).length + 1;
     const position = this.placeFor(lifted.taskId, column.id, lifted.index);
+    const task = this.store.board()?.tasks.find((found) => found.id === lifted.taskId);
+    const ask = task ? this.questionsFor(task, column) : undefined;
+    // Set from inside the question, which the compiler can't follow.
+    const asked = { gaveUp: false };
     this.lifted.set(null);
-    const moving = this.store.moveTask(lifted.taskId, column.id, position);
+    const moving = this.store.moveTask(
+      lifted.taskId,
+      column.id,
+      position,
+      ask &&
+        (async () => {
+          const answers = await ask();
+          asked.gaveUp = answers === null;
+          return answers;
+        }),
+    );
     this.store.release();
     const moved = await moving;
     void this.announcer.announce(
       moved
         ? $localize`Mutat în «${column.name}:column:», poziția ${lifted.index + 1}:place: din ${count}:count:`
-        : $localize`Mutarea nu s-a salvat: task-ul a revenit la locul lui.`,
+        : asked.gaveUp
+          ? $localize`Mutarea a fost anulată.`
+          : $localize`Mutarea nu s-a salvat: task-ul a revenit la locul lui.`,
     );
     this.focus(lifted.taskId);
+  }
+
+  /**
+   * What a move asks first (docs/UI_UX_SPEC.md §7.4): an estimate for a task entering În lucru without one,
+   * a reason for every task entering În pauză; nothing for any other move.
+   */
+  private questionsFor(
+    task: BoardTaskDto,
+    column: BoardColumnDto,
+  ): (() => Promise<MoveAnswers | null>) | undefined {
+    if (column.id === task.columnId) {
+      return undefined;
+    }
+    if (column.kind === 'InProgress' && task.estimatedMinutes === null) {
+      return async () => {
+        const minutes = await this.questions.estimate(task.key);
+        return minutes === null ? null : { estimatedMinutes: minutes };
+      };
+    }
+    if (column.kind === 'Paused') {
+      return async () => {
+        const reason = await this.questions.pauseReason(task.key);
+        return reason === null ? null : { pauseReason: reason };
+      };
+    }
+    return undefined;
+  }
+
+  /** A task in În lucru or after it, put in a column before it (docs/SPEC.md §4.4, Task.CannotMoveBack). */
+  private goesBack(task: BoardTaskDto, target: BoardColumnDto): boolean {
+    return this.startedColumnIds().has(task.columnId) && this.beforeInProgress(target);
+  }
+
+  /** The board's column under where a card was let go, if any. */
+  private columnUnder(point: { x: number; y: number } | undefined): BoardColumnDto | null {
+    if (!point || typeof document.elementFromPoint !== 'function') {
+      return null;
+    }
+    const id = document
+      .elementFromPoint(point.x, point.y)
+      ?.closest<HTMLElement>('kb-board-column')
+      ?.getAttribute('data-column-id');
+    return this.store.columns().find((column) => column.id === id) ?? null;
   }
 
   /** The place among all the column's cards for one put at shownIndex among the cards it shows. */

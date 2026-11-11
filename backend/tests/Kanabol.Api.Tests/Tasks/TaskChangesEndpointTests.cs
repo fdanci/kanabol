@@ -203,6 +203,8 @@ public sealed class TaskChangesEndpointTests(ApiFixture api) : ProjectApiTest(ap
         body.RootElement.GetProperty("pageSize").GetInt32().Should().Be(25);
         body.RootElement.GetProperty("items")[0].GetProperty("priority").GetString().Should().Be("Critical");
         body.RootElement.GetProperty("items")[0].GetProperty("assignees").GetArrayLength().Should().Be(2);
+        body.RootElement.GetProperty("items")[0].GetProperty("columnKind").GetString().Should().Be("Backlog");
+        body.RootElement.GetProperty("items")[0].TryGetProperty("columnIsDone", out _).Should().BeFalse();
     }
 
     [Theory]

@@ -145,7 +145,7 @@ public sealed class GetProjectsQueryHandlerTests(PostgresFixture postgres) : Pro
         var owner = await CreateUser();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         var todo = project.Columns.Single(column => column.Position == 0);
-        var done = project.Columns.Single(column => column.IsDone);
+        var done = project.Columns.Single(column => column.Kind == ColumnKind.Done);
         var archived = new TaskItemBuilder().InProject(project).InColumn(todo).DueAt(Now.AddDays(-1)).Build();
         await AddTasks(
             new TaskItemBuilder().InProject(project).InColumn(todo).Build(),
@@ -168,7 +168,7 @@ public sealed class GetProjectsQueryHandlerTests(PostgresFixture postgres) : Pro
     {
         var owner = await CreateUser();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var done = project.Columns.Single(column => column.IsDone);
+        var done = project.Columns.Single(column => column.Kind == ColumnKind.Done);
         var archived = new TaskItemBuilder().InProject(project).InColumn(done).Build();
         await AddTasks(
             new TaskItemBuilder().InProject(project).Build(),

@@ -13,4 +13,10 @@ public static class TaskHistoryFields
     public const string DueDate = nameof(TaskItem.DueDate);
     public const string ColumnId = nameof(TaskItem.ColumnId);
     public const string ArchivedAt = nameof(TaskItem.ArchivedAt);
+
+    /// <summary>The estimate's minutes, as text (group 22).</summary>
+    public const string EstimatedMinutes = nameof(TaskItem.EstimatedMinutes);
+
+    /// <summary>The reason a task entered În pauză with, written next to that move (group 22).</summary>
+    public const string PauseReason = nameof(TaskItem.PauseReason);
 }

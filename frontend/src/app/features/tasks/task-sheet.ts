@@ -1,11 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  linkedSignal,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { MatButton } from '@angular/material/button';
 import { MAT_DATE_LOCALE, MatOption, provideNativeDateAdapter } from '@angular/material/core';
@@ -35,7 +28,7 @@ import { TaskListStore } from './task-list-store';
 
 /**
  * A new task, in a 600px sheet with the labels on the left (docs/UI_UX_SPEC.md §6.0.4, §6.0.5): its
- * title, a description in basic markdown, the priority, the column it starts in, who it's for and a
+ * title, a description in basic markdown, the priority, Backlog, where it starts, who it's for and a
  * deadline. It closes with the task as the API saved it, its key among the rest.
  */
 @Component({
@@ -77,11 +70,6 @@ export class TaskSheet {
   protected readonly assigneeIds = signal<string[]>([]);
   protected readonly dueDay = signal<Date | null>(null);
 
-  protected readonly columns = computed(() =>
-    [...(this.store.project()?.columns ?? [])].sort((a, b) => a.position - b.position),
-  );
-  /** The board's first column, as a task starts there unless told otherwise. */
-  protected readonly columnId = linkedSignal(() => this.columns()[0]?.id ?? '');
   protected readonly assignees = computed(() =>
     this.store.members().filter((member) => member.isActive),
   );
@@ -120,7 +108,6 @@ export class TaskSheet {
         title: this.title.value().trim(),
         description: description.trim() === '' ? null : description,
         priority: this.priority(),
-        columnId: this.columnId() || null,
         assigneeIds: this.assigneeIds(),
         dueDate: day ? endOfDay(day) : null,
       });

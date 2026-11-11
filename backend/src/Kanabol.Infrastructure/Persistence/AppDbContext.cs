@@ -3,6 +3,7 @@ using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Common;
 using Kanabol.Domain.Notifications;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<TaskHistoryEntry> TaskHistoryEntries => Set<TaskHistoryEntry>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<WorkSchedule> WorkSchedules => Set<WorkSchedule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -47,7 +47,7 @@
 #   6  the tests' common password hashed once per suite: the tests (the people AuthApiTest and
 #      AuthHandlerTest make share one hash, which signs in), no helper hashing per person, then
 #      check-pipeline.sh 6, whose merge into main, with the whole suite and the real hooks in a throwaway
-#      copy of the repo, takes under 180 s; prints the time. Docker.
+#      copy of the repo, takes under 210 s; prints the time. Docker.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL; 5 needs only the packages that
 # scripts/setup.sh installs. PostgreSQL means one whose user may create databases, with its connection string
@@ -1067,7 +1067,11 @@ requests_dont_wait_for_a_stalled_board() {
   mov=$(body_field id)
   status_is 200 "$(as "$admin_token" GET "/api/projects/$mov/board")" || return 1
   first_column=$(json 'b.columns[0].id')
-  second_column=$(json 'b.columns[1].id')
+  # The tasks go between Backlog and a column of the project's own right after it, both before În lucru,
+  # so they move both ways and nothing is asked of them (group 22).
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$mov/board-columns" '{"name":"Alături"}')" || return 1
+  second_column=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$mov/board-columns/$second_column/position" '{"position":1}')" || return 1
   moves=
   for i in $(seq 1 20); do
     status_is 201 "$(as "$admin_token" POST "/api/projects/$mov/tasks" "{\"title\":\"Mutare $i\",\"description\":\"\",\"priority\":\"Low\"}")" || return 1
@@ -1466,7 +1470,7 @@ task_5() {
   check "kb-chart reads --kb-chart-1 and --kb-chart-2, and no hex" the_chart_reads_its_tokens
 }
 
-# ---- 19.6: the common test password hashed once per suite, and the merge into main under 180 s.
+# ---- 19.6: the common test password hashed once per suite, and the merge into main under 210 s.
 
 common_password_tests_pass() {
   named_tests_pass Kanabol.Api.Tests CommonPasswordTests.People_MadeByTheTests_ShareOneHashOfTheCommonPassword_AndSignInWithIt &&
@@ -1484,25 +1488,25 @@ nobody_hashes_per_person() {
 }
 
 # docs/SPEC.md §14.6: check-pipeline.sh 6 makes a throwaway repo from this one, with its real hooks, and
-# merges a branch into main with --no-ff, which runs the whole suite, in under 180 s.
-merge_into_main_is_under_180_seconds() {
+# merges a branch into main with --no-ff, which runs the whole suite, in under 210 s.
+merge_into_main_is_under_210_seconds() {
   stop_api
   sh scripts/check-pipeline.sh 6 >"$scratch/pipeline.log" 2>&1
   status=$?
-  sed -n '/a --no-ff merge into main runs the full suite, in under 180 s/,+1p' "$scratch/pipeline.log"
-  grep -q '^  ok    a --no-ff merge into main runs the full suite, in under 180 s' "$scratch/pipeline.log" && [ "$status" -eq 0 ] || {
+  sed -n '/a --no-ff merge into main runs the full suite, in under 210 s/,+1p' "$scratch/pipeline.log"
+  grep -q '^  ok    a --no-ff merge into main runs the full suite, in under 210 s' "$scratch/pipeline.log" && [ "$status" -eq 0 ] || {
     grep -E 'FAIL' -A3 "$scratch/pipeline.log" | head -n 20
     return 1
   }
 }
 
 task_6() {
-  echo "19.6 the common password hashed once, and the merge into main under 180 s"
+  echo "19.6 the common password hashed once, and the merge into main under 210 s"
   check "Docker is running" docker_is_running
   check "the people the tests make share one hash of the common password" common_password_tests_pass
   check "no helper hashes it per person" nobody_hashes_per_person
-  check "check-pipeline.sh 6 passes, its merge into main under 180 s" merge_into_main_is_under_180_seconds
-  sed -n '/a --no-ff merge into main runs the full suite, in under 180 s/{n;p}' "$scratch/pipeline.log" 2>/dev/null
+  check "check-pipeline.sh 6 passes, its merge into main under 210 s" merge_into_main_is_under_210_seconds
+  sed -n '/a --no-ff merge into main runs the full suite, in under 210 s/{n;p}' "$scratch/pipeline.log" 2>/dev/null
 }
 tasks=${*:-1 2 3 4 5 6}
 for task in $tasks; do

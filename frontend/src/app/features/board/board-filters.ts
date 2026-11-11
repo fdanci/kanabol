@@ -16,7 +16,9 @@ export function cardFilter(
   const assignee = filters.assignee === 'me' ? me : filters.assignee;
   const priorities = new Set(filters.priorities);
   const search = filters.search.trim().toLocaleLowerCase('ro-RO');
-  const done = new Set(columns.filter((column) => column.isDone).map((column) => column.id));
+  const done = new Set(
+    columns.filter((column) => column.kind === 'Done').map((column) => column.id),
+  );
   return (task) =>
     (assignee === null || task.assignees.some((person) => person.userId === assignee)) &&
     (priorities.size === 0 || priorities.has(task.priority)) &&

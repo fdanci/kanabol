@@ -55,20 +55,21 @@
       [attr.aria-label]="boardLabel"
       (keydown)="keyed($event)"
     >
-      @for (column of store.columns(); track column.id; let first = $first, last = $last) {
+      @for (column of store.columns(); track column.id) {
         <kb-board-column
           [column]="column"
           [cards]="cardsOf(column)"
           [pulses]="store.pulses()"
           [canMove]="store.canMove()"
-          [canCreate]="store.canCreate()"
+          [canCreate]="store.canCreate() && column.kind === 'Backlog'"
           [canManage]="store.canManage()"
           [canDelete]="canDelete(column)"
-          [first]="first"
-          [last]="last"
+          [canMoveLeft]="canMoveLeft(column)"
+          [canMoveRight]="canMoveRight(column)"
+          [beforeInProgress]="beforeInProgress(column)"
+          [startedColumnIds]="startedColumnIds()"
           (renamed)="renameColumn(column, $event)"
           (moved)="moveColumn(column, $event)"
-          (doneChanged)="markDone(column, $event)"
           (deleted)="deleteColumn(column)"
           [liftedId]="lifted()?.taskId ?? null"
           [keysHelpId]="keysHelpId"
@@ -107,6 +108,24 @@
             </button>
           }
         </div>
+      }
+      @if (store.canSeeArchived()) {
+        <kb-archived-column
+          [cards]="archived.cards()"
+          [total]="archived.total()"
+          [open]="archived.open()"
+          [state]="archived.state()"
+          [hasMore]="archived.hasMore()"
+          [loadingMore]="archived.loadingMore()"
+          [canArchive]="store.canMove()"
+          [canRestore]="!(store.board()?.isArchived ?? true)"
+          (toggled)="archived.toggle()"
+          (more)="archived.more()"
+          (retried)="archived.read()"
+          (opened)="open($event)"
+          (restored)="restore($event)"
+          (dropped)="dropped($event)"
+        />
       }
     </div>
   }

@@ -352,9 +352,10 @@ creates_kanabol() {
 }
 
 kanabol_has_its_board() {
-  is 'De făcut|0|False
-În lucru|1|False
-Gata|2|True' "$(in_db "SELECT name, position, is_done FROM board_columns WHERE project_id = '$kan_id' ORDER BY position")"
+  is 'Backlog|0|Backlog
+În lucru|1|InProgress
+În pauză|2|Paused
+Gata|3|Done' "$(in_db "SELECT name, position, kind FROM board_columns WHERE project_id = '$kan_id' ORDER BY position")"
 }
 
 kanabol_is_owned_by_its_creator() {
@@ -420,7 +421,7 @@ the_project_is_renamed_but_keeps_its_key() {
 
 archiving_keeps_the_row() {
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$kan_id")" || return 1
-  is "1|1|3" "$(in_db "SELECT count(*) FILTER (WHERE archived_at IS NOT NULL), (SELECT count(*) FROM project_members WHERE project_id = '$kan_id'), (SELECT count(*) FROM board_columns WHERE project_id = '$kan_id') FROM projects WHERE id = '$kan_id'")"
+  is "1|1|4" "$(in_db "SELECT count(*) FILTER (WHERE archived_at IS NOT NULL), (SELECT count(*) FROM project_members WHERE project_id = '$kan_id'), (SELECT count(*) FROM board_columns WHERE project_id = '$kan_id') FROM projects WHERE id = '$kan_id'")"
 }
 
 an_archived_project_opens_but_does_not_change() {
@@ -455,7 +456,7 @@ task_1() {
   check "the real API starts in Production, and the first admin gets past the forced change" admin_is_ready
   check "a user without permissions signs in" dan_is_ready
   check "a project is created, with its Location" creates_kanabol
-  check "its board has De făcut, În lucru and Gata, which is done" kanabol_has_its_board
+  check "its board has the four fixed columns, Backlog, În lucru, În pauză and Gata" kanabol_has_its_board
   check "its creator is its only owner, and numbers start at 1" kanabol_is_owned_by_its_creator
   check "a key in small letters is stored in capitals" a_small_key_is_stored_in_capitals
   check "a taken key is refused, whatever its case" a_taken_key_is_refused_whatever_its_case
@@ -535,7 +536,7 @@ archived_ones_only_when_asked() {
 
 tasks_are_counted() {
   todo=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND position = 0")
-  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND is_done")
+  done_column=$(in_db "SELECT id FROM board_columns WHERE project_id = '$LST_id' AND kind = 'Done'")
   in_db "INSERT INTO task_items (id, project_id, number, column_id, title, priority, position, due_date, created_at) VALUES
     (gen_random_uuid(), '$LST_id', 1, '$todo', 'Deschis', 'Medium', 0, NULL, now()),
     (gen_random_uuid(), '$LST_id', 2, '$todo', 'Intarziat', 'High', 1, now() - interval '1 day', now()),

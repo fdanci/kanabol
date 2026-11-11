@@ -81,5 +81,5 @@ public abstract class TaskHandlerTest(PostgresFixture postgres) : ProjectHandler
 
     protected static BoardColumn ColumnAt(Project project, int position) => project.Columns.Single(column => column.Position == position);
 
-    protected static BoardColumn DoneColumn(Project project) => project.Columns.Single(column => column.IsDone);
+    protected static BoardColumn DoneColumn(Project project) => project.Columns.Single(column => column.Kind == ColumnKind.Done);
 }

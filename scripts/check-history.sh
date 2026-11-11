@@ -428,17 +428,20 @@ ioana_is_a_member_again() {
     rm "$scratch/ioana-removed"
 }
 
-# A column "Temporar" holds a task, which moves to the first column; then the column goes. The move names
-# the first column, and nothing for the one deleted.
+# A column "Temporar", right after the first, gets a task, which moves back to the first column; then the
+# column goes. The moves name the first column, and nothing for the one deleted. Since group 22 a task
+# starts in Backlog, and goes back only from a column before În lucru.
 a_deleted_column_has_no_name() {
   team_is_ready || return 1
-  status_is 201 "$(as "$admin_token" POST "/api/projects/$his_id/board-columns" '{"name":"Temporar","isDone":false}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$his_id/board-columns" '{"name":"Temporar"}')" || return 1
   temporary=$(body_field id)
-  a_new_task 'Mutat' "\"columnId\":\"$temporary\"" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$his_id/board-columns/$temporary/position" '{"position":1}')" || return 1
+  a_new_task 'Mutat' || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$temporary\"}")" || return 1
   status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$first_column\"}")" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$his_id/board-columns/$temporary")" || return 1
   status_is 200 "$(history_as "$ioana_token" "$new_task")" || return 1
-  is "ColumnId:$temporary:$first_column" "$(json "b.items.map(e => [e.field, e.oldValue, e.newValue].join(':')).join('|')")" || return 1
+  is "ColumnId:$temporary:$first_column|ColumnId:$first_column:$temporary" "$(json "b.items.map(e => [e.field, e.oldValue, e.newValue].join(':')).join('|')")" || return 1
   is "true:null:$(in_db "SELECT name FROM board_columns WHERE id = '$first_column'")" \
     "$(json "[('$temporary' in b.items[0].names), String(b.items[0].names['$temporary']), b.items[0].names['$first_column']].join(':')")"
 }
@@ -863,7 +866,8 @@ entries_in_db() { # entries_in_db <task id>: how many rows its history has
 # Each method of TaskItem that changes it, through its endpoint on the real API, as the admin, who holds
 # tasks.archive: one entry each, from the newest, and the restore undoes the very moment archived.
 every_change_on_the_real_api_writes_its_entry() {
-  a_new_task 'Fiecare schimbare' || return 1
+  # With an estimate, so it enters În lucru without one and the move is one entry (group 22).
+  a_new_task 'Fiecare schimbare' '"estimatedMinutes":60' || return 1
   task=$new_task
   status_is 200 "$(as "$dan_token" PUT "/api/tasks/$task/title" '{"title":"Fiecare schimbare, redenumit"}')" || return 1
   status_is 200 "$(as "$dan_token" PUT "/api/tasks/$task/description" '{"description":"Cu **Azure AD**"}')" || return 1

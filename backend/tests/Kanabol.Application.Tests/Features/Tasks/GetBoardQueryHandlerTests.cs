@@ -4,6 +4,7 @@ using Kanabol.Application.Features.Tasks;
 using Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
 using Kanabol.Application.Features.Tasks.Queries.GetBoard;
 using Kanabol.Domain.Authorization;
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Kanabol.Tests.Shared.Builders;
 using Kanabol.Tests.Shared.Database;
@@ -32,7 +33,8 @@ public sealed class GetBoardQueryHandlerTests(PostgresFixture postgres) : TaskHa
         var board = (await Board(project.Id)).Value;
 
         board.Should().BeEquivalentTo(new { ProjectId = project.Id, ProjectKey = "BRD", IsArchived = false, CanMove = true, CanManage = true });
-        board.Columns.Select(column => (column.Name, column.Position, column.IsDone)).Should().Equal(("De făcut", 0, false), ("În lucru", 1, false), ("Gata", 2, true));
+        board.Columns.Select(column => (column.Name, column.Position, column.Kind)).Should().Equal(
+            ("Backlog", 0, ColumnKind.Backlog), ("În lucru", 1, ColumnKind.InProgress), ("În pauză", 2, ColumnKind.Paused), ("Gata", 3, ColumnKind.Done));
         board.Tasks.Select(task => (task.Key, task.Title, task.ColumnId, task.Position)).Should().Equal(
             ("BRD-1", "Primul", ColumnAt(project, 0).Id, 0),
             ("BRD-2", "Al doilea", ColumnAt(project, 0).Id, 1));

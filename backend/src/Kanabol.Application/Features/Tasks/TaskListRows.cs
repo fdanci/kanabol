@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using Kanabol.Application.Abstractions;
 using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
 
@@ -34,7 +35,7 @@ internal static class TaskListRows
         if (overdue)
         {
             tasks = tasks.Where(task => task.DueDate < now
-                && !db.BoardColumns.Any(column => column.Id == task.ColumnId && column.IsDone));
+                && !db.BoardColumns.Any(column => column.Id == task.ColumnId && column.Kind == ColumnKind.Done));
         }
 
         var text = search?.Trim().ToUpperInvariant();
@@ -95,7 +96,7 @@ internal static class TaskListRows
             ColumnId = column.Id,
             ColumnName = column.Name,
             ColumnPosition = column.Position,
-            ColumnIsDone = column.IsDone,
+            ColumnKind = column.Kind,
             Priority = task.Priority,
             PriorityRank = task.Priority == TaskPriority.Critical ? 3 : task.Priority == TaskPriority.High ? 2 : task.Priority == TaskPriority.Medium ? 1 : 0,
             DueDate = task.DueDate,
@@ -121,6 +122,10 @@ internal static class TaskListRows
             CompletedAt = task.CompletedAt,
             ArchivedAt = task.ArchivedAt,
             UpdatedAt = task.UpdatedAt ?? task.CreatedAt,
+            EstimatedMinutes = task.EstimatedMinutes,
+            WorkedSeconds = task.WorkedSeconds,
+            WorkStartedAt = task.WorkStartedAt,
+            PauseReason = task.PauseReason,
         };
 
     private static IOrderedQueryable<TaskListRow> First<TKey>(IQueryable<TaskListRow> rows, Expression<Func<TaskListRow, TKey>> key, bool descending) =>

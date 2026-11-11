@@ -23,6 +23,7 @@ public static class DependencyInjection
             .AddScoped<ProjectChanges>()
             .AddScoped<ArchivedTasksAccess>()
             .AddScoped<TaskChanges>()
+            .AddScoped<WorkedTime>()
             .AddScoped<TaskVisibility>()
             .AddScoped<ReportAccess>()
             .AddHandlersFrom(typeof(DependencyInjection).Assembly);

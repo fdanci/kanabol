@@ -11,6 +11,9 @@ public static class Permissions
     public const string TasksArchive = "tasks.archive";
     public const string ReportsView = "reports.view";
 
+    /// <summary>The general settings, the work schedule among them (group 22).</summary>
+    public const string SettingsManage = "settings.manage";
+
     public static IReadOnlyList<string> All { get; } =
     [
         UsersManage,
@@ -21,5 +24,6 @@ public static class Permissions
         TasksCreate,
         TasksArchive,
         ReportsView,
+        SettingsManage,
     ];
 }

@@ -90,7 +90,7 @@ export class DashboardPage {
   }
 
   protected done(task: DashboardTaskDto): boolean {
-    return task.columnIsDone || task.completedAt !== null;
+    return task.columnKind === 'Done' || task.completedAt !== null;
   }
 
   protected openTask(task: DashboardTaskDto): void {

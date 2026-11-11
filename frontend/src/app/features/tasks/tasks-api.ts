@@ -163,9 +163,22 @@ export class TasksApi {
     return this.api.put<TaskItemDto>(`/tasks/${id}/due-date`, { dueDate });
   }
 
-  /** Without a position the task goes last in the column. */
-  move(id: string, columnId: string, position?: number): Observable<TaskItemDto> {
-    return this.api.patch<TaskItemDto>(`/tasks/${id}/position`, { columnId, position });
+  /**
+   * Without a position the task goes last in the column. Into În lucru without an estimate, or into În pauză,
+   * with what the move asked for (docs/SPEC.md §4.4).
+   */
+  move(
+    id: string,
+    columnId: string,
+    position?: number,
+    answers: { estimatedMinutes?: number; pauseReason?: string } = {},
+  ): Observable<TaskItemDto> {
+    return this.api.patch<TaskItemDto>(`/tasks/${id}/position`, { columnId, position, ...answers });
+  }
+
+  /** Minutes, 15 to 60,000, or none, which only a task that hasn't started may have (docs/SPEC.md §4.4). */
+  estimate(id: string, estimatedMinutes: number | null): Observable<TaskItemDto> {
+    return this.api.put<TaskItemDto>(`/tasks/${id}/estimate`, { estimatedMinutes });
   }
 
   /** DELETE archives: nothing deletes a task (docs/SPEC.md §5.1). */

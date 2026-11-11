@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { HarnessLoader, TestKey } from '@angular/cdk/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { TestBed } from '@angular/core/testing';
+import { getDebugNode } from '@angular/core';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MatMenuHarness } from '@angular/material/menu/testing';
@@ -17,9 +18,21 @@ import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskItemDto } from './models';
 import { TaskPanelRoute } from './task-panel-route';
 import { CommentsApi } from './comments-api';
-import { aComment, aMember, aProject, aTask, anAttachment, anEntry, refused } from './task-testing';
+import {
+  PANEL_COLUMNS,
+  aComment,
+  aMember,
+  aProject,
+  aTask,
+  anAttachment,
+  anEntry,
+  refused,
+} from './task-testing';
 import { TasksApi } from './tasks-api';
 
+import { MoveQuestions } from '../../shared/move-questions';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatTabGroupHarness } from '@angular/material/tabs/testing';
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterOutlet],
@@ -36,6 +49,7 @@ describe('TaskPanel', () => {
   let comments: Record<string, ReturnType<typeof vi.fn>>;
   let confirmation: { ask: ReturnType<typeof vi.fn>; discardChanges: ReturnType<typeof vi.fn> };
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+  let questions: { estimate: ReturnType<typeof vi.fn>; pauseReason: ReturnType<typeof vi.fn> };
   const held = signal<string[]>([]);
   let harness: RouterTestingHarness;
   let overlay: HarnessLoader;
@@ -84,6 +98,11 @@ describe('TaskPanel', () => {
       discardChanges: vi.fn(() => Promise.resolve(true)),
     };
     snackbar = { show: vi.fn(), error: vi.fn() };
+    // The board's sheets (docs/UI_UX_SPEC.md §7.5) answer at once: an hour, or the reason.
+    questions = {
+      estimate: vi.fn(() => Promise.resolve(60)),
+      pauseReason: vi.fn(() => Promise.resolve('Aștept clientul')),
+    };
 
     TestBed.configureTestingModule({
       providers: [
@@ -102,6 +121,7 @@ describe('TaskPanel', () => {
         { provide: AuthStore, useValue: { has: (name: string) => held().includes(name) } },
         { provide: Confirmation, useValue: confirmation },
         { provide: Snackbar, useValue: snackbar },
+        { provide: MoveQuestions, useValue: questions },
         { provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } },
       ],
     });
@@ -244,7 +264,7 @@ describe('TaskPanel', () => {
     await (await select('kb-task-column')).clickOptions({ text: 'În lucru' });
 
     expect(api['prioritize']).toHaveBeenCalledWith('t1', 'High');
-    expect(api['move']).toHaveBeenCalledWith('t1', 'c2');
+    expect(api['move']).toHaveBeenCalledWith('t1', 'c2', undefined, { estimatedMinutes: 60 });
   });
 
   // docs/UI_UX_SPEC.md §7.5: the select shows the priority's chip, through mat-select-trigger, not
@@ -509,6 +529,164 @@ describe('TaskPanel', () => {
 
     expect(TestBed.inject(Router).url).toBe('/page(panel:task/KAN-1)?sort=title:asc');
     expect(panel()).not.toBeNull();
+  });
+  // docs/UI_UX_SPEC.md §7.5 (group 22): the estimate, the worked time, the pause's reason, and the moves' rules.
+  describe('the estimate, the worked time and the pause', () => {
+    function property(label: string): HTMLElement | undefined {
+      return [...panel().querySelectorAll<HTMLElement>('.property')].find(
+        (found) => found.querySelector('dt')?.textContent.trim() === label,
+      );
+    }
+
+    it('asks for an estimate before a task without one goes into În lucru, and moves with it', async () => {
+      await open();
+
+      await (await select('kb-task-column')).clickOptions({ text: 'În lucru' });
+
+      expect(questions.estimate).toHaveBeenCalledWith('KAN-1');
+      expect(api['move']).toHaveBeenCalledWith('t1', 'c2', undefined, { estimatedMinutes: 60 });
+    });
+
+    it('puts the select back, asking the API nothing, when the estimate is turned down', async () => {
+      questions.estimate.mockReturnValue(Promise.resolve(null));
+      await open();
+
+      await (await select('kb-task-column')).clickOptions({ text: 'În lucru' });
+      await settle();
+
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(await (await select('kb-task-column')).getValueText()).toBe('De făcut');
+    });
+
+    it('asks why before a pause, and shows the reason under Stare', async () => {
+      api['project'].mockReturnValue(of({ ...aProject(), columns: PANEL_COLUMNS }));
+      api['move'] = answer({
+        columnId: 'c4',
+        columnName: 'În pauză',
+        pauseReason: 'Aștept răspunsul clientului',
+      });
+      await open();
+
+      await (await select('kb-task-column')).clickOptions({ text: 'În pauză' });
+      await settle();
+
+      expect(questions.pauseReason).toHaveBeenCalledWith('KAN-1');
+      expect(api['move']).toHaveBeenCalledWith('t1', 'c4', undefined, {
+        pauseReason: 'Aștept clientul',
+      });
+      expect(property('Motivul pauzei')?.querySelector('dd')?.textContent.trim()).toBe(
+        'Aștept răspunsul clientului',
+      );
+    });
+
+    it('turns off the columns before În lucru for a started task', async () => {
+      task = { ...task, columnId: 'c2', columnName: 'În lucru', estimatedMinutes: 60 };
+      await open();
+
+      const column = await select('kb-task-column');
+      await column.open();
+      const options = await column.getOptions();
+      const states = await Promise.all(
+        options.map(
+          async (option) => `${await option.getText()} ${String(await option.isDisabled())}`,
+        ),
+      );
+
+      expect(states).toEqual(['De făcut true', 'În lucru false', 'Gata false']);
+    });
+
+    it('edits the estimate in place: Enter saves it in minutes, with a comma', async () => {
+      api['estimate'] = vi.fn((_id: string, estimatedMinutes: number | null) =>
+        answer({ estimatedMinutes })(),
+      );
+      await open();
+      const estimate = property('Estimare')!;
+      expect(visibleText(estimate.querySelector('dd')!)).toBe('Fără estimare');
+
+      estimate.querySelector<HTMLButtonElement>('.value-button')!.click();
+      await settle();
+      const field = estimate.querySelector<HTMLInputElement>('.estimate-field')!;
+      expect(document.activeElement).toBe(field);
+      field.value = '1,5';
+      field.dispatchEvent(new Event('input'));
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await settle();
+
+      expect(api['estimate']).toHaveBeenCalledWith('t1', 90);
+      expect(visibleText(estimate.querySelector('dd')!)).toBe('1 h 30 min');
+    });
+
+    it('refuses an estimate out of limits under its field, and Esc goes back without closing', async () => {
+      api['estimate'] = vi.fn();
+      await open();
+      const estimate = property('Estimare')!;
+      estimate.querySelector<HTMLButtonElement>('.value-button')!.click();
+      await settle();
+      const field = estimate.querySelector<HTMLInputElement>('.estimate-field')!;
+
+      field.value = '1001';
+      field.dispatchEvent(new Event('input'));
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await settle();
+      expect(estimate.querySelector('.kb-field-error')?.textContent.trim()).toBe(
+        'Între 0,25 și 1000 de ore.',
+      );
+
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+      expect(api['estimate']).not.toHaveBeenCalled();
+      expect(estimate.querySelector('.estimate-field')).toBeNull();
+      expect(panel()).not.toBeNull();
+    });
+
+    it('shows the time worked, counting now in În lucru, against the estimate, danger once over', async () => {
+      task = {
+        ...task,
+        columnId: 'c2',
+        columnName: 'În lucru',
+        estimatedMinutes: 120,
+        workedSeconds: 3 * 3600 + 600,
+        isWorking: true,
+      };
+      await open();
+      const worked = property('Timp lucrat')!;
+
+      expect(
+        worked.querySelector('.worked-time')!.textContent.replace('play_circle', '').trim(),
+      ).toBe('3 h 10 min');
+      const counting = worked.querySelector('.working')!;
+      expect(counting.textContent.trim()).toBe('play_circle');
+      expect(counting.getAttribute('role')).toBe('img');
+      expect(getDebugNode(counting)!.injector.get(MatTooltip).message).toBe(
+        'Se numără acum, în programul de lucru.',
+      );
+      const estimate = worked.querySelector('.of-estimate')!;
+      expect(estimate.textContent.trim()).toBe('din 2 h estimate');
+      expect(estimate.classList).toContain('over');
+    });
+
+    it('shows the time worked without the counting icon or the estimate when neither applies', async () => {
+      await open();
+      const worked = property('Timp lucrat')!;
+
+      expect(visibleText(worked.querySelector('.worked-time')!)).toBe('0 min');
+      expect(worked.querySelector('.working')).toBeNull();
+      expect(worked.querySelector('.of-estimate')).toBeNull();
+    });
+
+    it('reads the task again for its files from Reîncarcă on Atașamente', async () => {
+      await open();
+      const tabs = await overlay.getHarness(MatTabGroupHarness);
+      await tabs.selectTab({ label: 'Atașamente' });
+      await settle();
+
+      panel()
+        .querySelector<HTMLButtonElement>('kb-task-attachments kb-refresh-button button')!
+        .click();
+      await settle();
+
+      expect(api['byKey']).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

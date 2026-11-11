@@ -686,7 +686,8 @@ changes_are_heard() {
   [ -n "${second_column:-}" ] && return 0
   status_is 200 "$(as "$admin_token" GET "/api/projects/$rt_id/board-columns")" || return 1
   column=$(json "b[1].id")
-  status_is 201 "$(as "$admin_token" POST "/api/projects/$rt_id/tasks" '{"title":"Primul","priority":"Low"}')" || return 1
+  # With its estimate, so it enters În lucru below without one, and the boards hear only the move (group 22).
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$rt_id/tasks" '{"title":"Primul","priority":"Low","estimatedMinutes":60}')" || return 1
   first_task=$(body_field id)
   hub "[
     {\"connect\":\"admin\",\"token\":\"$admin_token\"},{\"join\":\"admin\",\"project\":\"$rt_id\"},

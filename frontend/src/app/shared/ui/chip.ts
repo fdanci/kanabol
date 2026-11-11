@@ -14,7 +14,8 @@ export type ChipKind =
   | 'deadline-overdue'
   | 'inactive'
   | 'locked'
-  | 'password-change';
+  | 'password-change'
+  | 'over';
 
 /** Priority and deadline carry an icon, so color isn't their only sign (docs/UI_UX_SPEC.md §9). */
 const ICONS: Partial<Record<ChipKind, string>> = {
@@ -85,7 +86,8 @@ const ICONS: Partial<Record<ChipKind, string>> = {
     }
 
     :host(.critical),
-    :host(.deadline-overdue) {
+    :host(.deadline-overdue),
+    :host(.over) {
       --_bg: var(--kb-danger-bg);
       --_fg: var(--kb-danger-600);
     }

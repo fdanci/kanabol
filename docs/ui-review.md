@@ -24,6 +24,8 @@ Fiecare ecran din `docs/UI_UX_SPEC.md` §7, în light și în dark, verificat cu
 | 7.6   | Meniul clopoțelului și pagina Notificări | `7.6-notificari-meniu-*.png`, `7.6-notificari-*.png`                            |
 | 7.7   | Utilizatori și Roluri                    | `7.7-utilizatori-*.png`, `7.7-roluri-*.png`                                     |
 | 7.8   | Rapoarte                                 | `7.8-rapoarte-*.png`                                                            |
+| 7.8   | Rapoarte: „Estimare și timp lucrat” (22) | `7.8-rapoarte-estimare-*.png`                                                   |
+| 7.9   | Setări generale (grupul 22)              | `7.9-setari-generale-*.png`                                                     |
 
 ## Ce a găsit axe-core, înainte de reparații
 
@@ -97,3 +99,36 @@ Măsurat în Edge headless, pe panoul principal, cu API-ul încetinit la 3 s, ca
 | Câmpuri, `kb-filter-chip`         | 120 ms                          | 0 s                                    |
 
 În Browser pane, cu `reduce`, niciun element din cele 16 ecrane nu mai are o tranziție, și nicio animație nu rulează după încărcare. Board-ul nu alunecă și nu pulsează sub `reduce` (`board-page.ts`, grupul 14), iar Material își oprește singur animațiile.
+
+## Grupul 22: coloanele fixe, estimarea, timpul lucrat și setările generale
+
+Făcută pe 2026-11-11, pe `feature/fixed-columns`, după task-urile de frontend ale grupului.
+
+- **Datele**: `scripts/demo-data.sh` de acum (11 task-uri cu estimare, PORT-3 pe pauză cu motivul ei, PORT-9 în „În review”) pe un API local în Production, pe o bază proprie, cu verificarea întârziatelor la un minut, ca în 19b; aplicația din `ng serve`, cu proxy spre el. Datele s-au făcut noaptea, în afara programului de lucru, deci timpul lucrat al task-urilor e 0; ca secțiunea „Estimare și timp lucrat” să aibă un rând, TER-6 a fost terminat cu programul pus pe toată ziua cât s-a mutat (36 de secunde lucrate), apoi programul a revenit la luni–vineri, 08:30–16:30.
+- **Capturile**: din Edge headless condus prin protocolul DevTools, la 1440×900, cu `prefers-reduced-motion: reduce` și `prefers-color-scheme` emulate, și cu `--lang=ro-RO`, ca orele din `<input type="time">` să fie pe 24 de ore, ca la un browser românesc. Toate refăcute, pentru că sidebar-ul adminului are acum „Setări generale”; două noi: `7.8-rapoarte-estimare` (pagina de rapoarte derulată la secțiunea nouă) și `7.9-setari-generale`.
+- **axe-core** 4.14, cu aceleași reguli ca în 19b, rulat pe fiecare captură, în ambele teme, și în Browser pane pe stările care nu sunt în capturi: sheet-urile de estimare și de pauză deschise, coloana „Arhivate” deschisă și strânsă, cu un card arhivat, panoul unui task pe pauză.
+
+| Ecranul                                       | Light                                                      | Dark        |
+| --------------------------------------------- | ---------------------------------------------------------- | ----------- |
+| Toate cele 18, în afara celor de mai jos      | 0 încălcări                                                | 0 încălcări |
+| 7.4 Board (`7.4-board`)                       | `label-content-name-mismatch` pe carduri, acceptat în §7.4 | la fel      |
+| 7.5 Panoul task-ului, 7.6 meniul clopoțelului | `region` pe overlay-ul Material, acceptat în §6.0.5        | la fel      |
+| 7.9 Setări generale (`7.9-setari-generale`)   | `label-content-name-mismatch` pe „Ma” și „Mi”, în Blocked  | la fel      |
+| Sheet-urile de estimare și de pauză           | `region` pe overlay, acceptat în §6.0.5                    | la fel      |
+| „Arhivate”, deschisă și strânsă               | doar numele cardurilor, ca pe board                        | la fel      |
+
+Contrastul măsurat în Browser pane, pe fundalul coloanei (`color-mix(navy-900 4%, surface-50)`, #ebeff9 light, #181f32 dark), și din `_tokens.scss` de `check-columns.sh` 5, fără token-uri noi:
+
+| Coloana  | Bara și iconița    | Light  | Dark   |
+| -------- | ------------------ | ------ | ------ |
+| Backlog  | `--kb-text-500`    | 4,37:1 | 5,27:1 |
+| În lucru | `--kb-accent-600`  | 4,73:1 | 5,53:1 |
+| În pauză | `--kb-warning-600` | 4,73:1 | 9,84:1 |
+| Gata     | `--kb-success-600` | 4,74:1 | 9,43:1 |
+| Arhivate | `--kb-text-600`    | 4,86:1 | 6,74:1 |
+
+Rândul cu motivul pauzei de pe card: textul (`text-600`) 5,57:1 light și 6,71:1 dark, iconița (`warning-600`) 5,43:1 și 9,80:1, pe card.
+
+Găsite și reparate tot atunci, din capturi: rândul de jos al cardului ieșea din card când avea deadline, timpul lucrat și numerele (oamenii erau împinși afară), acum trece pe al doilea rând, cu oamenii tot la dreapta; „Fus orar” se repeta pe rândul lui din pagina de setări; `ArchivedTaskDto` trimitea prioritatea ca număr (cardul arhivat nu se desena), reparat în commit-ul task-ului din backend.
+
+Mișcarea: singura animație nouă e iconița care se rotește pe „Reîncarcă” cât citește, oprită sub `prefers-reduced-motion: reduce`; în rest, regula din `styles.scss` duce orice tranziție la 0 ms, iar banda „Arhivate” se deschide fără tranziție.

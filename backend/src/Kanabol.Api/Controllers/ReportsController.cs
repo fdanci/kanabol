@@ -4,6 +4,7 @@ using Kanabol.Application.Features.Reports;
 using Kanabol.Application.Features.Reports.Queries.GetCompletedReport;
 using Kanabol.Application.Features.Reports.Queries.GetCycleTimeReport;
 using Kanabol.Application.Features.Reports.Queries.GetDeadlinesReport;
+using Kanabol.Application.Features.Reports.Queries.GetWorkTimeReport;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Kanabol.Api.Controllers;
@@ -51,4 +52,15 @@ public sealed class ReportsController : ControllerBase
         [FromQuery] Guid? userId = null,
         [FromQuery] ReportGranularity granularity = ReportGranularity.Week) =>
         (await handler.Handle(new GetDeadlinesReportQuery(from, to, projectId, userId, granularity), ct)).ToActionResult();
+
+    /// <summary>The estimate against the worked time of the tasks finished in the interval (SPEC section 5.1.1, group 22).</summary>
+    [HttpGet("work-time")]
+    public async Task<IActionResult> GetWorkTimeReport(
+        [FromServices] IQueryHandler<GetWorkTimeReportQuery, WorkTimeReportDto> handler,
+        CancellationToken ct,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
+        [FromQuery] Guid? projectId = null,
+        [FromQuery] Guid? userId = null) =>
+        (await handler.Handle(new GetWorkTimeReportQuery(from, to, projectId, userId), ct)).ToActionResult();
 }

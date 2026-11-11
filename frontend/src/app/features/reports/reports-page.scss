@@ -127,6 +127,46 @@ table {
   color: var(--kb-text-500);
 }
 
+// Estimare și timp lucrat (UI spec 7.8): the schedule under the title, and the tasks past their estimate.
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note {
+  margin: 0;
+  color: var(--kb-text-600);
+}
+
+.over-title {
+  margin: 0;
+}
+
+.task-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--kb-accent-600);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: var(--kb-radius-sm);
+    box-shadow: var(--kb-focus-ring);
+  }
+
+  .key {
+    margin: 0 var(--kb-space-1) 0 0;
+  }
+}
+
 @media (max-width: 959px) {
   .tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));

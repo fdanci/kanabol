@@ -8,9 +8,9 @@ using Microsoft.Extensions.Logging;
 namespace Kanabol.Application.Features.Projects.Commands.DeleteBoardColumn;
 
 /// <summary>
-/// Only an empty column goes, archived tasks counting, and never the last one (UI spec section 7.4). A task
-/// moved into the column after the check reaches the database first, whose foreign key then refuses the
-/// delete, which answers the same 409 Column.NotEmpty.
+/// Only an empty column of the project's own goes, archived tasks counting; the fixed ones never (409
+/// Column.Fixed, SPEC section 4.4). A task moved into the column after the check reaches the database first,
+/// whose foreign key then refuses the delete, which answers the same 409 Column.NotEmpty.
 /// </summary>
 public sealed class DeleteBoardColumnCommandHandler(
     IAppDbContext db,
@@ -31,10 +31,10 @@ public sealed class DeleteBoardColumnCommandHandler(
         {
             case ColumnChange.NotFound:
                 return ColumnErrors.NotFound;
+            case ColumnChange.Fixed:
+                return ColumnErrors.Fixed;
             case ColumnChange.NotEmpty:
                 return ColumnErrors.NotEmpty;
-            case ColumnChange.LastColumn:
-                return ColumnErrors.LastColumn;
         }
 
         try

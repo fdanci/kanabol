@@ -1,3 +1,4 @@
 namespace Kanabol.Api.Controllers;
 
-public sealed record UpdateBoardColumnRequest(string Name, bool IsDone);
+/// <summary>Another name for a column of the project's own; the kind never changes.</summary>
+public sealed record UpdateBoardColumnRequest(string Name);

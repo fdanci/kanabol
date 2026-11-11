@@ -151,6 +151,50 @@ describe('TaskTimeline', () => {
     expect(text(fixture.nativeElement as HTMLElement)).not.toContain('Veche');
   });
 
+  // docs/UI_UX_SPEC.md §7.5 (group 22): a first estimate, a change of it, and a pause with its reason.
+  it('writes a first estimate, a change of it and a pause with its reason', async () => {
+    api.history.mockReturnValueOnce(
+      of(
+        pageOf([
+          anEntry({ id: 'h3', field: 'PauseReason', newValue: 'Aștept răspunsul clientului' }),
+          anEntry({ id: 'h2', field: 'EstimatedMinutes', oldValue: '240', newValue: '360' }),
+          anEntry({ id: 'h1', field: 'EstimatedMinutes', newValue: '240' }),
+        ]),
+      ),
+    );
+
+    await shown();
+
+    expect(entries().map((entry) => text(entry.querySelector('.what')!))).toEqual([
+      'a pus task-ul pe pauză: «Aștept răspunsul clientului»',
+      'a schimbat Estimarea: 4 h → 6 h',
+      'a estimat task-ul la 4 h',
+    ]);
+  });
+
+  it('reads the history again from Reîncarcă, the button off and turning while it reads', async () => {
+    await shown();
+    const answer = new Subject<Page<TaskHistoryEntryDto>>();
+    api.history.mockReturnValueOnce(answer);
+    const refresh = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      'kb-refresh-button button',
+    )!;
+    expect(refresh.getAttribute('aria-label')).toBe('Reîncarcă');
+
+    refresh.click();
+    await settle();
+    expect(api.history).toHaveBeenCalledTimes(2);
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.classList).toContain('turning');
+    expect(entries()).toHaveLength(2);
+
+    answer.next(pageOf([anEntry({ id: 'h9' })]));
+    answer.complete();
+    await settle();
+    expect(refresh.disabled).toBe(false);
+    expect(entries()).toHaveLength(1);
+  });
+
   it('loads 50 more with "Încarcă mai multe", only while there are more', async () => {
     const first = Array.from({ length: 50 }, (_, index) =>
       anEntry({ id: `h${String(51 - index)}`, newValue: `Titlul ${String(51 - index)}` }),

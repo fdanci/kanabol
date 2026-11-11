@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Kanabol.Domain.Projects;
 using Kanabol.Domain.Tasks;
 
 namespace Kanabol.Application.Features.Tasks;
@@ -17,10 +18,14 @@ public sealed record MyTaskDto(
     string Title,
     Guid ColumnId,
     string ColumnName,
-    bool ColumnIsDone,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<ColumnKind>))] ColumnKind ColumnKind,
     [property: JsonConverter(typeof(JsonStringEnumConverter<TaskPriority>))] TaskPriority Priority,
     DateTimeOffset? DueDate,
     IReadOnlyList<TaskPersonDto> Assignees,
     DateTimeOffset? CompletedAt,
     DateTimeOffset? ArchivedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int? EstimatedMinutes,
+    long WorkedSeconds,
+    bool IsWorking,
+    string? PauseReason);

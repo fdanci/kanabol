@@ -18,7 +18,14 @@ export interface TaskMovedMessage extends TaskMessage {
 
 /** Attachments: a file attached to the task or taken off it, for the count on its card. */
 export interface TaskUpdatedMessage extends TaskMessage {
-  field: 'Title' | 'Description' | 'Priority' | 'DueDate' | 'Assignees' | 'Attachments';
+  field:
+    | 'Title'
+    | 'Description'
+    | 'Priority'
+    | 'DueDate'
+    | 'EstimatedMinutes'
+    | 'Assignees'
+    | 'Attachments';
 }
 
 /** A comment on the task, for the count on its card: an open panel doesn't listen in v1. */

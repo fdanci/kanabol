@@ -169,7 +169,7 @@ describe('RolesPage', () => {
     const titles = [...element.querySelectorAll('legend')].map((legend) =>
       legend.textContent.trim(),
     );
-    expect(titles).toEqual(['Utilizatori', 'Proiecte', 'Task-uri', 'Rapoarte']);
+    expect(titles).toEqual(['Utilizatori', 'Proiecte', 'Task-uri', 'Rapoarte', 'Setări']);
     const boxes = await loader.getAllHarnesses(MatCheckboxHarness);
     expect(boxes).toHaveLength(ALL.length);
   });

@@ -14,7 +14,8 @@ public sealed class GetTaskByKeyQueryHandler(
     IAppDbContext db,
     ICurrentUser currentUser,
     IProjectAccess projectAccess,
-    ArchivedTasksAccess archivedTasks) : IQueryHandler<GetTaskByKeyQuery, TaskItemDto>
+    ArchivedTasksAccess archivedTasks,
+    WorkedTime workedTime) : IQueryHandler<GetTaskByKeyQuery, TaskItemDto>
 {
     public async Task<Result<TaskItemDto>> Handle(GetTaskByKeyQuery query, CancellationToken ct)
     {
@@ -46,6 +47,6 @@ public sealed class GetTaskByKeyQueryHandler(
             return access.Error;
         }
 
-        return (await db.ReadTask(found.Id, currentUser, query.IncludeArchived, ct))!;
+        return (await db.ReadTask(found.Id, currentUser, query.IncludeArchived, workedTime, ct))!;
     }
 }

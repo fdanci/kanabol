@@ -1,7 +1,18 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiClient } from '../../core/api/api-client';
-import { BoardColumnDto, BoardDto, BoardMemberDto, CreatedTaskDto } from './models';
+import { Page } from '../../shared/models/page';
+import {
+  ArchivedTaskDto,
+  BoardColumnDto,
+  BoardDto,
+  BoardMemberDto,
+  CreatedTaskDto,
+  MoveAnswers,
+} from './models';
+
+/** The archived cards come 50 at a time (docs/UI_UX_SPEC.md §7.4). */
+export const ARCHIVED_PAGE_SIZE = 50;
 
 /**
  * The board of a project (docs/UI_UX_SPEC.md §7.4, docs/SPEC.md §6.3). Moving a card needs a real
@@ -15,30 +26,49 @@ export class BoardApi {
     return this.api.get<BoardDto>(`/projects/${projectId}/board`);
   }
 
+  /** The column Arhivate, from the latest archiving, for tasks.archive (docs/SPEC.md §4.4). */
+  archived(projectId: string, page: number): Observable<Page<ArchivedTaskDto>> {
+    return this.api.get<Page<ArchivedTaskDto>>(`/projects/${projectId}/board/archived`, {
+      params: { page, pageSize: ARCHIVED_PAGE_SIZE },
+    });
+  }
+
+  /** DELETE archives: any real member may (docs/SPEC.md §5.1). */
+  archive(taskId: string): Observable<void> {
+    return this.api.delete(`/tasks/${taskId}`);
+  }
+
+  /** Back in its own column, for tasks.archive. */
+  restore(taskId: string): Observable<unknown> {
+    return this.api.post<unknown>(`/tasks/${taskId}/restore`);
+  }
+
   members(projectId: string): Observable<BoardMemberDto[]> {
     return this.api.get<BoardMemberDto[]>(`/projects/${projectId}/members`);
   }
 
-  /** To a place from 0 in the column; the API moves the others up or down. */
-  move(taskId: string, columnId: string, position: number): Observable<unknown> {
-    return this.api.patch<unknown>(`/tasks/${taskId}/position`, { columnId, position });
-  }
-
-  /** At the right end of the board. The columns change for owners and projects.manage only. */
-  addColumn(projectId: string, name: string, isDone: boolean): Observable<BoardColumnDto> {
-    return this.api.post<BoardColumnDto>(`/projects/${projectId}/board-columns`, { name, isDone });
-  }
-
-  /** Turning a column done completes the open tasks in it, and back opens them (docs/SPEC.md §5.1). */
-  updateColumn(
-    projectId: string,
+  /**
+   * To a place from 0 in the column; the API moves the others up or down. Into În lucru without an estimate,
+   * or into În pauză, with what the move asked for (docs/SPEC.md §4.4).
+   */
+  move(
+    taskId: string,
     columnId: string,
-    name: string,
-    isDone: boolean,
-  ): Observable<BoardColumnDto> {
+    position: number,
+    answers: MoveAnswers = {},
+  ): Observable<unknown> {
+    return this.api.patch<unknown>(`/tasks/${taskId}/position`, { columnId, position, ...answers });
+  }
+
+  /** A column of the project's own. The columns change for owners and projects.manage only. */
+  addColumn(projectId: string, name: string): Observable<BoardColumnDto> {
+    return this.api.post<BoardColumnDto>(`/projects/${projectId}/board-columns`, { name });
+  }
+
+  /** Another name; the kind never changes (docs/SPEC.md §4.4). */
+  updateColumn(projectId: string, columnId: string, name: string): Observable<BoardColumnDto> {
     return this.api.put<BoardColumnDto>(`/projects/${projectId}/board-columns/${columnId}`, {
       name,
-      isDone,
     });
   }
 

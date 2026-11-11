@@ -101,7 +101,7 @@ record_count_is() {
 task_3() {
   echo "0.3 the decision notes from SPEC section 17, and the ones added later"
   TMPDIR_CHECK=$(mktemp -d)
-  check "docs/adr holds 17 records" record_count_is 17
+  check "docs/adr holds 19 records" record_count_is 19
   while IFS='|' read -r number slug name; do
     record="docs/adr/$number-$slug.md"
     check "$number is tracked" tracked "$record"
@@ -128,6 +128,8 @@ task_3() {
 0015|tls-cu-ca-proprie|TLS cu CA proprie
 0016|productivitate-fara-story-points|Productivitate fără story points
 0017|fluentassertions-7-2-2|FluentAssertions 7.2.2
+0018|coloane-fixe-pe-board|Coloane fixe pe board
+0019|timp-lucrat-in-programul-de-lucru|Timp lucrat în programul de lucru
 EOF
   if has_vault; then
     check "_Architecture.md's links resolve" links_resolve "$VAULT/_Architecture.md"

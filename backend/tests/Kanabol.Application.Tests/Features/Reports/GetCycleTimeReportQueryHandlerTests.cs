@@ -12,10 +12,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Kanabol.Application.Tests.Features.Reports;
 
 /// <summary>
-/// GET /api/reports/cycle-time (Tasks.md group 18; SPEC section 5.1.1): on the tasks the completed report
-/// counts, lead time from created_at to completed_at, cycle time from the first exit from the column at
-/// position 0, or from created_at for a task created elsewhere, each as an average and a median in whole
-/// seconds; and with a project, the time in each of its columns, from the ColumnId entries of the history.
+/// GET /api/reports/cycle-time (Tasks.md groups 18 and 22; SPEC section 5.1.1): on the tasks the completed
+/// report counts, lead time from created_at to completed_at, cycle time from the first entry into În lucru,
+/// or from created_at for a task that never entered it, each as an average and a median in whole seconds;
+/// and with a project, the time in each of its columns, from the ColumnId entries of the history.
 /// </summary>
 public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres) : ReportsHandlerTest(postgres)
 {
@@ -55,16 +55,46 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
         lead.Should().Be(new ReportDurationDto(AverageSeconds: 502_457, MedianSeconds: (5 * Day) + (2 * Hour)));
     }
 
-    // KAN-1 2 d, KAN-2 12 d (created in În lucru), KAN-3 2 d, KAN-7 1 d 14 h, WEB-1 5 d, WEB-2 0, OLD-1 3 d.
+    // KAN-1 2 d, KAN-2 12 d (created in În lucru), KAN-3 2 d, KAN-7 1 d 14 h, WEB-1 5 d, OLD-1 3 d, and WEB-2,
+    // from Backlog straight to Gata, never in În lucru: 1 d, from its creation.
     [Fact]
-    public async Task CycleTime_StartsAtTheFirstExitFromTheFirstColumn()
+    public async Task CycleTime_StartsAtTheFirstEntryIntoInProgress()
     {
         await FinishedWork();
 
         var cycle = (await CycleTime(From, To)).Value.CycleTime;
 
-        // 2,210,400 seconds over 7, and 2 days in the middle.
-        cycle.Should().Be(new ReportDurationDto(AverageSeconds: 315_771, MedianSeconds: 2 * Day));
+        // 2,296,800 seconds over 7, and 2 days in the middle.
+        cycle.Should().Be(new ReportDurationDto(AverageSeconds: 328_114, MedianSeconds: 2 * Day));
+    }
+
+    // Through a column of the project's own first, then În lucru, a pause and back: from the first entry into În lucru.
+    [Fact]
+    public async Task CycleTime_ThroughAColumnOfItsOwnAndAPause_StartsAtTheFirstEntryIntoInProgress()
+    {
+        var team = await FinishedWork();
+        var (ana, project) = await AProjectOfItsOwn(team, "ANA");
+        var analysis = project.AddColumn("Analiză");
+        await using (var db = Postgres.CreateContext())
+        {
+            db.BoardColumns.Add(analysis);
+            await db.SaveChangesAsync();
+        }
+
+        var inProgress = project.Columns.Single(column => column.Kind == ColumnKind.InProgress);
+        var paused = project.Columns.Single(column => column.Kind == ColumnKind.Paused);
+        var task = new TaskItemBuilder().InProject(project).CreatedBy(ana).WithTitle("Prin analiză").Build();
+        task.CreatedAt = October(5);
+        task.MoveTo(analysis, 0, ana.Id, October(6), hours: Hours);
+        task.MoveTo(inProgress, 0, ana.Id, October(8), hours: Hours);
+        task.MoveTo(paused, 0, ana.Id, October(9), "Aștept", Hours);
+        task.MoveTo(inProgress, 0, ana.Id, October(12), hours: Hours);
+        task.MoveTo(DoneColumn(project), 0, ana.Id, October(13), hours: Hours);
+        await AddTasks(project, task);
+
+        var report = (await CycleTime(From, To, project.Id)).Value;
+
+        (report.LeadTime.AverageSeconds, report.CycleTime.AverageSeconds).Should().Be((8 * Day, 5 * Day));
     }
 
     [Fact]
@@ -95,7 +125,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
 
         var report = (await CycleTime(From, To, team.Kan.Id)).Value;
 
-        PerColumn(report).Should().Be($"De făcut 291600/{(3 * Day) + (2 * Hour)}, În lucru 379800/{2 * Day}, Gata 0/0");
+        PerColumn(report).Should().Be($"Backlog 291600/{(3 * Day) + (2 * Hour)}, În lucru 379800/{2 * Day}, În pauză -/-, Gata 0/0");
         report.PerColumn!.Select(column => column.ColumnId).Should().Equal(team.Kan.Columns.OrderBy(column => column.Position).Select(column => column.Id));
     }
 
@@ -132,7 +162,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
         report.Count.Should().Be(0);
         report.LeadTime.Should().Be(new ReportDurationDto(null, null));
         report.CycleTime.Should().Be(new ReportDurationDto(null, null));
-        PerColumn(report).Should().Be("De făcut -/-, În lucru -/-, Gata -/-");
+        PerColumn(report).Should().Be("Backlog -/-, În lucru -/-, În pauză -/-, Gata -/-");
     }
 
     // Done on the 6th, back in În lucru on the 7th, done again on the 20th: it was finished on the 20th.
@@ -151,8 +181,8 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
 
         var report = (await CycleTime(From, To, project.Id)).Value;
 
-        (report.LeadTime.AverageSeconds, report.CycleTime.AverageSeconds).Should().Be((15 * Day, 14 * Day));
-        PerColumn(report).Should().Be($"De făcut {Day}/{Day}, În lucru {13 * Day}/{13 * Day}, Gata {Day}/{Day}");
+        (report.LeadTime.AverageSeconds, report.CycleTime.AverageSeconds).Should().Be((15 * Day, 13 * Day));
+        PerColumn(report).Should().Be($"Backlog {Day}/{Day}, În lucru {13 * Day}/{13 * Day}, În pauză -/-, Gata {Day}/{Day}");
     }
 
     [Fact]
@@ -160,7 +190,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
     {
         var team = await FinishedWork();
         var (ana, project) = await AProjectOfItsOwn(team, "REV");
-        var review = project.AddColumn("Review", isDone: false);
+        var review = project.AddColumn("Review");
         await using (var db = Postgres.CreateContext())
         {
             db.BoardColumns.Add(review);
@@ -180,8 +210,8 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
 
         var report = (await CycleTime(From, To, project.Id)).Value;
 
-        PerColumn(report).Should().Be($"De făcut {Day}/{Day}, În lucru -/-, Gata 0/0");
-        report.CycleTime.AverageSeconds.Should().Be(3 * Day);
+        PerColumn(report).Should().Be($"Backlog {Day}/{Day}, În lucru -/-, În pauză -/-, Gata 0/0");
+        report.CycleTime.AverageSeconds.Should().Be(4 * Day, "it never entered În lucru, so from its creation");
     }
 
     // A task finished without a move, as when its column became a done column: no exit, so from its creation.
@@ -200,7 +230,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
         var report = (await CycleTime(From, To, project.Id)).Value;
 
         (report.LeadTime.AverageSeconds, report.CycleTime.AverageSeconds).Should().Be((3 * Day, 3 * Day));
-        PerColumn(report).Should().Be($"De făcut {3 * Day}/{3 * Day}, În lucru -/-, Gata -/-");
+        PerColumn(report).Should().Be($"Backlog {3 * Day}/{3 * Day}, În lucru -/-, În pauză -/-, Gata -/-");
     }
 
     [Fact]

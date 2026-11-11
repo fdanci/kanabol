@@ -21,10 +21,14 @@ export function aTask(extra: Partial<TaskItemDto> = {}): TaskItemDto {
     description: null,
     priority: 'Medium',
     dueDate: null,
+    estimatedMinutes: null,
     assignees: [],
     columnId: 'c1',
     columnName: 'De făcut',
     position: 0,
+    pauseReason: null,
+    workedSeconds: 0,
+    isWorking: false,
     completedAt: null,
     archivedAt: null,
     createdAt: '2026-11-05T08:00:00Z',
@@ -76,6 +80,14 @@ export function anEntry(extra: Partial<TaskHistoryEntryDto> = {}): TaskHistoryEn
   };
 }
 
+/** The fixed columns of group 22, with În pauză: De făcut (Backlog), În lucru, În pauză and Gata. */
+export const PANEL_COLUMNS: TaskProjectDto['columns'] = [
+  { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
+  { id: 'c2', name: 'În lucru', position: 1, kind: 'InProgress' },
+  { id: 'c4', name: 'În pauză', position: 2, kind: 'Paused' },
+  { id: 'c3', name: 'Gata', position: 3, kind: 'Done' },
+];
+
 export function aProject(): TaskProjectDto {
   return {
     id: 'p1',
@@ -85,9 +97,9 @@ export function aProject(): TaskProjectDto {
     myRole: 'Owner',
     canManage: true,
     columns: [
-      { id: 'c3', name: 'Gata', position: 2, isDone: true },
-      { id: 'c1', name: 'De făcut', position: 0, isDone: false },
-      { id: 'c2', name: 'În lucru', position: 1, isDone: false },
+      { id: 'c3', name: 'Gata', position: 2, kind: 'Done' },
+      { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
+      { id: 'c2', name: 'În lucru', position: 1, kind: 'InProgress' },
     ],
   };
 }

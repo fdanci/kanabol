@@ -1,22 +1,14 @@
-using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Kanabol.Domain.Projects;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace Kanabol.Application.Features.Projects.Commands.UpdateBoardColumn;
 
 /// <summary>
-/// A column that becomes a done column completes the open tasks in it, now, and one that stops being one
-/// opens them again, as if they had just entered it (SPEC section 5.1). Those tasks are saved with their
-/// versions, so a task changed at the same moment makes this a 409 that changes nothing.
+/// Another name for a column of the project's own: the fixed ones keep theirs (409 Column.Fixed, SPEC
+/// section 4.4). Whether a task is finished comes from Gata, so a rename leaves the tasks alone.
 /// </summary>
-public sealed class UpdateBoardColumnCommandHandler(
-    IAppDbContext db,
-    ProjectChanges changes,
-    IClock clock,
-    ILogger<UpdateBoardColumnCommandHandler> logger) : ICommandHandler<UpdateBoardColumnCommand, BoardColumnDto>
+public sealed class UpdateBoardColumnCommandHandler(ProjectChanges changes) : ICommandHandler<UpdateBoardColumnCommand, BoardColumnDto>
 {
     public async Task<Result<BoardColumnDto>> Handle(UpdateBoardColumnCommand command, CancellationToken ct)
     {
@@ -27,36 +19,15 @@ public sealed class UpdateBoardColumnCommandHandler(
         }
 
         var project = loaded.Value;
-        if (project.RenameColumn(command.ColumnId, command.Name) == ColumnChange.NotFound)
+        switch (project.RenameColumn(command.ColumnId, command.Name))
         {
-            return ColumnErrors.NotFound;
-        }
-
-        var column = project.Columns.Single(found => found.Id == command.ColumnId);
-        var turned = column.IsDone != command.IsDone;
-        if (turned)
-        {
-            project.MarkColumnDone(column.Id, command.IsDone);
-            var now = clock.UtcNow;
-            var tasks = await db.TaskItems.Where(task => task.ColumnId == column.Id).ToListAsync(ct);
-            tasks.ForEach(task => task.FollowColumn(column, now));
+            case ColumnChange.NotFound:
+                return ColumnErrors.NotFound;
+            case ColumnChange.Fixed:
+                return ColumnErrors.Fixed;
         }
 
         var saved = await changes.Save(ct);
-        if (saved.IsFailure)
-        {
-            return saved.Error;
-        }
-
-        if (turned)
-        {
-            logger.LogInformation(
-                "Column {ColumnId} of project {ProjectId} is a done column: {IsDone}",
-                column.Id,
-                command.ProjectId,
-                column.IsDone);
-        }
-
-        return column.ToDto();
+        return saved.IsFailure ? saved.Error : project.Columns.Single(column => column.Id == command.ColumnId).ToDto();
     }
 }

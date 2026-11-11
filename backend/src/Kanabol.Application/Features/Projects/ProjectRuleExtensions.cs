@@ -26,8 +26,14 @@ public static class ProjectRuleExtensions
     public static IRuleBuilderOptions<T, ProjectRole> IsAProjectRole<T>(this IRuleBuilderInitial<T, ProjectRole> rule) =>
         rule.IsInEnum();
 
+    /// <summary>A column of the project's own: Backlog, În lucru, În pauză and Gata are taken, in any case (SPEC section 4.4).</summary>
     public static IRuleBuilderOptions<T, string> IsAColumnName<T>(this IRuleBuilderInitial<T, string> rule) =>
-        rule.NotEmpty().MaximumLength(BoardColumn.MaxNameLength).HasNoHiddenCharacters();
+        rule
+            .NotEmpty()
+            .MaximumLength(BoardColumn.MaxNameLength)
+            .HasNoHiddenCharacters()
+            .Must(name => name is null || !BoardColumn.IsAFixedName(name))
+            .WithMessage("Backlog, În lucru, În pauză and Gata are the names of the fixed columns.");
 
     private static bool IsHiddenOutsideLayout(char character) =>
         character is not ('\n' or '\r' or '\t') && TextRuleExtensions.IsHidden(character);

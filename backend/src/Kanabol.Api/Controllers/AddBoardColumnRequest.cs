@@ -1,4 +1,4 @@
 namespace Kanabol.Api.Controllers;
 
-/// <summary>The column goes at the right end of the board.</summary>
-public sealed record AddBoardColumnRequest(string Name, bool IsDone);
+/// <summary>A column of the project's own, right before Gata.</summary>
+public sealed record AddBoardColumnRequest(string Name);

@@ -11,7 +11,9 @@ using Kanabol.Application.Features.Tasks.Commands.MoveTask;
 using Kanabol.Application.Features.Tasks.Commands.RenameTask;
 using Kanabol.Application.Features.Tasks.Commands.RestoreTask;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskDueDate;
+using Kanabol.Application.Features.Tasks.Commands.SetTaskEstimate;
 using Kanabol.Application.Features.Tasks.Commands.SetTaskPriority;
+using Kanabol.Application.Features.Tasks.Queries.GetArchivedTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetBoard;
 using Kanabol.Application.Features.Tasks.Queries.GetProjectTasks;
 using Kanabol.Application.Features.Tasks.Queries.GetTaskById;
@@ -41,6 +43,16 @@ public sealed class TasksController : ControllerBase
         [FromServices] IQueryHandler<GetBoardQuery, BoardDto> handler,
         CancellationToken ct) =>
         (await handler.Handle(new GetBoardQuery(projectId), ct)).ToActionResult();
+
+    /// <summary>The column "Arhivate": a page of the archived cards, from the latest, for tasks.archive.</summary>
+    [HttpGet("/api/projects/{projectId:guid}/board/archived")]
+    public async Task<IActionResult> GetArchivedTasks(
+        Guid projectId,
+        [FromServices] IQueryHandler<GetArchivedTasksQuery, Page<ArchivedTaskDto>> handler,
+        CancellationToken ct,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = Paging.DefaultPageSize) =>
+        (await handler.Handle(new GetArchivedTasksQuery(projectId, page, pageSize), ct)).ToActionResult();
 
     [HttpGet("/api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> GetProjectTasks(
@@ -79,7 +91,7 @@ public sealed class TasksController : ControllerBase
         CancellationToken ct)
     {
         var result = await handler.Handle(
-            new CreateTaskCommand(projectId, request.Title, request.Description, request.Priority, request.ColumnId, request.AssigneeIds ?? [], request.DueDate),
+            new CreateTaskCommand(projectId, request.Title, request.Description, request.Priority, request.ColumnId, request.AssigneeIds ?? [], request.DueDate, request.EstimatedMinutes),
             ct);
         return result.ToCreatedResult(result.IsSuccess ? $"/api/tasks/{result.Value.Id}" : "");
     }
@@ -165,13 +177,21 @@ public sealed class TasksController : ControllerBase
         CancellationToken ct) =>
         (await handler.Handle(new SetTaskDueDateCommand(id, request.DueDate), ct)).ToActionResult();
 
+    [HttpPut("{id:guid}/estimate")]
+    public async Task<IActionResult> SetTaskEstimate(
+        Guid id,
+        SetTaskEstimateRequest request,
+        [FromServices] ICommandHandler<SetTaskEstimateCommand, TaskItemDto> handler,
+        CancellationToken ct) =>
+        (await handler.Handle(new SetTaskEstimateCommand(id, request.EstimatedMinutes), ct)).ToActionResult();
+
     [HttpPatch("{id:guid}/position")]
     public async Task<IActionResult> MoveTask(
         Guid id,
         MoveTaskRequest request,
         [FromServices] ICommandHandler<MoveTaskCommand, TaskItemDto> handler,
         CancellationToken ct) =>
-        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position), ct)).ToActionResult();
+        (await handler.Handle(new MoveTaskCommand(id, request.ColumnId, request.Position, request.EstimatedMinutes, request.PauseReason), ct)).ToActionResult();
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> ArchiveTask(

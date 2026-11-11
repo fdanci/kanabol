@@ -39,6 +39,10 @@ function areas(): { title: string; permissions: [Permission, string][] }[] {
       title: $localize`Rapoarte`,
       permissions: [[PERMISSIONS.reportsView, $localize`Vede rapoartele`]],
     },
+    {
+      title: $localize`Setări`,
+      permissions: [[PERMISSIONS.settingsManage, $localize`Schimbă setările generale`]],
+    },
   ];
 }
 

@@ -1,4 +1,5 @@
 using Kanabol.Application.Abstractions;
+using Kanabol.Application.Features.Settings;
 using Kanabol.Infrastructure.Alerts;
 using Kanabol.Infrastructure.Authentication;
 using Kanabol.Infrastructure.Configuration;
@@ -42,6 +43,10 @@ public static class DependencyInjection
             .Validate(
                 alerts => alerts.OverdueCheckInterval <= AlertsOptions.MaximumInterval,
                 $"Alerts:OverdueCheckInterval must be at most {AlertsOptions.MaximumInterval}.");
+        services.AddValidatedOptions<ScheduleOptions>(configuration, ScheduleOptions.SectionName)
+            .Validate(
+                schedule => ScheduleOptions.IsAKnownZone(schedule.TimeZone),
+                "Schedule:TimeZone has to be a time zone this system knows, such as Europe/Bucharest.");
         services.AddValidatedOptions<AuthOptions>(configuration, AuthOptions.SectionName)
             .Validate(
                 auth => auth.RefreshTokenCleanupInterval >= AuthOptions.MinimumInterval,

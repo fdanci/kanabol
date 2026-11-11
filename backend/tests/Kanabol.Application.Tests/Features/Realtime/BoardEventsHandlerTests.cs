@@ -94,7 +94,8 @@ public sealed class BoardEventsHandlerTests(PostgresFixture postgres) : TaskHand
     {
         var (owner, _, project, task) = await ATaskOnTheBoard();
         SignIn(owner);
-        var target = ColumnAt(project, 1);
+        // Gata asks for nothing; În lucru would want an estimate (SPEC section 4.4).
+        var target = DoneColumn(project);
 
         (await Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, target.Id, Position: null))).IsSuccess.Should().BeTrue();
 
@@ -229,10 +230,10 @@ public sealed class BoardEventsHandlerTests(PostgresFixture postgres) : TaskHand
             .Returns(Task.FromException(new InvalidOperationException("the hub is down")));
         SignIn(owner);
 
-        var moved = await Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, ColumnAt(project, 1).Id, Position: null));
+        var moved = await Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, DoneColumn(project).Id, Position: null));
 
         moved.IsSuccess.Should().BeTrue();
-        (await Stored(task.Id))!.ColumnId.Should().Be(ColumnAt(project, 1).Id);
+        (await Stored(task.Id))!.ColumnId.Should().Be(DoneColumn(project).Id);
         Logs.Entries.Should().Contain(entry => entry.Level == LogLevel.Error
             && entry.Message.Contains(nameof(BoardEventsHandler), StringComparison.Ordinal));
     }

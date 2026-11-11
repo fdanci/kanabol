@@ -1,24 +1,33 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { MatTooltip } from '@angular/material/tooltip';
+import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
+import { ColumnKind } from '../../shared/models/column-kind';
+import { formatHoursMinutes, formatWorked, isOverEstimate } from '../../shared/models/estimate';
 import { priorityLabel } from '../../shared/models/task-filters';
 import { AvatarStack } from '../../shared/ui/avatar-stack';
 import { Chip, ChipKind } from '../../shared/ui/chip';
 import { DeadlineChip } from '../../shared/ui/deadline-chip';
 import { BoardTaskDto } from './models';
 
+/** What a card shows of a task, on the board or in Arhivate. */
+export type CardTask = Omit<BoardTaskDto, 'position'>;
+
 /**
  * A card on the board (docs/UI_UX_SPEC.md §7.4): the key and the priority, the title on at most two
- * lines, then the deadline, the counts and everyone it's assigned to. The column makes it draggable and
- * opens it; the card only shows it. The look is on an inner box, because the CDK moves the dragged
+ * lines, in În pauză the pause's reason on one line, then the deadline, with an estimate the time worked
+ * against it as of the board's last read, the counts and everyone it's assigned to. The column makes it
+ * draggable and opens it; the card only shows it. The look is on an inner box, because the CDK moves the dragged
  * copy with a transform on the host, and the tilt of a picked-up card needs one of its own.
  */
 @Component({
   selector: 'kb-task-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AvatarStack, Chip, DeadlineChip],
+  imports: [AvatarStack, Chip, DeadlineChip, MatTooltip, RelativeTimePipe],
   // Two names for one pulse, so the next change starts it again (docs/UI_UX_SPEC.md §7.4).
   host: {
     '[class.pulse-a]': 'pulse() % 2 === 1',
     '[class.pulse-b]': 'pulse() > 0 && pulse() % 2 === 0',
+    '[class.archived]': 'archivedAt() !== null',
   },
   template: `
     <div class="card">
@@ -27,9 +36,30 @@ import { BoardTaskDto } from './models';
         <kb-chip [kind]="priorityKind()">{{ priority() }}</kb-chip>
       </div>
       <p class="title">{{ task().title }}</p>
+      @if (kind() === 'Paused' && task().pauseReason; as reason) {
+        <p class="reason" [matTooltip]="reason">
+          <span class="material-symbols-outlined" aria-hidden="true">pause_circle</span>
+          <span class="reason-text">{{ reason }}</span>
+        </p>
+      }
       <div class="bottom">
-        @if (task().dueDate; as dueDate) {
+        @if (archivedAt(); as archivedAt) {
+          <span class="archived-at" [matTooltip]="archivedOn()" i18n
+            >arhivat {{ archivedAt | relativeTime }}</span
+          >
+        } @else if (task().dueDate; as dueDate) {
           <kb-deadline-chip [dueDate]="dueDate" [done]="done()" />
+        }
+        @if (worked(); as worked) {
+          <kb-chip class="worked" [kind]="over() ? 'over' : 'neutral'">
+            <span
+              class="material-symbols-outlined timer"
+              [class.working]="kind() === 'InProgress'"
+              aria-hidden="true"
+              >timer</span
+            >
+            {{ worked }}
+          </kb-chip>
         }
         @if (task().commentCount > 0) {
           <span class="count" i18n-title title="Comentarii">
@@ -139,6 +169,18 @@ import { BoardTaskDto } from './models';
       min-height: 22px;
     }
 
+    /* With a deadline, the worked time and the counts, the people go on to a second line rather than out. */
+    .bottom {
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    /* The people stay on the right, on whichever line they land. */
+    .bottom > kb-avatar-stack,
+    .bottom > .unassigned {
+      margin-left: auto;
+    }
+
     .top {
       justify-content: space-between;
     }
@@ -159,6 +201,47 @@ import { BoardTaskDto } from './models';
       overflow-wrap: anywhere;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
+    }
+
+    /* In Arhivate (docs/UI_UX_SPEC.md §7.4). */
+    :host(.archived) .card {
+      opacity: 0.72;
+    }
+
+    .archived-at {
+      font-size: 12px;
+      color: var(--kb-text-600);
+    }
+
+    .reason {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      margin: 0;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--kb-text-600);
+    }
+
+    .reason .material-symbols-outlined {
+      flex: none;
+      font-size: 14px;
+      color: var(--kb-warning-600);
+    }
+
+    .reason-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .timer {
+      font-size: 14px;
+    }
+
+    .timer.working {
+      color: var(--kb-accent-600);
     }
 
     .count {
@@ -200,11 +283,30 @@ import { BoardTaskDto } from './models';
   `,
 })
 export class TaskCard {
-  readonly task = input.required<BoardTaskDto>();
+  readonly task = input.required<CardTask>();
   /** In a done column the deadline no longer warns. */
   readonly done = input(false);
   /** How many times someone else changed it: each change pulses it once. */
   readonly pulse = input(0);
+  /** When it was archived, for a card of Arhivate: it shows in place of the deadline. */
+  readonly archivedAt = input<string | null>(null);
+  /** The kind of its column: În lucru colors the timer, În pauză shows the reason. */
+  readonly kind = input<ColumnKind>('Custom');
+
+  /** "2 h 10 min / 4 h", with an estimate only. */
+  protected readonly worked = computed(() => {
+    const { estimatedMinutes, workedSeconds } = this.task();
+    return estimatedMinutes === null
+      ? null
+      : `${formatWorked(workedSeconds)} / ${formatHoursMinutes(estimatedMinutes)}`;
+  });
+  protected readonly archivedOn = computed(() => {
+    const archivedAt = this.archivedAt();
+    return archivedAt === null ? '' : fullDate(archivedAt);
+  });
+  protected readonly over = computed(() =>
+    isOverEstimate(this.task().workedSeconds, this.task().estimatedMinutes),
+  );
 
   protected readonly priority = computed(() => priorityLabel(this.task().priority));
   protected readonly priorityKind = computed(() => this.task().priority.toLowerCase() as ChipKind);

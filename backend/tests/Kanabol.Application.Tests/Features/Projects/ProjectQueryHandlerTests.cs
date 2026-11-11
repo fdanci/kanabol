@@ -30,7 +30,7 @@ public sealed class ProjectQueryHandlerTests(PostgresFixture postgres) : Project
         var result = await GetProject(project.Id);
 
         result.Value.Should().BeEquivalentTo(new { project.Id, Name = "Kanabol", Key = "KAN", Description = "Board", MyRole = ProjectRole.Member, CanManage = false });
-        result.Value.Columns.Select(column => column.Name).Should().Equal("De făcut", "În lucru", "Gata");
+        result.Value.Columns.Select(column => column.Name).Should().Equal("Backlog", "În lucru", "În pauză", "Gata");
     }
 
     [Fact]

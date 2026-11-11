@@ -30,7 +30,8 @@
 #      alone changed), each with no image, no tag and .env unchanged; and the web image it builds holds
 #      the version the sidebar shows. Docker.
 #   3  the documents and the screenshots: docs/deploy.md, docs/backup.md and docs/ui-review.md tracked; each
-#      of the 16 screens of docs/UI_UX_SPEC.md §7 (at least one per section) a tracked PNG of 1440x900 in
+#      of the 18 screens of docs/UI_UX_SPEC.md §7 (at least one per section, §7.9 and the reports' "Estimare
+#      și timp lucrat" since group 22) a tracked PNG of 1440x900 in
 #      docs/screens/, light and dark, the two unlike each other, and nothing else there; docs/ui-review.md
 #      naming each, axe-core, both themes and the motion; axe-core a dev dependency of the frontend, which
 #      the app doesn't import; and the production build's CSS turning every transition to 0 and the
@@ -39,7 +40,8 @@
 #      gives its usage and asks nothing; while the admin still has the first password it stops and makes
 #      nothing; then it makes 3 users (Ana and Dan sign in with the demo password, Ioana has to change
 #      it), 2 projects with their columns (PORT with "În review"), 15 tasks, 14 with a deadline, 4 finished
-#      and 3 overdue, 6 comments, a file, and the admin's notifications of 6 assignments and 4 comments;
+#      and 3 overdue, 11 with an estimate, PORT-3 on pause with its reason and PORT-9 in "În review" (group
+#      22), 6 comments, a file, and the admin's notifications of 6 assignments and 4 comments;
 #      run again it makes nothing, and after the file was deleted it uploads that alone; nothing it prints
 #      holds a password. PostgreSQL.
 #   5  (group 20; docs/SPEC.md §16) every command of the Application project, found by reflection and as
@@ -987,7 +989,8 @@ task_2() {
 
 # Every screen of docs/UI_UX_SPEC.md §7, as docs/ui-review.md lists them, each light and dark.
 screens='7.1-login 7.1-parola-noua 7.2-panou 7.2-task-urile-mele 7.3-proiecte 7.3-lista 7.3-membri 7.3-rapoarte
-7.3-setari 7.4-board 7.5-task 7.6-notificari-meniu 7.6-notificari 7.7-utilizatori 7.7-roluri 7.8-rapoarte'
+7.3-setari 7.4-board 7.5-task 7.6-notificari-meniu 7.6-notificari 7.7-utilizatori 7.7-roluri 7.8-rapoarte
+7.8-rapoarte-estimare 7.9-setari-generale'
 
 documents_are_tracked() {
   for file in docs/deploy.md docs/backup.md docs/ui-review.md; do
@@ -1294,21 +1297,32 @@ data_is_what_was_asked() {
   is "users|4
 roles|3
 projects|2
-columns|7
+columns|9
 members|8
 tasks|15
 finished|4
 overdue|3
 comments|6
 attachments|1" "$(grep -E '^(users|roles|projects|columns|members|tasks|finished|overdue|comments|attachments)\|' "$scratch/counts-1")" || return 1
-  is 'PORT|4|De făcut,În lucru,În review,Gata
-TER|3|De făcut,În lucru,Gata' "$(in_db "select p.key, count(*), string_agg(c.name, ',' order by c.position)
+  is 'PORT|5|Backlog,În lucru,În pauză,În review,Gata
+TER|4|Backlog,În lucru,În pauză,Gata' "$(in_db "select p.key, count(*), string_agg(c.name, ',' order by c.position)
     from projects p join board_columns c on c.project_id = p.id group by p.key order by p.key")" || return 1
   # Deadlines on all but one, and the admin told of six assignments and four comments.
   is 14 "$(in_db 'select count(*) from task_items where due_date is not null')" || return 1
   is 'CommentAdded|4
 TaskAssigned|6' "$(in_db "select n.type, count(*) from notifications n join users u on u.id = n.user_id
     where u.email = '$admin_email' group by n.type order by n.type")"
+}
+
+# Group 22: 11 tasks with an estimate, PORT-3 on pause with its reason, PORT-9 in În review.
+the_estimates_and_the_pause_are_there() {
+  is 11 "$(in_db 'select count(*) from task_items where estimated_minutes is not null')" || return 1
+  is 'PORT-1|În lucru|600
+PORT-3|În pauză|360
+PORT-9|În review|300' "$(in_db "select 'PORT-' || t.number, c.name, t.estimated_minutes from task_items t
+    join board_columns c on c.id = t.column_id join projects p on p.id = t.project_id
+    where p.key = 'PORT' and t.number in (1, 3, 9) order by t.number")" || return 1
+  is 'Aștept logo-ul clientului în format vectorial.' "$(in_db "select pause_reason from task_items where pause_reason is not null")"
 }
 
 demo_users_sign_in() {
@@ -1364,6 +1378,7 @@ task_4() {
   check "the admin changes the first password" the_admin_changed_the_password
   check "demo-data.sh makes the data" first_run_makes_the_data
   check "3 users, 2 projects with columns, 15 tasks, comments, a file, notifications" data_is_what_was_asked
+  check "11 tasks with an estimate, PORT-3 on pause with its reason, PORT-9 in În review (group 22)" the_estimates_and_the_pause_are_there
   check "Ana and Dan sign in with the demo password, Ioana has to change it" demo_users_sign_in
   check "run again, it makes nothing" second_run_makes_nothing
   check "a file deleted since comes back, alone" missing_piece_comes_back

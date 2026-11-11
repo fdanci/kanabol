@@ -395,7 +395,7 @@ team_is_ready() {
     a_task_in "$pan_id" 'Arhivat' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$past\"" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$new_task")" || return 1
   a_task_in "$pan_id" 'Logo nou' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"]" || return 1
-  pan_done=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND is_done")
+  pan_done=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND kind = 'Done'")
   status_is 200 "$(as "$dan_token" PATCH "/api/tasks/$new_task/position" "{\"columnId\":\"$pan_done\"}")" || return 1
   a_task_in "$pan_id" 'Al adminului' "\"priority\":\"Medium\",\"assigneeIds\":[\"$admin_id\"],\"dueDate\":\"$past\"" &&
     a_task_in "$pan_id" 'Gata si arhivat' "\"priority\":\"Medium\",\"assigneeIds\":[\"$admin_id\"]" || return 1
@@ -487,7 +487,7 @@ my_tasks_go_by_deadline() {
 each_row_has_its_project() {
   team_is_ready || return 1
   my_task_keys "$dan_token" 'search=formular' >/dev/null || return 1
-  is "$meu_id MEU Meu Critical De făcut" "$(json "[b.items[0].projectId, b.items[0].projectKey, b.items[0].projectName, b.items[0].priority, b.items[0].columnName].join(' ')")"
+  is "$meu_id MEU Meu Critical Backlog" "$(json "[b.items[0].projectId, b.items[0].projectKey, b.items[0].projectName, b.items[0].priority, b.items[0].columnName].join(' ')")"
 }
 
 the_filters_hold_across_projects() {
@@ -877,7 +877,8 @@ a_live_task_is_ready() {
   a_task_in "$pan_id" 'Panou viu' "\"priority\":\"Medium\",\"assigneeIds\":[\"$dan_id\"],\"dueDate\":\"$past\"" || return 1
   live_task=$new_task
   pan_first=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND position = 0")
-  [ -n "$pan_first" ]
+  pan_doing=$(in_db "SELECT id FROM board_columns WHERE project_id = '$pan_id' AND kind = 'InProgress'")
+  [ -n "$pan_first" ] && [ -n "$pan_doing" ]
 }
 
 a_new_task_counts_open_and_overdue() {
@@ -904,7 +905,8 @@ archiving_and_restoring_it_takes_it_out_and_back() {
 
 reopening_it_and_moving_its_deadline_count_again() {
   a_live_task_is_ready || return 1
-  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$live_task/position" "{\"columnId\":\"$pan_first\"}")" || return 1
+  # Out of Gata to În lucru, which opens it again: never back before it (group 22).
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$live_task/position" "{\"columnId\":\"$pan_doing\",\"estimatedMinutes\":60}")" || return 1
   dans_numbers_are '4 2 1 2' || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/tasks/$live_task/due-date" "{\"dueDate\":\"$future\"}")" || return 1
   dans_numbers_are '4 1 1 2'

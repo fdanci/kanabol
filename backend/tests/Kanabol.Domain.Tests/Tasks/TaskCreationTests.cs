@@ -100,7 +100,7 @@ public sealed class TaskCreationTests
     [Fact]
     public void Create_InADoneColumn_IsCompletedAtOnce()
     {
-        var task = Create(_project.Columns.Single(column => column.IsDone));
+        var task = Create(_project.Columns.Single(column => column.Kind == ColumnKind.Done));
 
         task.CompletedAt.Should().Be(_now);
     }

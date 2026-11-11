@@ -383,7 +383,7 @@ task_1() {
   check "check-tasks.sh 3 passes: on the real API ten creations at once get ten numbers" check_tasks_3_passes
 }
 
-# ---- 13.2: the columns of a board, and a done column completing its tasks.
+# ---- 13.2: the columns of a board, and Gata, the done one, completing its tasks.
 
 json() { # json <JavaScript expression on b, the last answer>: prints its value
   node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))" \
@@ -392,7 +392,7 @@ json() { # json <JavaScript expression on b, the last answer>: prints its value
 
 columns_of() { # columns_of <project id>: the names from the left, as the API gives them
   status_is 200 "$(as "$admin_token" GET "/api/projects/$1/board-columns")" >/dev/null || return 1
-  json "b.map(c => c.name + (c.isDone ? '*' : '')).join(',')"
+  json "b.map(c => c.name + (c.kind === 'Done' ? '*' : '')).join(',')"
 }
 
 creates_the_board_project() {
@@ -403,47 +403,52 @@ creates_the_board_project() {
   status_is 200 "$(as "$admin_token" GET "/api/projects/$brd_id")" || return 1
   todo_id=$(json "b.columns[0].id")
   doing_id=$(json "b.columns[1].id")
-  done_id=$(json "b.columns[2].id")
+  done_id=$(json "b.columns[3].id")
   [ -n "$todo_id" ] && [ -n "$done_id" ]
 }
 
+# Since group 22 a new column is of the project's own, right before Gata, which stays last.
 a_column_is_added_at_the_end() {
-  status_is 201 "$(as "$admin_token" POST "/api/projects/$brd_id/board-columns" '{"name":" Review ","isDone":false}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$brd_id/board-columns" '{"name":" Review "}')" || return 1
   review_id=$(body_field id)
   location=$(location_header)
   is "/api/projects/$brd_id/board-columns/$review_id" "$location" || return 1
   is 3 "$(json "b.position")" || return 1
+  is Custom "$(json "b.kind")" || return 1
   status_is 200 "$(as "$admin_token" GET "$location")" || return 1
-  is 'De făcut,În lucru,Gata*,Review' "$(columns_of "$brd_id")"
+  is 'Backlog,În lucru,În pauză,Review,Gata*' "$(columns_of "$brd_id")"
 }
 
 a_done_column_completes_its_tasks() {
   status_is 201 "$(as "$admin_token" POST "/api/projects/$brd_id/tasks" '{"title":"Pe board","priority":"Low"}')" || return 1
   task_id=$(body_field id)
-  status_is 200 "$(as "$admin_token" PUT "/api/projects/$brd_id/board-columns/$todo_id" '{"name":"De făcut","isDone":true}')" || return 1
-  status_is 200 "$(as "$admin_token" GET "/api/tasks/$task_id")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$done_id\"}")" || return 1
   is true "$(json "b.completedAt !== null")" || return 1
-  status_is 200 "$(as "$admin_token" PUT "/api/projects/$brd_id/board-columns/$todo_id" '{"name":"De făcut","isDone":false}')" || return 1
+  # Out of Gata a task goes to În lucru or after it, never back before it (group 22).
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$doing_id\",\"estimatedMinutes\":60}")" || return 1
   status_is 200 "$(as "$admin_token" GET "/api/tasks/$task_id")" || return 1
   is null "$(json "b.completedAt")"
 }
 
+# The project's own move between Backlog and Gata only, and the fixed ones never (group 22).
 a_column_moves_and_the_others_close_up() {
-  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$done_id/position" '{"position":0}')" || return 1
-  is 'Gata*,De făcut,În lucru,Review' "$(json "b.map(c => c.name + (c.isDone ? '*' : '')).join(',')")" || return 1
-  is '0,1,2,3' "$(json "b.map(c => c.position).join(',')")"
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$review_id/position" '{"position":1}')" || return 1
+  is 'Backlog,Review,În lucru,În pauză,Gata*' "$(json "b.map(c => c.name + (c.kind === 'Done' ? '*' : '')).join(',')")" || return 1
+  is '0,1,2,3,4' "$(json "b.map(c => c.position).join(',')")" || return 1
+  status_is 400 "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$review_id/position" '{"position":0}')" || return 1
+  code_is 409 Column.Fixed "$(as "$admin_token" PATCH "/api/projects/$brd_id/board-columns/$done_id/position" '{"position":0}')"
 }
 
 only_an_empty_column_is_deleted() {
-  code_is 409 Column.NotEmpty "$(as "$admin_token" DELETE "/api/projects/$brd_id/board-columns/$todo_id")" || return 1
+  code_is 409 Column.Fixed "$(as "$admin_token" DELETE "/api/projects/$brd_id/board-columns/$todo_id")" || return 1
   status_is 204 "$(as "$admin_token" DELETE "/api/projects/$brd_id/board-columns/$review_id")" || return 1
-  is 'Gata*,De făcut,În lucru' "$(columns_of "$brd_id")" || return 1
-  is '0|1|2' "$(in_db "SELECT string_agg(position::text, '|' ORDER BY position) FROM board_columns WHERE project_id = '$brd_id'")"
+  is 'Backlog,În lucru,În pauză,Gata*' "$(columns_of "$brd_id")" || return 1
+  is '0|1|2|3' "$(in_db "SELECT string_agg(position::text, '|' ORDER BY position) FROM board_columns WHERE project_id = '$brd_id'")"
 }
 
 a_member_reads_them_but_only_an_owner_changes_them() {
   status_is 200 "$(as "$dan_token" GET "/api/projects/$brd_id/board-columns")" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$dan_token" POST "/api/projects/$brd_id/board-columns" '{"name":"A lui Dan","isDone":false}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$dan_token" POST "/api/projects/$brd_id/board-columns" '{"name":"A lui Dan"}')" || return 1
   code_is 403 Project.OwnerRequired "$(as "$dan_token" DELETE "/api/projects/$brd_id/board-columns/$doing_id")"
 }
 
@@ -460,11 +465,9 @@ the_endpoints_are_written_down() {
 
 column_tests_pass() {
   named_tests_pass Kanabol.Application.Tests \
-    BoardColumnCommandHandlerTests.Update_ToADoneColumnAndBack_CompletesItsOpenTasksThenOpensThem \
     BoardColumnCommandHandlerTests.Add_TwoAtOnce_TheSecondGets409AndThePlacesStayInOrder \
     BoardColumnCommandHandlerTests.Delete_WhileATaskIsMovedIntoIt_ReturnsNotEmpty \
     BoardColumnCommandHandlerTests.MoveTask_IntoAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnId \
-    BoardColumnCommandHandlerTests.CreateTask_InAColumnDeletedMeanwhile_ReturnsAValidationErrorOnColumnIdAndTakesNoNumber \
     MoveTaskCommandHandlerTests.Move_IntoTheDoneColumn_CompletesItAndOutClearsThat
 }
 
@@ -475,17 +478,17 @@ task_2() {
   check "the errors are tracked" tracked backend/src/Kanabol.Application/Features/Projects/ColumnErrors.cs
   check "the solution builds without warnings" solution_builds
   check "the formatting is clean" formatting_is_clean
-  check "the aggregate's column tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectColumnTests|FullyQualifiedName~TaskItemTests.MoveTo' 20
-  check "the handlers' column tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~BoardColumnCommandHandlerTests' 26
-  check "a done column, the races with moves and creations, and two additions at once" column_tests_pass
+  check "the aggregate's column tests pass" tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~ProjectColumnTests|FullyQualifiedName~TaskItemTests.MoveTo' 30
+  check "the handlers' column tests pass" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~BoardColumnCommandHandlerTests' 30
+  check "Gata completing a task, a move and a delete racing, and two additions at once" column_tests_pass
   check "the endpoints' tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~BoardColumnsEndpointTests|FullyQualifiedName~EndpointPermissionsTests' 14
   check "backend/CLAUDE.md lists the endpoints" the_endpoints_are_written_down
   check "the real API starts in Production, with a member without permissions" dan_is_ready
   check "a project is created, with Dan as a member" creates_the_board_project
-  check "a column is added at the right end, with its Location" a_column_is_added_at_the_end
-  check "a column turned done completes its task, and turned back opens it" a_done_column_completes_its_tasks
-  check "a column moves to the left end, the others closing up" a_column_moves_and_the_others_close_up
-  check "a column with a task stays, an empty one goes, and the places stay 0, 1, 2" only_an_empty_column_is_deleted
+  check "a column of the project's own comes right before Gata, with its Location" a_column_is_added_at_the_end
+  check "a task that enters Gata is completed, and open again once it leaves" a_done_column_completes_its_tasks
+  check "it moves after Backlog, the others closing up, and Gata never moves" a_column_moves_and_the_others_close_up
+  check "a fixed column stays, an empty one of the project's own goes, and the places stay 0, 1, 2" only_an_empty_column_is_deleted
   check "a member reads the columns, but only an owner changes them" a_member_reads_them_but_only_an_owner_changes_them
   check "the addition is logged" log_has_entry "Column {ColumnId} added to project {ProjectId}" "\"ColumnId\":\"$review_id\""
   check "the log has no unhandled exception" no_errors_in_the_log
@@ -539,6 +542,14 @@ extracted() {
 
 messages_have() { # messages_have <text>
   extracted && in_file "$1" "$scratch/locale/messages.xlf"
+}
+
+messages_lack() { # messages_lack <text>: no text of the app has it
+  extracted || return 1
+  if in_file "$1" "$scratch/locale/messages.xlf"; then
+    echo "a text still says $1"
+    return 1
+  fi
 }
 
 frontend_lint_is_clean() {
@@ -601,7 +612,7 @@ creates_the_cards_project() {
 
 the_board_answers_every_open_task() {
   status_is 200 "$(as "$admin_token" GET "/api/projects/$crd_id/board")" || return 1
-  is 'CRD|true|true|3' "$(json "[b.projectKey, b.canMove, b.canManage, b.columns.length].join('|')")" || return 1
+  is 'CRD|true|true|4' "$(json "[b.projectKey, b.canMove, b.canManage, b.columns.length].join('|')")" || return 1
   is 'CRD-1:0,CRD-2:1' "$(json "b.tasks.map(t => t.key + ':' + t.position).join(',')")" || return 1
   code_is 403 Project.MemberRequired "$(as "$dan_token" GET "/api/projects/$crd_id/board")"
 }
@@ -676,7 +687,7 @@ task_4() {
 # ---- 13.5: configuring the columns from the board.
 
 the_columns_use_their_endpoints() {
-  for path in '/board-columns`, { name, isDone }' '/board-columns/${columnId}`, {' '/board-columns/${columnId}/position`' 'delete(`/projects/${projectId}/board-columns/${columnId}`)'; do
+  for path in '/board-columns`, { name }' '/board-columns/${columnId}`, {' '/board-columns/${columnId}/position`' 'delete(`/projects/${projectId}/board-columns/${columnId}`)'; do
     in_file "$path" "$board/board-api.ts" || {
       echo "board-api.ts doesn't call $path"
       return 1
@@ -685,13 +696,13 @@ the_columns_use_their_endpoints() {
 }
 
 the_menu_is_for_owners_only() {
-  in_file '@if (canManage()) {' "$board/board-column.ts" &&
+  in_file "@if (canManage() && column().kind === 'Custom') {" "$board/board-column.ts" &&
     in_file '[canManage]="store.canManage()"' "$board/board-page.html" &&
     in_file '@if (store.canManage()) {' "$board/board-page.html"
 }
 
 only_an_empty_column_is_offered_for_deletion() {
-  in_file 'this.store.columns().length > 1 && this.store.cardsIn(column.id).length === 0' "$board/board-page.ts" &&
+  in_file "column.kind === 'Custom' && this.store.cardsIn(column.id).length === 0" "$board/board-page.ts" &&
     in_file 'this.confirmation.ask({' "$board/board-page.ts"
 }
 
@@ -701,12 +712,12 @@ task_5() {
   check "the lint is clean" frontend_lint_is_clean
   check "the formatting is clean" frontend_formatting_is_clean
   check "the columns go through their endpoints" the_columns_use_their_endpoints
-  check "the ⋮ and the new column are for owners and projects.manage" the_menu_is_for_owners_only
-  check "only an empty column, not the last, is offered for deletion, after a question" only_an_empty_column_is_offered_for_deletion
+  check "the ⋮ and the new column are for owners and projects.manage, the ⋮ on the project's own columns (group 22)" the_menu_is_for_owners_only
+  check "only an empty column of the project's own is offered for deletion, after a question (group 22)" only_an_empty_column_is_offered_for_deletion
   check "the board writes no colors by hand" no_colors_by_hand
   check "nor reaches into Material's classes" no_deep_selectors
   check "the menu renames" messages_have 'Redenumește'
-  check "marks a column done" messages_have 'Marchează ca terminată'
+  check "and no longer marks a column done: Gata is the done one (group 22)" messages_lack 'Marchează ca terminată'
   check "and asks before deleting" messages_have 'Ștergi coloana «'
   check "a column holding archived tasks says why it stays" messages_have 'Coloana mai are task-uri, poate și arhivate.'
 }

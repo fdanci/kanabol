@@ -10,8 +10,15 @@ import { AuthStore } from '../../core/auth/auth-store';
 import { FakeRealtime, provideFakeRealtime } from '../../core/realtime/realtime-testing';
 import { BoardApi } from './board-api';
 import { BoardStore } from './board-store';
-import { aBoard, aBoardMember, refusedWith, titlesByColumn } from './board-testing';
-import { BoardColumnDto, BoardDto } from './models';
+import {
+  OWN_COLUMNS,
+  aBoard,
+  aBoardMember,
+  aCard,
+  refusedWith,
+  titlesByColumn,
+} from './board-testing';
+import { BoardColumnDto, BoardDto, MoveAnswers } from './models';
 
 /**
  * docs/SPEC.md §6.2: the store reads the board through resources, moves a card at once and asks the
@@ -35,9 +42,9 @@ describe('BoardStore', () => {
       ),
       move: vi.fn(() => of({})),
       create: vi.fn(() => of({ id: 'id-KAN-6', key: 'KAN-6' })),
-      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, isDone: false })),
-      updateColumn: vi.fn((_: string, columnId: string, name: string, isDone: boolean) =>
-        of({ ...board.columns.find((column) => column.id === columnId)!, name, isDone }),
+      addColumn: vi.fn(() => of({ id: 'c4', name: 'Review', position: 3, kind: 'Custom' })),
+      updateColumn: vi.fn((_: string, columnId: string, name: string) =>
+        of({ ...board.columns.find((column) => column.id === columnId)!, name }),
       ),
       moveColumn: vi.fn(() => of([])),
       deleteColumn: vi.fn(() => of(undefined)),
@@ -231,6 +238,57 @@ describe('BoardStore', () => {
       expect(await store.moveTask('id-KAN-1', 'c2', 0)).toBe(false);
       expect(api['move']).not.toHaveBeenCalled();
     });
+
+    // docs/UI_UX_SPEC.md §7.4: the card waits in În lucru while the sheet asks for its estimate.
+    it('lets the card wait in its new place while the move asks, then sends the answers and shows them', async () => {
+      await opened();
+      let answer!: (answers: MoveAnswers | null) => void;
+
+      const moving = store.moveTask(
+        id('B'),
+        'c2',
+        0,
+        () => new Promise<MoveAnswers | null>((resolve) => (answer = resolve)),
+      );
+      await Promise.resolve();
+      expect(shown()).toBe('A C | B D | E');
+      expect(api['move']).not.toHaveBeenCalled();
+      answer({ estimatedMinutes: 90 });
+
+      expect(await moving).toBe(true);
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0, { estimatedMinutes: 90 });
+      expect(store.board()!.tasks.find((task) => task.title === 'B')).toMatchObject({
+        estimatedMinutes: 90,
+        isWorking: true,
+        pauseReason: null,
+      });
+    });
+
+    it('puts the card back, asking the API nothing, when the person gives up', async () => {
+      await opened();
+
+      const moved = await store.moveTask(id('B'), 'c2', 0, () => Promise.resolve(null));
+
+      expect(moved).toBe(false);
+      expect(shown()).toBe('A B C | D | E');
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(api['board']).toHaveBeenCalledTimes(1);
+    });
+
+    it('puts a paused card back with its reason when the person gives up its move', async () => {
+      board.columns = structuredClone(OWN_COLUMNS);
+      board.tasks.push(aCard('KAN-6', 'c5', 0, { title: 'P', pauseReason: 'Aștept clientul' }));
+      await opened();
+
+      const moved = await store.moveTask(id('P'), 'c2', 0, () => Promise.resolve(null));
+
+      expect(moved).toBe(false);
+      expect(store.board()!.tasks.find((task) => task.title === 'P')).toMatchObject({
+        columnId: 'c5',
+        pauseReason: 'Aștept clientul',
+        isWorking: false,
+      });
+    });
   });
 
   describe('creating a card', () => {
@@ -259,7 +317,7 @@ describe('BoardStore', () => {
 
       expect(await store.renameColumn(store.columns()[1], 'Lucrez')).toBe(true);
 
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez', false);
+      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez');
       expect(store.columns().map((column) => column.name)).toEqual(['De făcut', 'Lucrez', 'Gata']);
       TestBed.tick();
       expect(api['board']).toHaveBeenCalledTimes(1);
@@ -267,9 +325,9 @@ describe('BoardStore', () => {
 
     it('takes the order the API gives after a move', async () => {
       const order: BoardColumnDto[] = [
-        { id: 'c3', name: 'Gata', position: 0, isDone: true },
-        { id: 'c1', name: 'De făcut', position: 1, isDone: false },
-        { id: 'c2', name: 'În lucru', position: 2, isDone: false },
+        { id: 'c3', name: 'Gata', position: 0, kind: 'Done' },
+        { id: 'c1', name: 'De făcut', position: 1, kind: 'Backlog' },
+        { id: 'c2', name: 'În lucru', position: 2, kind: 'InProgress' },
       ];
       api['moveColumn'].mockReturnValue(of(order));
       await opened();
@@ -284,17 +342,14 @@ describe('BoardStore', () => {
       ]);
     });
 
-    // docs/SPEC.md §5.1: the tasks of a column turned done are completed, so the board is read again.
-    it('reads the board again after a column is marked done, added or deleted', async () => {
+    it('reads the board again after a column is added or deleted', async () => {
       await opened();
 
-      await store.markColumnDone(store.columns()[1], true);
       await store.addColumn('Review');
       await store.deleteColumn(store.columns()[2]);
       await settle();
 
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'În lucru', true);
-      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review', false);
+      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review');
       expect(api['deleteColumn']).toHaveBeenCalledWith('p1', 'c3');
       expect(api['board'].mock.calls.length).toBeGreaterThanOrEqual(2);
     });
@@ -369,6 +424,26 @@ describe('BoardStore', () => {
       expect(store.cardsIn('c1').map((task) => task.position)).toEqual([0, 1]);
       expect(reads()).toBe(1);
       expect(store.pulses().get(id('A'))).toBe(1);
+    });
+
+    // The move's message has no reason (docs/SPEC.md §9): a card paused elsewhere reads the board for it, and
+    // one that left În pauză forgets the reason it had there.
+    it('reads the board again for a card someone else paused, and forgets the reason of one they took out', async () => {
+      board.columns = structuredClone(OWN_COLUMNS);
+      board.tasks.push(aCard('KAN-6', 'c5', 0, { title: 'P', pauseReason: 'Aștept clientul' }));
+      await opened();
+
+      realtime.send('TaskMoved', about('P', { columnId: 'c2', position: 0 }));
+      await settle();
+      expect(store.board()!.tasks.find((task) => task.title === 'P')).toMatchObject({
+        pauseReason: null,
+        isWorking: true,
+      });
+      expect(reads()).toBe(1);
+
+      realtime.send('TaskMoved', about('A', { columnId: 'c5', position: 0 }));
+      await settle();
+      expect(reads()).toBe(2);
     });
 
     it('lets the page draw the move: it measures before, and the cards change when it says', async () => {
