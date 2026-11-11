@@ -145,3 +145,5 @@ Făcută pe 2026-11-11, pe `feature/columns-manage`, pe datele lui `scripts/demo
 | --------------------------------- | ---------------------------------------------------------- | ----------- |
 | 7.9 Setări generale (`/settings`) | 0 încălcări                                                | 0 încălcări |
 | 7.4 Board, „Arhivate” deschisă    | `label-content-name-mismatch` pe carduri, acceptat în §7.4 | la fel      |
+
+Captura `7.8-rapoarte-estimare` (light și dark) e refăcută după ce secțiunea „Estimare și timp lucrat” își scrie duratele doar în ore și minute (UI §7.8), pe datele capturilor grupului 22 (aceeași bază, `kanabol_probe_g22_shots`), din același Edge headless, cu axe-core: 0 încălcări în ambele teme. Datele n-au nicio durată de o zi sau mai mult, deci captura arată ca înainte, cu versiunea de acum în sidebar; specurile paginii au o secțiune cu 40 h 30 min, 50 h și o depășire de 25 h 15 min.

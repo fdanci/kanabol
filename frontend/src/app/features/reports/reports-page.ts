@@ -24,7 +24,7 @@ import { EmptyState } from '../../shared/ui/empty-state';
 import { Crumb, PageHeader } from '../../shared/ui/page-header';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { StatTile } from '../../shared/ui/stat-tile';
-import { formatDuration } from './durations';
+import { formatDuration, formatWorkDuration } from './durations';
 import { openTaskPanel } from '../../shared/task-panel';
 import {
   CompletedReportDto,
@@ -265,6 +265,8 @@ export class ReportsPage {
   });
   protected readonly durationLabels = computed(() => this.durationRows().map((row) => row.name));
   protected readonly formatHours = (value: number) => formatDuration(value * 3600);
+  /** The work-time chart's tooltip, in hours and minutes, never days (docs/UI_UX_SPEC.md §7.8, group 23). */
+  protected readonly formatWorkHours = (value: number) => formatWorkDuration(value * 3600);
   protected readonly formatHourTick = (value: number) => $localize`${HOURS.format(value)} h`;
 
   constructor() {
@@ -321,6 +323,11 @@ export class ReportsPage {
 
   protected duration(seconds: number | null): string {
     return formatDuration(seconds);
+  }
+
+  /** Estimare și timp lucrat counts hours of the schedule: hours and minutes only (group 23). */
+  protected workDuration(seconds: number | null): string {
+    return formatWorkDuration(seconds);
   }
 
   protected rate(report: DeadlinesReportDto | null): string | null {

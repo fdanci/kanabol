@@ -2194,6 +2194,33 @@ the_days_are_named_whole() {
     in_file 'pică `label-content-name-mismatch`' docs/ui-review.md
 }
 
+# "Estimare și timp lucrat" (UI §7.8): its durations in hours and minutes only, never days, the rest of the page
+# keeping its days; the screenshot 7.8-rapoarte-estimare taken again since v1.1.0, and ui-review.md says so.
+the_work_time_is_in_hours() {
+  reports_web=$app/features/reports
+  work_time=$(sed -n '/<section class="card report work-time"/,/<\/section>/p' "$reports_web/reports-page.html")
+  [ -n "$work_time" ] || {
+    echo "no section work-time in reports-page.html"
+    return 1
+  }
+  is 9 "$(printf '%s\n' "$work_time" | grep -o 'workDuration(' | wc -l | tr -d ' ')" || return 1
+  is 0 "$(printf '%s\n' "$work_time" | grep -oE '(^|[^k])duration\(' | wc -l | tr -d ' ')" || return 1
+  in_file '[formatValue]="formatWorkHours"' "$reports_web/reports-page.html" &&
+    in_file 'export function formatWorkDuration(' "$reports_web/durations.ts" &&
+    in_file "formatHoursMinutes(Math.round(seconds / 60))" "$reports_web/durations.ts" &&
+    specs_named "$reports_web/reports-page.spec.ts" \
+      'writes its durations in hours and minutes only, a day and more too, while the rest keeps its days' &&
+    specs_named "$reports_web/durations.spec.ts" 'writes hours and minutes, however many hours' &&
+    specs_pass "src/app/features/reports/*.spec.ts" 70 &&
+    for theme in light dark; do
+      [ -n "$(git diff --name-only v1.1.0 -- "docs/screens/7.8-rapoarte-estimare-$theme.png")" ] || {
+        echo "docs/screens/7.8-rapoarte-estimare-$theme.png is as it was at v1.1.0"
+        return 1
+      }
+    done &&
+    in_file 'Captura `7.8-rapoarte-estimare` (light și dark) e refăcută' docs/ui-review.md
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2244,6 +2271,7 @@ task_7() {
   check "the columns of the project's own drag by their head between Backlog and Gata, the cards still between columns" the_columns_drag_by_their_head
   check "a column with tasks across În lucru: the dialog, by a drop, the menu and the API's 409" the_column_with_tasks_says_why
   check "Setări generale names each day whole, the short name aria-hidden; ui-review.md has axe-core's run" the_days_are_named_whole
+  check "Estimare și timp lucrat writes hours and minutes, never days; its screenshot taken again" the_work_time_is_in_hours
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 
