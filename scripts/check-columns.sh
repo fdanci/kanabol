@@ -2064,6 +2064,22 @@ the_archived_column_reads_when_it_opens() {
     specs_named "$board/board-page.spec.ts"       'reads no card while closed, whatever it hears, and its cards each time it opens'       'counts on its band with the board, which reads it again when someone archives'       'reads its cards again after a reconnection, while it is open'
 }
 
+# The refresh tokens' cleanup (group 19) in compose.yaml word for word as docs/SPEC.md §13.3 has it, after the
+# overdue check's (group 17) and before the time zone's (group 22), as there.
+compose_says_the_cleanup_as_the_spec_does() {
+  count=$(grep -cF '# The refresh token cleanup runs once a day by default' docs/SPEC.md)
+  [ "$count" -eq 1 ] || {
+    echo "docs/SPEC.md has the comment $count times"
+    return 1
+  }
+  line=$(grep -F '# The refresh token cleanup runs once a day by default' docs/SPEC.md)
+  [ "$(grep -cxF -- "$line" compose.yaml)" -eq 1 ] || {
+    echo "compose.yaml doesn't have, once and as it is, the line: $line"
+    return 1
+  }
+  is 'group 17|group 19|group 22' "$(grep -oE '[(]group (17|19|22)[)]$' compose.yaml | tr -d '()' | paste -sd'|' -)"
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2105,6 +2121,7 @@ task_7() {
   check "Arhivate is a reserved name, in any case: 400 on name to POST and PUT, nothing changed" arhivate_is_a_reserved_name
   check "ColumnsChanged: Petru's board hears each of Mara's four changes from her tab, nothing of his 403" columns_changed_reaches_another_board
   check "the board's archivedCount: the archived tasks of CRS for tasks.archive, null for Petru" the_board_counts_the_archived_for_tasks_archive
+  check "compose.yaml has the refresh tokens' cleanup comment of §13.3 word for word, between groups 17 and 22" compose_says_the_cleanup_as_the_spec_does
   check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
   check "the board reads itself again on ColumnsChanged from another tab" the_board_listens_to_columns_changed
   check "Arhivate's band counts with archivedCount, and its cards are read only when it opens" the_archived_column_reads_when_it_opens
