@@ -89,7 +89,7 @@ public sealed class ProjectColumnTests
         var review = _project.AddColumn("Review");
         _project.AddColumn("QA");
 
-        var change = _project.MoveColumn(review.Id, position);
+        var change = _project.MoveColumn(review.Id, position, holdsTasks: false);
 
         change.Should().Be(ColumnChange.Done);
         Names.Should().Equal(expected);
@@ -105,7 +105,7 @@ public sealed class ProjectColumnTests
         var review = _project.AddColumn("Review");
         _project.AddColumn("QA");
 
-        _project.MoveColumn(review.Id, position).Should().Be(ColumnChange.OutOfRange);
+        _project.MoveColumn(review.Id, position, holdsTasks: false).Should().Be(ColumnChange.OutOfRange);
 
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "QA", "Gata");
     }
@@ -116,7 +116,7 @@ public sealed class ProjectColumnTests
     {
         _project.AddColumn("Review");
 
-        _project.MoveColumn(Fixed(kind).Id, 2).Should().Be(ColumnChange.Fixed);
+        _project.MoveColumn(Fixed(kind).Id, 2, holdsTasks: false).Should().Be(ColumnChange.Fixed);
 
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "Gata");
     }
@@ -126,16 +126,77 @@ public sealed class ProjectColumnTests
     {
         var review = _project.AddColumn("Review");
 
-        var move = () => _project.MoveColumn(review.Id, -1);
+        var move = () => _project.MoveColumn(review.Id, -1, holdsTasks: false);
 
         move.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    // SPEC section 4.4, group 23: a column holding tasks, archived ones too, doesn't cross În lucru, either way,
+    // so a started task never lands before it with its column, nor one not started after it.
+    [Fact]
+    public void MoveColumn_HoldingTasksFromAfterInProgressToBeforeIt_CrossesInProgressAndMovesNothing()
+    {
+        var review = _project.AddColumn("Review");
+
+        _project.MoveColumn(review.Id, 1, holdsTasks: true).Should().Be(ColumnChange.CrossesInProgress);
+
+        Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "Gata");
+    }
+
+    [Fact]
+    public void MoveColumn_HoldingTasksFromBeforeInProgressToAfterIt_CrossesInProgressAndMovesNothing()
+    {
+        var analysis = _project.AddColumn("Analiză");
+        _project.MoveColumn(analysis.Id, 1, holdsTasks: false);
+
+        _project.MoveColumn(analysis.Id, 2, holdsTasks: true).Should().Be(ColumnChange.CrossesInProgress);
+        _project.MoveColumn(analysis.Id, 3, holdsTasks: true).Should().Be(ColumnChange.CrossesInProgress);
+
+        Names.Should().Equal("Backlog", "Analiză", "În lucru", "În pauză", "Gata");
+    }
+
+    [Theory]
+    [InlineData(2, new[] { "Backlog", "În lucru", "Review", "În pauză", "QA", "Gata" })]
+    [InlineData(4, new[] { "Backlog", "În lucru", "În pauză", "QA", "Review", "Gata" })]
+    public void MoveColumn_HoldingTasksOnItsSideOfInProgress_Moves(int position, string[] expected)
+    {
+        var review = _project.AddColumn("Review");
+        _project.AddColumn("QA");
+
+        _project.MoveColumn(review.Id, position, holdsTasks: true).Should().Be(ColumnChange.Done);
+
+        Names.Should().Equal(expected);
+    }
+
+    [Fact]
+    public void MoveColumn_HoldingTasksBeforeInProgress_MovesAmongTheOthersThere()
+    {
+        var analysis = _project.AddColumn("Analiză");
+        var design = _project.AddColumn("Design");
+        _project.MoveColumn(analysis.Id, 1, holdsTasks: false);
+        _project.MoveColumn(design.Id, 2, holdsTasks: false);
+
+        _project.MoveColumn(analysis.Id, 2, holdsTasks: true).Should().Be(ColumnChange.Done);
+
+        Names.Should().Equal("Backlog", "Design", "Analiză", "În lucru", "În pauză", "Gata");
+    }
+
+    [Fact]
+    public void MoveColumn_Empty_CrossesInProgressEitherWay()
+    {
+        var review = _project.AddColumn("Review");
+
+        _project.MoveColumn(review.Id, 1, holdsTasks: false).Should().Be(ColumnChange.Done);
+        Names.Should().Equal("Backlog", "Review", "În lucru", "În pauză", "Gata");
+        _project.MoveColumn(review.Id, 3, holdsTasks: false).Should().Be(ColumnChange.Done);
+        Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "Gata");
     }
 
     [Fact]
     public void RemoveColumn_OfItsOwnWhenEmpty_TakesItOutAndClosesTheGap()
     {
         var review = _project.AddColumn("Review");
-        _project.MoveColumn(review.Id, 1);
+        _project.MoveColumn(review.Id, 1, holdsTasks: false);
 
         var change = _project.RemoveColumn(review.Id, holdsTasks: false);
 
@@ -170,7 +231,7 @@ public sealed class ProjectColumnTests
         var elsewhere = new ProjectBuilder().Build().Columns.First().Id;
 
         _project.RenameColumn(elsewhere, "X").Should().Be(ColumnChange.NotFound);
-        _project.MoveColumn(elsewhere, 1).Should().Be(ColumnChange.NotFound);
+        _project.MoveColumn(elsewhere, 1, holdsTasks: false).Should().Be(ColumnChange.NotFound);
         _project.RemoveColumn(elsewhere, holdsTasks: false).Should().Be(ColumnChange.NotFound);
     }
 

@@ -40,6 +40,11 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     private Task<Result<BoardColumnDto[]>> MoveColumn(Project project, Guid columnId, int position) =>
         Handle<MoveBoardColumnCommand, BoardColumnDto[]>(new MoveBoardColumnCommand(project.Id, columnId, position));
 
+    // A request of its own, as the API makes one: a task created here took its number through the project's row,
+    // whose version the test's own scope read before.
+    private Task<Result<BoardColumnDto[]>> MoveColumnApart(Project project, Guid columnId, int position) =>
+        HandleInOwnScope<MoveBoardColumnCommand, BoardColumnDto[]>(new MoveBoardColumnCommand(project.Id, columnId, position));
+
     private Task<Result<Unit>> Delete(Project project, BoardColumn column) => Delete(project, column.Id);
 
     private Task<Result<Unit>> Delete(Project project, Guid columnId) =>
@@ -266,6 +271,76 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
 
         (await MoveColumn(project, review.Id, position)).Error.Should().BeOfType<ValidationError>().Which.Errors.Should().ContainKey("Position");
         (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
+    }
+
+    // SPEC section 4.4, group 23: a column holding tasks, archived ones too, doesn't cross În lucru, either way.
+    [Fact]
+    public async Task Move_AColumnWithATaskToBeforeInProgress_ReturnsCrossesInProgressAndMovesNothing()
+    {
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner, withATask: true);
+
+        var result = await MoveColumnApart(project, review.Id, 1);
+
+        result.Error.Should().Be(ColumnErrors.CrossesInProgress);
+        result.Error.Type.Should().Be(ErrorType.Conflict);
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
+    }
+
+    [Fact]
+    public async Task Move_AColumnWithATaskFromBeforeInProgressToAfterIt_ReturnsCrossesInProgress()
+    {
+        var (owner, project) = await AProject();
+        var analysis = (await Add(project, "Analiză")).Value;
+        (await MoveColumn(project, analysis.Id, 1)).IsSuccess.Should().BeTrue();
+        var task = await CreateTaskAs(owner, project, "De analizat");
+        (await Handle<MoveTaskCommand, TaskItemDto>(new MoveTaskCommand(task.Id, analysis.Id, null))).IsSuccess.Should().BeTrue();
+
+        (await MoveColumnApart(project, analysis.Id, 3)).Error.Should().Be(ColumnErrors.CrossesInProgress);
+        (await ColumnsOf(project)).Should().Be("Backlog | Analiză | În lucru | În pauză | Gata*");
+    }
+
+    [Fact]
+    public async Task Move_AColumnWithOnlyAnArchivedTaskAcrossInProgress_ReturnsCrossesInProgress()
+    {
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner, withATask: true);
+        var task = (await TasksOf(project)).Single();
+        (await Handle<ArchiveTaskCommand, Unit>(new ArchiveTaskCommand(task.Id))).IsSuccess.Should().BeTrue();
+
+        (await MoveColumnApart(project, review.Id, 1)).Error.Should().Be(ColumnErrors.CrossesInProgress);
+    }
+
+    [Fact]
+    public async Task Move_AColumnWithATaskOnItsSideOfInProgress_Moves()
+    {
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner, withATask: true);
+
+        (await MoveColumnApart(project, review.Id, 2)).IsSuccess.Should().BeTrue();
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | Review | În pauză | Gata*");
+    }
+
+    [Fact]
+    public async Task Move_AnEmptyColumn_CrossesInProgressBothWays()
+    {
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner);
+
+        (await MoveColumnApart(project, review.Id, 1)).IsSuccess.Should().BeTrue();
+        (await ColumnsOf(project)).Should().Be("Backlog | Review | În lucru | În pauză | Gata*");
+        (await MoveColumnApart(project, review.Id, 3)).IsSuccess.Should().BeTrue();
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Review | Gata*");
+    }
+
+    // A refusal of the place comes first: 400 on position, as the other checks of the form.
+    [Fact]
+    public async Task Move_AColumnWithATaskBeforeBacklog_ReturnsAValidationErrorOnPositionFirst()
+    {
+        var (owner, project) = await AProject();
+        var review = await AColumnOfItsOwn(project, owner, withATask: true);
+
+        (await MoveColumnApart(project, review.Id, 0)).Error.Should().BeOfType<ValidationError>();
     }
 
     [Fact]

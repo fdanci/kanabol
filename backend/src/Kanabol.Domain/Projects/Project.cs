@@ -113,9 +113,10 @@ public sealed class Project : AuditableEntity, IArchivable
     /// <summary>
     /// A column of the project's own to a place from 0, the others closing up around it: only after
     /// Backlog and before Gata, so the four fixed ones keep their order, with any number of the project's
-    /// own between any two of them (SPEC section 4.4). The fixed ones never move.
+    /// own between any two of them (SPEC section 4.4). The fixed ones never move. One holding tasks, archived ones
+    /// too, stays on its side of În lucru (group 23): a started task would land before it, one not started after it.
     /// </summary>
-    public ColumnChange MoveColumn(Guid columnId, int position)
+    public ColumnChange MoveColumn(Guid columnId, int position, bool holdsTasks)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);
         var column = FindColumn(columnId);
@@ -133,6 +134,13 @@ public sealed class Project : AuditableEntity, IArchivable
         if (position < 1 || position > ordered.Count - 1)
         {
             return ColumnChange.OutOfRange;
+        }
+
+        var inProgress = ordered.FindIndex(other => other.Kind == ColumnKind.InProgress);
+        var wasBefore = column.Position < ordered[inProgress].Position;
+        if (holdsTasks && wasBefore != (position <= inProgress))
+        {
+            return ColumnChange.CrossesInProgress;
         }
 
         ordered.Insert(position, column);

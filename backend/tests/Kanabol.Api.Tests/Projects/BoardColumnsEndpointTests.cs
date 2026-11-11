@@ -113,6 +113,26 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
         (await CodeFrom(response)).Should().Be("Column.NotEmpty");
     }
 
+    // SPEC section 4.4, group 23.
+    [Fact]
+    public async Task Patch_AColumnWithATaskAcrossInProgress_Returns409CrossesInProgress()
+    {
+        var (owner, token) = await SignedIn();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        var review = project.AddColumn("Review");
+        await using (var db = Api.Postgres.CreateContext())
+        {
+            db.BoardColumns.Add(review);
+            db.TaskItems.Add(new TaskItemBuilder().InProject(project).InColumn(review).WithPriority(TaskPriority.Low).Build());
+            await db.SaveChangesAsync();
+        }
+
+        var response = await Send(HttpMethod.Patch, $"{ColumnsOf(project.Id)}/{review.Id}/position", token, new { position = 1 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await CodeFrom(response)).Should().Be("Column.CrossesInProgress");
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

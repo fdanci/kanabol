@@ -1861,9 +1861,9 @@ task_6() {
 # ---- Task 7: group 23, the columns' permission, dragging the columns and the fixes of group 22.
 
 group_23_tests_pass() {
-  classes_pass Kanabol.Domain.Tests 2 PermissionsTests &&
-    classes_pass Kanabol.Application.Tests 90 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
-    classes_pass Kanabol.Api.Tests 15 BoardColumnsEndpointTests BoardEndpointTests
+  classes_pass Kanabol.Domain.Tests 30 PermissionsTests ProjectColumnTests &&
+    classes_pass Kanabol.Application.Tests 95 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
+    classes_pass Kanabol.Api.Tests 16 BoardColumnsEndpointTests BoardEndpointTests
 }
 
 # Someone with a role of their own, signed in from an address of their own (5 logins a minute per address):
@@ -1948,6 +1948,48 @@ columns_manage_is_read_from_the_database() {
   status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":["columns.manage"]}')"
 }
 
+crs_task() { # crs_task <title> <column id>: a task of CRS moved into that column, its id in crs_moved
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/tasks" "{\"title\":\"$1\",\"description\":\"\",\"priority\":\"Low\"}")" || return 1
+  crs_moved=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$crs_moved/position" "{\"columnId\":\"$2\"}")"
+}
+
+# CRS: Analiză before În lucru and Review after În pauză, each holding a task, and Gol, empty.
+a_column_with_tasks_stays_on_its_side_of_in_progress() {
+  the_admin_signs_in || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Peste În lucru","key":"CRS"}')" || return 1
+  crs=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/board-columns" '{"name":"Analiză"}')" || return 1
+  crs_analysis=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_analysis/position" '{"position":1}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/board-columns" '{"name":"Review"}')" || return 1
+  crs_review=$(body_field id)
+  crs_task 'De analizat' "$crs_analysis" || return 1
+  crs_task 'De verificat' "$crs_review" || return 1
+  crs_reviewed=$crs_moved
+  # Review back before În lucru, Analiză forward after it: 409, nothing moved; a place before Backlog is 400 first.
+  code_is 409 Column.CrossesInProgress "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":1}')" || return 1
+  code_is 409 Column.CrossesInProgress "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_analysis/position" '{"position":2}')" || return 1
+  status_is 400 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":0}')" || return 1
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,În pauză:Paused,Review:Custom,Gata:Done' "$(columns_of "$crs")" || return 1
+  # On its side of În lucru it moves: Review between În lucru and În pauză.
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":3}')" || return 1
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gata:Done' "$(columns_of "$crs")"
+}
+
+# Its task archived, Review still holds it: the 409 stays. Empty, Gol crosses În lucru both ways.
+an_archived_task_holds_it_and_an_empty_one_goes_anywhere() {
+  [ -n "${crs_reviewed:-}" ] || a_column_with_tasks_stays_on_its_side_of_in_progress || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$crs_reviewed")" || return 1
+  code_is 409 Column.CrossesInProgress "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":1}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/board-columns" '{"name":"Gol"}')" || return 1
+  crs_empty=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_empty/position" '{"position":1}')" || return 1
+  is 'Backlog:Backlog,Gol:Custom,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gata:Done' "$(columns_of "$crs")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_empty/position" '{"position":5}')" || return 1
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gol:Custom,Gata:Done' "$(columns_of "$crs")"
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -1978,6 +2020,8 @@ task_7() {
   check "Mara, a member with columns.manage, adds, renames, moves and deletes columns" a_member_with_columns_manage_changes_the_columns
   check "Petru without it and Vera outside the project get 403 Project.OwnerRequired, nothing changed" the_others_change_no_column
   check "columns.manage is read from the database: Mara's token outlives her role's permission" columns_manage_is_read_from_the_database
+  check "a column holding tasks doesn't cross În lucru, either way (409 Column.CrossesInProgress), but moves on its side" a_column_with_tasks_stays_on_its_side_of_in_progress
+  check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere
   check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }

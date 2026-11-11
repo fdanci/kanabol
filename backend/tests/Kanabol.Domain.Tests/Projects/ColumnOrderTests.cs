@@ -18,7 +18,7 @@ public sealed class ColumnOrderTests
     {
         // Backlog, Analiză, În lucru, În pauză, Review, Gata.
         _before = _project.AddColumn("Analiză");
-        _project.MoveColumn(_before.Id, 1);
+        _project.MoveColumn(_before.Id, 1, holdsTasks: false);
         _after = _project.AddColumn("Review");
     }
 
