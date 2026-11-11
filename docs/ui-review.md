@@ -132,3 +132,16 @@ Rândul cu motivul pauzei de pe card: textul (`text-600`) 5,57:1 light și 6,71:
 Găsite și reparate tot atunci, din capturi: rândul de jos al cardului ieșea din card când avea deadline, timpul lucrat și numerele (oamenii erau împinși afară), acum trece pe al doilea rând, cu oamenii tot la dreapta; „Fus orar” se repeta pe rândul lui din pagina de setări; `ArchivedTaskDto` trimitea prioritatea ca număr (cardul arhivat nu se desena), reparat în commit-ul task-ului din backend.
 
 Mișcarea: singura animație nouă e iconița care se rotește pe „Reîncarcă” cât citește, oprită sub `prefers-reduced-motion: reduce`; în rest, regula din `styles.scss` duce orice tranziție la 0 ms, iar banda „Arhivate” se deschide fără tranziție.
+
+## Grupul 23: coloanele, tragerea lor și reparările grupului 22
+
+Făcută pe 2026-11-11, pe `feature/columns-manage`, pe datele lui `scripts/demo-data.sh` de acum, pe un API local în Development, pe o bază proprie, cu aplicația din `ng serve`; pe PORT s-a mai adăugat coloana „Doar arhivate”, cu un singur task, arhivat.
+
+- **axe-core** 4.14, rulat în Browser pane cu toate regulile, și cu `label-content-name-mismatch` pornită explicit (e experimentală), în light și în dark.
+- **Setări generale** (`/settings`): fiecare zi are numele întreg ca text ascuns vizual și prescurtarea cu `aria-hidden`, fără `aria-label` (UI §7.9), deci numele citit e cel întreg și cuprinde ce se vede. 0 încălcări în light și în dark; contraproba, o copie a chip-ului „Ma” cu marcajul vechi (`aria-label="Marți"`, prescurtarea citită), pică `label-content-name-mismatch`.
+- **Board** (PORT, cu „Arhivate” deschisă și strânsă, după tragerea coloanelor și dialogul „Coloana «X» are task-uri”): doar `label-content-name-mismatch` pe cele 6 carduri ale board-ului, acceptat în §7.4, în ambele teme; capul unei coloane proprii are cursorul `grab`, al celor fixe nu.
+
+| Ecranul                           | Light                                                      | Dark        |
+| --------------------------------- | ---------------------------------------------------------- | ----------- |
+| 7.9 Setări generale (`/settings`) | 0 încălcări                                                | 0 încălcări |
+| 7.4 Board, „Arhivate” deschisă    | `label-content-name-mismatch` pe carduri, acceptat în §7.4 | la fel      |

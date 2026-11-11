@@ -42,11 +42,12 @@
                     type="button"
                     class="kb-filter-chip day"
                     [attr.aria-pressed]="isChosen(day.day)"
-                    [attr.aria-label]="day.name"
                     [matTooltip]="day.name"
                     (click)="toggle(day.day)"
                   >
-                    {{ day.short }}
+                    <!-- The full name is the one read, holding what is seen (docs/UI_UX_SPEC.md §7.9, group 23). -->
+                    <span aria-hidden="true">{{ day.short }}</span>
+                    <span class="kb-visually-hidden">{{ day.name }}</span>
                   </button>
                 }
               </div>

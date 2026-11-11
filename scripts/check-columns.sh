@@ -2180,6 +2180,20 @@ the_column_with_tasks_says_why() {
     specs_pass "src/app/shared/ui/confirm-dialog.spec.ts" 8
 }
 
+# The days of "Setări generale" (UI §7.9): the full name as visually hidden text, the short one aria-hidden, no
+# aria-label, so the name read holds what is seen; docs/ui-review.md has axe-core's run on /settings and on the
+# board, in both themes.
+the_days_are_named_whole() {
+  settings_web=$app/features/settings
+  in_file '<span aria-hidden="true">{{ day.short }}</span>' "$settings_web/settings-page.html" &&
+    in_file '<span class="kb-visually-hidden">{{ day.name }}</span>' "$settings_web/settings-page.html" &&
+    lacks 'aria-label\]="day.name"' "$settings_web/settings-page.html" &&
+    specs_pass "src/app/features/settings/settings-page.spec.ts" 6 &&
+    in_file '## Grupul 23: coloanele, tragerea lor și reparările grupului 22' docs/ui-review.md &&
+    in_file '| 7.9 Setări generale (`/settings`) | 0 încălcări' docs/ui-review.md &&
+    in_file 'pică `label-content-name-mismatch`' docs/ui-review.md
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2229,6 +2243,7 @@ task_7() {
   check "back from În pauză a task with an estimate asks nothing: the board's mouse and keyboard, the panel's Stare" the_estimate_is_asked_only_once
   check "the columns of the project's own drag by their head between Backlog and Gata, the cards still between columns" the_columns_drag_by_their_head
   check "a column with tasks across În lucru: the dialog, by a drop, the menu and the API's 409" the_column_with_tasks_says_why
+  check "Setări generale names each day whole, the short name aria-hidden; ui-review.md has axe-core's run" the_days_are_named_whole
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 
