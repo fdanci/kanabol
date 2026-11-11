@@ -1105,6 +1105,7 @@ describe('BoardPage', () => {
     beforeEach(() => {
       localStorage.removeItem(ARCHIVED_STATE_KEY);
       board.canSeeArchived = true;
+      board.archivedCount = 2;
       archivedCards = [
         anArchivedCard('KAN-9', 'c2', 'În lucru', { title: 'Arhivat din lucru' }),
         anArchivedCard('KAN-8', 'c3', 'Gata', { title: 'Arhivat din Gata', priority: 'Low' }),
@@ -1143,14 +1144,53 @@ describe('BoardPage', () => {
     }
 
     // What was archived or restored while the connection was away went unheard, as for the board.
-    it('reads its cards again after a reconnection', async () => {
-      await visit();
+    it('reads its cards again after a reconnection, while it is open', async () => {
+      await opened();
       const reads = api['archived'].mock.calls.length;
 
       realtime.reconnect();
       await settle();
 
       expect(api['archived'].mock.calls.length).toBe(reads + 1);
+    });
+
+    // docs/SPEC.md §4.4 and docs/UI_UX_SPEC.md §7.4, group 23: the band counts with the board's archivedCount,
+    // and the cards come only when the column opens.
+    it('reads no card while closed, whatever it hears, and its cards each time it opens', async () => {
+      await visit();
+      realtime.reconnect();
+      realtime.send('TaskArchived', {
+        taskId: 'id-KAN-3',
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      await settle();
+      expect(api['archived']).not.toHaveBeenCalled();
+
+      archivedColumn()!.querySelector<HTMLButtonElement>('.band')!.click();
+      await settle();
+      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
+      expect(api['archived']).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts on its band with the board, which reads it again when someone archives', async () => {
+      board.archivedCount = 7;
+      await visit();
+      const band = archivedColumn()!.querySelector<HTMLButtonElement>('.band')!;
+      expect(band.querySelector('.count')?.textContent.trim()).toBe('7');
+
+      api['board'].mockReturnValue(of({ ...structuredClone(board), archivedCount: 8 }));
+      realtime.send('TaskArchived', {
+        taskId: 'id-KAN-3',
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      await settle();
+
+      expect(band.querySelector('.count')?.textContent.trim()).toBe('8');
+      expect(band.getAttribute('aria-label')).toBe('Arhivate, 8 task-uri. Deschide coloana.');
     });
 
     it('comes last, after + Coloană, only for tasks.archive', async () => {
@@ -1161,7 +1201,6 @@ describe('BoardPage', () => {
       expect(board.lastElementChild?.previousElementSibling?.classList).toContain(
         'add-column-slot',
       );
-      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
     });
 
     it('stays away, and reads nothing, without tasks.archive', async () => {
@@ -1196,6 +1235,7 @@ describe('BoardPage', () => {
       await visit();
 
       expect(archivedColumn()!.classList).toContain('open');
+      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
     });
 
     it('shows its cards faded, with when they were archived in place of the deadline', async () => {
@@ -1264,7 +1304,7 @@ describe('BoardPage', () => {
       );
       expect(api['archive']).toHaveBeenCalledWith('id-KAN-1');
       expect(api['board']).toHaveBeenCalledTimes(2);
-      expect(api['archived']).toHaveBeenCalledTimes(2);
+      expect(api['archived']).not.toHaveBeenCalled();
       expect(snackbar.show).toHaveBeenCalledWith('Task-ul KAN-1 a fost arhivat.');
       expect(api['move']).not.toHaveBeenCalled();
     });

@@ -42,6 +42,11 @@ public sealed class GetBoardQueryHandler(
         var canManage = open && (await projectAccess.EnsureOwnerAsync(query.ProjectId, currentUser.Id, ct)).IsSuccess;
         var canManageColumns = open && (await projectAccess.EnsureColumnManagerAsync(query.ProjectId, currentUser.Id, ct)).IsSuccess;
 
+        var canSeeArchived = currentUser.HasPermission(Permissions.TasksArchive);
+        // Arhivate shows its count on its band, and reads its cards only when it opens (group 23).
+        int? archivedCount = canSeeArchived
+            ? await db.TaskItems.IgnoreQueryFilters().CountAsync(task => task.ProjectId == query.ProjectId && task.ArchivedAt != null, ct)
+            : null;
         var columns = await db.ColumnsOf(query.ProjectId).ToArrayAsync(ct);
         var rows = await db.TaskItems
             .AsNoTracking()
@@ -90,7 +95,8 @@ public sealed class GetBoardQueryHandler(
             canMove,
             canManage,
             canManageColumns,
-            currentUser.HasPermission(Permissions.TasksArchive),
+            canSeeArchived,
+            archivedCount,
             columns,
             [.. rows.Select(row => new BoardTaskDto(
                 row.Id,

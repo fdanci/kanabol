@@ -1864,7 +1864,8 @@ group_23_tests_pass() {
   classes_pass Kanabol.Domain.Tests 30 PermissionsTests ProjectColumnTests &&
     classes_pass Kanabol.Application.Tests 95 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
     classes_pass Kanabol.Api.Tests 20 BoardColumnsEndpointTests BoardEndpointTests BoardRealtimeFlowTests &&
-    classes_pass Kanabol.Application.Tests 15 BoardEventsHandlerTests
+    classes_pass Kanabol.Application.Tests 23 BoardEventsHandlerTests GetArchivedTasksQueryHandlerTests &&
+    classes_pass Kanabol.Api.Tests 5 ArchivedTasksEndpointTests
 }
 
 # Someone with a role of their own, signed in from an address of their own (5 logins a minute per address):
@@ -2043,6 +2044,26 @@ JSON
   done
 }
 
+# The board counts the archived tasks for tasks.archive only: CRS has one, archived by the CrossesInProgress
+# checks; Petru, without tasks.archive, gets null on PRM.
+the_board_counts_the_archived_for_tasks_archive() {
+  [ -n "${crs_reviewed:-}" ] || an_archived_task_holds_it_and_an_empty_one_goes_anywhere || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$crs/board")" || return 1
+  is 'true 1' "$(json "b.canSeeArchived + ' ' + b.archivedCount")" || return 1
+  is "$(in_db "SELECT count(*) FROM task_items WHERE project_id = '$crs' AND archived_at IS NOT NULL")" "$(json "b.archivedCount")" || return 1
+  a_project_whose_columns_a_member_manages || return 1
+  status_is 200 "$(as "$petru_token" GET "/api/projects/$prm/board")" || return 1
+  is 'false null' "$(json "b.canSeeArchived + ' ' + b.archivedCount")"
+}
+
+# Arhivate's band counts with the board's archivedCount; the column reads its cards only while open.
+the_archived_column_reads_when_it_opens() {
+  in_file '[total]="store.archivedCount()"' "$board/board-page.html" &&
+    in_file "readonly archivedCount = computed(() => this.board()?.archivedCount ?? 0);" "$board/board-store.ts" &&
+    in_file 'if (projectId === null || !this.open()) {' "$board/archived-store.ts" &&
+    specs_named "$board/board-page.spec.ts"       'reads no card while closed, whatever it hears, and its cards each time it opens'       'counts on its band with the board, which reads it again when someone archives'       'reads its cards again after a reconnection, while it is open'
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2083,8 +2104,10 @@ task_7() {
   check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere
   check "Arhivate is a reserved name, in any case: 400 on name to POST and PUT, nothing changed" arhivate_is_a_reserved_name
   check "ColumnsChanged: Petru's board hears each of Mara's four changes from her tab, nothing of his 403" columns_changed_reaches_another_board
+  check "the board's archivedCount: the archived tasks of CRS for tasks.archive, null for Petru" the_board_counts_the_archived_for_tasks_archive
   check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
   check "the board reads itself again on ColumnsChanged from another tab" the_board_listens_to_columns_changed
+  check "Arhivate's band counts with archivedCount, and its cards are read only when it opens" the_archived_column_reads_when_it_opens
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 

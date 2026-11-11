@@ -57,6 +57,8 @@ export interface BoardDto {
   canManageColumns: boolean;
   /** tasks.archive in the token: the board shows the column Arhivate (docs/SPEC.md §4.4). */
   canSeeArchived: boolean;
+  /** The project's archived tasks, for tasks.archive, null for anyone else: Arhivate's band (group 23). */
+  archivedCount: number | null;
   columns: BoardColumnDto[];
   tasks: BoardTaskDto[];
 }

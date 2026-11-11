@@ -21,8 +21,9 @@ function wasOpen(): boolean {
 /**
  * The column Arhivate of a board (docs/SPEC.md §4.4, docs/UI_UX_SPEC.md §7.4), for tasks.archive: the
  * project's archived cards, from the latest archiving, 50 at a time, read again after an archiving or a
- * restoring, this tab's or anyone's. Closed by default, and as this browser last left it. The board page
- * provides one with its BoardStore.
+ * restoring, this tab's or anyone's. Closed by default, and as this browser last left it. From group 23 it
+ * reads only while open, each time it opens: closed, its band counts with the board's archivedCount. The
+ * board page provides one with its BoardStore.
  */
 @Injectable()
 export class ArchivedStore {
@@ -59,7 +60,7 @@ export class ArchivedStore {
     });
   }
 
-  /** The project's archived cards, read once for each project. */
+  /** The project's archived cards, read for each project once the column is open. */
   show(projectId: string): void {
     if (this.projectId === projectId) {
       return;
@@ -78,12 +79,13 @@ export class ArchivedStore {
     } catch {
       // A browser that keeps nothing opens the column closed next time.
     }
+    void this.read();
   }
 
-  /** The first page again, keeping what's shown until it comes. */
+  /** The first page again, keeping what's shown until it comes; nothing while the column is closed. */
   async read(): Promise<void> {
     const projectId = this.projectId;
-    if (projectId === null) {
+    if (projectId === null || !this.open()) {
       return;
     }
     const read = ++this.reads;

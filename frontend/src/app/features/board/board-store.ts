@@ -76,6 +76,8 @@ export class BoardStore {
   readonly canMove = computed(() => this.board()?.canMove ?? false);
   /** An owner, projects.manage or a member with columns.manage changes the columns (docs/SPEC.md §4.4, group 23). */
   readonly canManageColumns = computed(() => this.board()?.canManageColumns ?? false);
+  /** The project's archived tasks, which Arhivate's band shows (docs/UI_UX_SPEC.md §7.4, group 23). */
+  readonly archivedCount = computed(() => this.board()?.archivedCount ?? 0);
   /** tasks.archive in the token: the column Arhivate (docs/SPEC.md §4.4). */
   readonly canSeeArchived = computed(() => this.board()?.canSeeArchived ?? false);
   /** tasks.create from the token, and a real membership of an open project (docs/SPEC.md §4.4). */

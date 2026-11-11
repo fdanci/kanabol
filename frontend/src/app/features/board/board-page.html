@@ -112,7 +112,7 @@
       @if (store.canSeeArchived()) {
         <kb-archived-column
           [cards]="archived.cards()"
-          [total]="archived.total()"
+          [total]="store.archivedCount()"
           [open]="archived.open()"
           [state]="archived.state()"
           [hasMore]="archived.hasMore()"

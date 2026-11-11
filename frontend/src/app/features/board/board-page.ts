@@ -186,7 +186,7 @@ export class BoardPage {
         });
       }
     });
-    // Arhivate, for tasks.archive: its cards are read with the board's.
+    // Arhivate, for tasks.archive: its cards are read once it opens, its count comes with the board.
     effect(() => {
       const projectId = this.projectId();
       if (projectId !== '' && this.store.canSeeArchived()) {

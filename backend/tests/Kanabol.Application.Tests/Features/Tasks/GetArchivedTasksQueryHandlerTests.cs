@@ -141,6 +141,36 @@ public sealed class GetArchivedTasksQueryHandlerTests(PostgresFixture postgres) 
         (await Archived(project.Id)).Value.Items.Select(card => card.Title).Should().Equal("Al lui");
     }
 
+    // SPEC section 4.4, group 23: the board counts the project's archived tasks, for tasks.archive only, so the
+    // band shows its number before the column reads its cards.
+    [Fact]
+    public async Task Board_WithTasksArchive_CountsTheProjectsArchivedTasks()
+    {
+        var (owner, project) = await AProject();
+        var first = (await Create(NewTask(project, "Primul"))).Value;
+        var second = (await Create(NewTask(project, "Al doilea"))).Value;
+        await Create(NewTask(project, "Rămâne"));
+        var other = await CreateProject(builder => builder.WithKey("ALT").OwnedBy(owner));
+        await Archive((await Create(NewTask(other, "Al altui proiect"))).Value, Now.AddHours(1));
+        (await Ask<GetBoardQuery, BoardDto>(new GetBoardQuery(project.Id))).Value.ArchivedCount.Should().Be(0);
+
+        await Archive(first, Now.AddHours(2));
+        await Archive(second, Now.AddHours(3));
+
+        (await Ask<GetBoardQuery, BoardDto>(new GetBoardQuery(project.Id))).Value.ArchivedCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Board_WithoutTasksArchive_GivesNoArchivedCount()
+    {
+        var (_, project) = await AProject();
+        var task = (await Create(NewTask(project, "Primul"))).Value;
+        await Archive(task, Now.AddHours(1));
+        HoldsInToken();
+
+        (await Ask<GetBoardQuery, BoardDto>(new GetBoardQuery(project.Id))).Value.ArchivedCount.Should().BeNull();
+    }
+
     [Fact]
     public async Task Board_SaysCanSeeArchived_AsTheTokenHoldsTasksArchive()
     {

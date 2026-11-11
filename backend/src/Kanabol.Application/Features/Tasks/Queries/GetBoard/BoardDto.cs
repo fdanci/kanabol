@@ -8,7 +8,8 @@ namespace Kanabol.Application.Features.Tasks.Queries.GetBoard;
 /// projects.manage, of an open project, for the project's settings and members. CanManageColumns: those, or a
 /// real member whose role has columns.manage, of an open project, who change the columns (group 23). The API
 /// checks them all again anyway.
-/// CanSeeArchived: tasks.archive in the token, for whom the board shows the column "Arhivate" (SPEC section 4.4).
+/// CanSeeArchived: tasks.archive in the token, for whom the board shows the column "Arhivate" (SPEC section 4.4),
+/// and ArchivedCount, the project's archived tasks, null for anyone else (group 23).
 /// </summary>
 public sealed record BoardDto(
     Guid ProjectId,
@@ -18,5 +19,6 @@ public sealed record BoardDto(
     bool CanManage,
     bool CanManageColumns,
     bool CanSeeArchived,
+    int? ArchivedCount,
     BoardColumnDto[] Columns,
     BoardTaskDto[] Tasks);

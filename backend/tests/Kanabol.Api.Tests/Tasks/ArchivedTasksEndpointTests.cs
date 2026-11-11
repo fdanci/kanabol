@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Kanabol.Api.Tests.Projects;
 using Kanabol.Api.Tests.Support;
 using Kanabol.Domain.Authorization;
@@ -36,6 +37,7 @@ public sealed class ArchivedTasksEndpointTests(ApiFixture api) : ProjectApiTest(
         card.GetProperty("archivedAt").GetDateTimeOffset().Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
         using var board = await JsonFrom(await Send(HttpMethod.Get, $"/api/projects/{project.Id}/board", token));
         board.RootElement.GetProperty("canSeeArchived").GetBoolean().Should().BeTrue();
+        board.RootElement.GetProperty("archivedCount").GetInt32().Should().Be(1);
     }
 
     [Fact]
@@ -50,6 +52,7 @@ public sealed class ArchivedTasksEndpointTests(ApiFixture api) : ProjectApiTest(
         (await CodeFrom(response)).Should().Be("Auth.PermissionRequired");
         using var board = await JsonFrom(await Send(HttpMethod.Get, $"/api/projects/{project.Id}/board", token));
         board.RootElement.GetProperty("canSeeArchived").GetBoolean().Should().BeFalse();
+        board.RootElement.GetProperty("archivedCount").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]
