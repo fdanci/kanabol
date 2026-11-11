@@ -282,6 +282,8 @@ export class BoardStore {
     }
     const before = board.columns;
     this.placeColumns((columns) => placeColumn(columns, column.id, position));
+    // What others change waits, as for a move of a card: a read from before the move would put it back.
+    this.moving++;
     try {
       const columns = await firstValueFrom(
         this.api.moveColumn(board.projectId, column.id, position),
@@ -293,6 +295,9 @@ export class BoardStore {
       this.reload();
       const problem = error instanceof HttpErrorResponse ? problemIn(error) : null;
       return problem?.code === 'Column.CrossesInProgress' ? 'crossesInProgress' : 'refused';
+    } finally {
+      this.moving--;
+      this.settle();
     }
   }
 

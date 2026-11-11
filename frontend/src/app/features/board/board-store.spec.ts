@@ -372,6 +372,29 @@ describe('BoardStore', () => {
       expect(store.columns().map((column) => column.name)).toEqual(before);
     });
 
+    // Review of group 23: what others change waits while a move of a column waits for the API, as for a card.
+    it('holds what others change while a column move waits for the API, and reads once after', async () => {
+      const answer = new Subject<BoardColumnDto[]>();
+      api['moveColumn'].mockReturnValue(answer);
+      await opened();
+
+      const moving = store.moveColumn(store.columns()[2], 1);
+      realtime.send('ColumnsChanged', {
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      TestBed.tick();
+      expect(api['board']).toHaveBeenCalledTimes(1);
+
+      answer.next(store.columns());
+      answer.complete();
+      await moving;
+      TestBed.tick();
+
+      expect(api['board']).toHaveBeenCalledTimes(2);
+    });
+
     it('reads the board again after a column is added or deleted', async () => {
       await opened();
 

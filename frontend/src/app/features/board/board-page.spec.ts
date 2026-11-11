@@ -1444,6 +1444,26 @@ describe('BoardPage', () => {
       expect(api['archived']).toHaveBeenCalledTimes(1);
     });
 
+    // Review of group 23: a column renamed elsewhere changes the column names its cards come back to.
+    it('reads its cards again on ColumnsChanged while it is open, and not while closed', async () => {
+      await visit();
+      const changed = {
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      };
+      realtime.send('ColumnsChanged', changed);
+      await settle();
+      expect(api['archived']).not.toHaveBeenCalled();
+
+      archivedColumn()!.querySelector<HTMLButtonElement>('.band')!.click();
+      await settle();
+      realtime.send('ColumnsChanged', changed);
+      await settle();
+
+      expect(api['archived']).toHaveBeenCalledTimes(2);
+    });
+
     it('counts on its band with the board, which reads it again when someone archives', async () => {
       board.archivedCount = 7;
       await visit();

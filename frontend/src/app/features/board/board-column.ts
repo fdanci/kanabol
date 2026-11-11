@@ -101,7 +101,7 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
         }
         <span class="count" aria-hidden="true">{{ cards().length }}</span>
         <span class="kb-visually-hidden">{{ countLabel() }}</span>
-        @if (canManage() && column().kind === 'Custom') {
+        @if (canManageColumns() && column().kind === 'Custom') {
           <button
             matIconButton
             class="menu"
@@ -353,7 +353,8 @@ export class BoardColumn {
   readonly dragEnded = output();
   readonly created = output<NewCard>();
   /** An owner, or projects.manage, of an open project. */
-  readonly canManage = input(false);
+  /** The column's ⋮, for canManageColumns (docs/SPEC.md §4.4, group 23). */
+  readonly canManageColumns = input(false);
   /** A column of the project's own, for canManageColumns: its head drags it (docs/UI_UX_SPEC.md §7.4). */
   readonly canDrag = input(false);
   /** Only an empty column of the project's own. */

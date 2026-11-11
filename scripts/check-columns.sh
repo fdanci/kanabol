@@ -1316,7 +1316,7 @@ the_fixed_columns_wear_their_kind() {
   done
   in_file 'box-shadow: inset 0 3px 0 var(--kb-kind);' "$board/board-column.ts" &&
     in_file 'class="material-symbols-outlined kind-icon" aria-hidden="true"' "$board/board-column.ts" &&
-    in_file "@if (canManage() && column().kind === 'Custom')" "$board/board-column.ts" &&
+    in_file "@if (canManageColumns() && column().kind === 'Custom')" "$board/board-column.ts" &&
     in_file "[canCreate]=\"store.canCreate() && column.kind === 'Backlog'\"" "$board/board-page.html" &&
     in_file '[cdkDropListEnterPredicate]="accepts"' "$board/board-column.ts" &&
     in_file 'Un task început nu se mai întoarce înainte de «În lucru».' "$board/board-page.ts"
@@ -2261,7 +2261,7 @@ the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
     in_file '$localize`Administrează coloanele board-ului, în proiectele în care e membru`' "$app/features/roles/permission-groups.ts" &&
-    in_file '[canManage]="store.canManageColumns()"' "$board/board-page.html" &&
+    in_file '[canManageColumns]="store.canManageColumns()"' "$board/board-page.html" &&
     in_file '@if (store.canManageColumns()) {' "$board/board-page.html" &&
     in_file 'if (!board?.canManageColumns) {' "$board/board-store.ts" &&
     specs_named "$app/features/roles/permission-groups.spec.ts" 'says what columns.manage lets someone do, among the projects' &&

@@ -77,7 +77,7 @@
             [pulses]="store.pulses()"
             [canMove]="store.canMove()"
             [canCreate]="store.canCreate() && column.kind === 'Backlog'"
-            [canManage]="store.canManageColumns()"
+            [canManageColumns]="store.canManageColumns()"
             [canDelete]="canDelete(column)"
             [canMoveLeft]="canMoveLeft(column)"
             [canMoveRight]="canMoveRight(column)"

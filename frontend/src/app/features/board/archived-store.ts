@@ -1,6 +1,6 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { TaskMessage } from '../../core/realtime/models';
+import { ProjectMessage } from '../../core/realtime/models';
 import { Realtime } from '../../core/realtime/realtime';
 import { BoardApi } from './board-api';
 import { ArchivedTaskDto } from './models';
@@ -42,7 +42,7 @@ export class ArchivedStore {
 
   constructor() {
     const realtime = inject(Realtime);
-    const heard = (message: TaskMessage) => {
+    const heard = (message: ProjectMessage) => {
       if (message.projectId === this.projectId) {
         void this.read();
       }
@@ -50,6 +50,8 @@ export class ArchivedStore {
     const stopListening = [
       realtime.on('TaskArchived', heard),
       realtime.on('TaskRestored', heard),
+      // A column renamed or deleted elsewhere changes the names the cards come back to (group 23).
+      realtime.on('ColumnsChanged', heard),
       // Whatever was archived or restored while the connection was away went unheard.
       realtime.onReconnected(() => void this.read()),
     ];
