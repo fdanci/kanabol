@@ -5,12 +5,14 @@ import { TestBed } from '@angular/core/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
 import { MATERIAL_ANIMATIONS } from '@angular/material/core';
 import { MatMenuHarness } from '@angular/material/menu/testing';
+import { MatTooltip } from '@angular/material/tooltip';
 import { By } from '@angular/platform-browser';
 import { Router, RouterOutlet, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Observable, Subject, of } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { FakeRealtime, provideFakeRealtime } from '../../core/realtime/realtime-testing';
+import { MoveQuestions } from '../../shared/move-questions';
 import { TaskChanges } from '../../shared/task-changes';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
 import { Snackbar } from '../../shared/ui/snackbar';
@@ -45,6 +47,7 @@ describe('BoardPage', () => {
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   let announcer: { announce: ReturnType<typeof vi.fn> };
   let confirmation: { ask: ReturnType<typeof vi.fn>; discardChanges: ReturnType<typeof vi.fn> };
+  let questions: { estimate: ReturnType<typeof vi.fn>; pauseReason: ReturnType<typeof vi.fn> };
   let harness: RouterTestingHarness;
 
   beforeEach(() => {
@@ -68,6 +71,11 @@ describe('BoardPage', () => {
     confirmation = {
       ask: vi.fn(() => Promise.resolve(true)),
       discardChanges: vi.fn(() => Promise.resolve(true)),
+    };
+    // The sheets of docs/UI_UX_SPEC.md §7.4 answer at once: an hour, or the reason.
+    questions = {
+      estimate: vi.fn(() => Promise.resolve(60)),
+      pauseReason: vi.fn(() => Promise.resolve('Aștept clientul')),
     };
 
     TestBed.configureTestingModule({
@@ -95,6 +103,7 @@ describe('BoardPage', () => {
         { provide: Snackbar, useValue: snackbar },
         { provide: LiveAnnouncer, useValue: announcer },
         { provide: Confirmation, useValue: confirmation },
+        { provide: MoveQuestions, useValue: questions },
         { provide: MATERIAL_ANIMATIONS, useValue: { animationsDisabled: true } },
       ],
     });
@@ -284,7 +293,7 @@ describe('BoardPage', () => {
     await settle();
 
     expect(shown()).toBe('A C | B D | E');
-    expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0);
+    expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0, { estimatedMinutes: 60 });
     answer.next({});
     answer.complete();
     await settle();
@@ -435,7 +444,7 @@ describe('BoardPage', () => {
 
       await press('B', ' ');
 
-      expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0);
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0, { estimatedMinutes: 60 });
       expect(shown()).toBe('A C | B D | E');
       expect(card('B').classList).not.toContain('lifted');
       expect(said()).toBe('Mutat în «În lucru», poziția 1 din 2');
@@ -604,7 +613,7 @@ describe('BoardPage', () => {
       drop(task('C'), 'c1', 'c2', 2, 0);
       await settle();
 
-      expect(api['move']).toHaveBeenCalledWith('id-KAN-3', 'c2', 1);
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-3', 'c2', 1, { estimatedMinutes: 60 });
     });
 
     it('moves from the keyboard among the cards it shows', async () => {
@@ -917,6 +926,146 @@ describe('BoardPage', () => {
       expect(shown()).toBe('A | B | C | D |  | E');
       await press('C', 'Escape');
       expect(api['move']).not.toHaveBeenCalled();
+    });
+  });
+
+  // docs/UI_UX_SPEC.md §7.4 (group 22): Backlog, Analiză, În lucru, În pauză, Review and Gata; A in Backlog
+  // without an estimate, C in În lucru, 2 h 10 min of 4 h, D in În pauză, E in Gata, an hour over its estimate.
+  describe('what a move asks first', () => {
+    beforeEach(() => {
+      board.columns = OWN_COLUMNS.map((found) => ({ ...found }));
+      board.tasks = [
+        aCard('KAN-1', 'c1', 0, { title: 'A' }),
+        aCard('KAN-3', 'c2', 0, {
+          title: 'C',
+          estimatedMinutes: 240,
+          workedSeconds: 7_800,
+          isWorking: true,
+        }),
+        aCard('KAN-4', 'c5', 0, {
+          title: 'D',
+          estimatedMinutes: 60,
+          pauseReason: 'Aștept clientul',
+        }),
+        aCard('KAN-6', 'c5', 1, { title: 'F' }),
+        aCard('KAN-5', 'c3', 0, {
+          title: 'E',
+          estimatedMinutes: 60,
+          workedSeconds: 7_200,
+          completedAt: '2026-11-05T08:00:00Z',
+        }),
+      ];
+    });
+
+    async function press(title: string, key: string): Promise<void> {
+      card(title).dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      );
+      await settle();
+    }
+
+    it('asks for an estimate before a card without one starts, and sends it with the move', async () => {
+      await visit();
+
+      drop(task('A'), 'c1', 'c2', 0, 0);
+      await settle();
+
+      expect(questions.estimate).toHaveBeenCalledWith('KAN-1');
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c2', 0, { estimatedMinutes: 60 });
+      expect(shown()).toBe(' |  | A C | D F |  | E');
+      expect(card('A').querySelector('.worked')?.textContent.trim()).toBe('timer 0 min / 1 h');
+    });
+
+    it('moves a card that has an estimate into În lucru without asking', async () => {
+      board.tasks[0] = aCard('KAN-1', 'c1', 0, { title: 'A', estimatedMinutes: 120 });
+      await visit();
+
+      drop(task('A'), 'c1', 'c2', 0, 1);
+      await settle();
+
+      expect(questions.estimate).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c2', 1);
+    });
+
+    it('asks why before every pause, and shows the reason on the card', async () => {
+      await visit();
+
+      drop(task('C'), 'c2', 'c5', 0, 2);
+      await settle();
+
+      expect(questions.pauseReason).toHaveBeenCalledWith('KAN-3');
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-3', 'c5', 2, {
+        pauseReason: 'Aștept clientul',
+      });
+      const paused = card('C');
+      expect(paused.querySelector('.reason-text')?.textContent.trim()).toBe('Aștept clientul');
+      expect(paused.getAttribute('aria-label')).toBe('KAN-3 C. Pe pauză: Aștept clientul');
+      expect(
+        harness.fixture.debugElement
+          .query(By.css('[data-task-id="id-KAN-3"] .reason'))
+          .injector.get(MatTooltip).message,
+      ).toBe('Aștept clientul');
+      expect(paused.querySelector('.timer')?.classList).not.toContain('working');
+    });
+
+    it('asks nothing for a card reordered within În pauză', async () => {
+      await visit();
+
+      drop(task('F'), 'c5', 'c5', 1, 0);
+      await settle();
+
+      expect(questions.pauseReason).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-6', 'c5', 0);
+    });
+
+    it('puts the card back and asks the API nothing when the sheet is turned down', async () => {
+      questions.estimate.mockReturnValue(Promise.resolve(null));
+      await visit();
+
+      drop(task('A'), 'c1', 'c2', 0, 0);
+      await settle();
+
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(shown()).toBe('A |  | C | D F |  | E');
+    });
+
+    it('asks from the keyboard too, and says when the sheet was turned down', async () => {
+      await visit();
+
+      await press('A', ' ');
+      await press('A', 'ArrowRight');
+      await press('A', 'ArrowRight');
+      await press('A', ' ');
+      await settle();
+
+      expect(questions.estimate).toHaveBeenCalledWith('KAN-1');
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c2', 0, { estimatedMinutes: 60 });
+
+      questions.pauseReason.mockReturnValue(Promise.resolve(null));
+      await press('C', ' ');
+      await press('C', 'ArrowRight');
+      await press('C', ' ');
+      await settle();
+
+      expect(questions.pauseReason).toHaveBeenCalledWith('KAN-3');
+      expect(String(announcer.announce.mock.lastCall?.[0])).toBe('Mutarea a fost anulată.');
+      expect(api['move']).toHaveBeenCalledTimes(1);
+    });
+
+    // As of the board's last read: the chip doesn't tick.
+    it('shows the time worked against the estimate, danger once over, the timer in accent in În lucru', async () => {
+      await visit();
+
+      const working = card('C').querySelector('.worked')!;
+      expect(working.textContent.trim()).toBe('timer 2 h 10 min / 4 h');
+      expect(working.classList).not.toContain('over');
+      expect(working.querySelector('.timer')?.classList).toContain('working');
+      expect(working.querySelector('.timer')?.getAttribute('aria-hidden')).toBe('true');
+      const over = card('E').querySelector('.worked')!;
+      expect(over.textContent.trim()).toBe('timer 2 h / 1 h');
+      expect(over.classList).toContain('over');
+      expect(card('A').querySelector('.worked')).toBeNull();
+      expect(card('D').querySelector('.reason-text')?.textContent.trim()).toBe('Aștept clientul');
     });
   });
 

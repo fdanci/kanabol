@@ -1,4 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { MatTooltip } from '@angular/material/tooltip';
+import { ColumnKind } from '../../shared/models/column-kind';
+import { formatHoursMinutes, formatWorked, isOverEstimate } from '../../shared/models/estimate';
 import { priorityLabel } from '../../shared/models/task-filters';
 import { AvatarStack } from '../../shared/ui/avatar-stack';
 import { Chip, ChipKind } from '../../shared/ui/chip';
@@ -7,14 +10,15 @@ import { BoardTaskDto } from './models';
 
 /**
  * A card on the board (docs/UI_UX_SPEC.md §7.4): the key and the priority, the title on at most two
- * lines, then the deadline, the counts and everyone it's assigned to. The column makes it draggable and
- * opens it; the card only shows it. The look is on an inner box, because the CDK moves the dragged
+ * lines, in În pauză the pause's reason on one line, then the deadline, with an estimate the time worked
+ * against it as of the board's last read, the counts and everyone it's assigned to. The column makes it
+ * draggable and opens it; the card only shows it. The look is on an inner box, because the CDK moves the dragged
  * copy with a transform on the host, and the tilt of a picked-up card needs one of its own.
  */
 @Component({
   selector: 'kb-task-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AvatarStack, Chip, DeadlineChip],
+  imports: [AvatarStack, Chip, DeadlineChip, MatTooltip],
   // Two names for one pulse, so the next change starts it again (docs/UI_UX_SPEC.md §7.4).
   host: {
     '[class.pulse-a]': 'pulse() % 2 === 1',
@@ -27,9 +31,26 @@ import { BoardTaskDto } from './models';
         <kb-chip [kind]="priorityKind()">{{ priority() }}</kb-chip>
       </div>
       <p class="title">{{ task().title }}</p>
+      @if (kind() === 'Paused' && task().pauseReason; as reason) {
+        <p class="reason" [matTooltip]="reason">
+          <span class="material-symbols-outlined" aria-hidden="true">pause_circle</span>
+          <span class="reason-text">{{ reason }}</span>
+        </p>
+      }
       <div class="bottom">
         @if (task().dueDate; as dueDate) {
           <kb-deadline-chip [dueDate]="dueDate" [done]="done()" />
+        }
+        @if (worked(); as worked) {
+          <kb-chip class="worked" [kind]="over() ? 'over' : 'neutral'">
+            <span
+              class="material-symbols-outlined timer"
+              [class.working]="kind() === 'InProgress'"
+              aria-hidden="true"
+              >timer</span
+            >
+            {{ worked }}
+          </kb-chip>
         }
         @if (task().commentCount > 0) {
           <span class="count" i18n-title title="Comentarii">
@@ -161,6 +182,37 @@ import { BoardTaskDto } from './models';
       -webkit-box-orient: vertical;
     }
 
+    .reason {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      margin: 0;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--kb-text-600);
+    }
+
+    .reason .material-symbols-outlined {
+      flex: none;
+      font-size: 14px;
+      color: var(--kb-warning-600);
+    }
+
+    .reason-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .timer {
+      font-size: 14px;
+    }
+
+    .timer.working {
+      color: var(--kb-accent-600);
+    }
+
     .count {
       display: inline-flex;
       align-items: center;
@@ -205,6 +257,19 @@ export class TaskCard {
   readonly done = input(false);
   /** How many times someone else changed it: each change pulses it once. */
   readonly pulse = input(0);
+  /** The kind of its column: În lucru colors the timer, În pauză shows the reason. */
+  readonly kind = input<ColumnKind>('Custom');
+
+  /** "2 h 10 min / 4 h", with an estimate only. */
+  protected readonly worked = computed(() => {
+    const { estimatedMinutes, workedSeconds } = this.task();
+    return estimatedMinutes === null
+      ? null
+      : `${formatWorked(workedSeconds)} / ${formatHoursMinutes(estimatedMinutes)}`;
+  });
+  protected readonly over = computed(() =>
+    isOverEstimate(this.task().workedSeconds, this.task().estimatedMinutes),
+  );
 
   protected readonly priority = computed(() => priorityLabel(this.task().priority));
   protected readonly priorityKind = computed(() => this.task().priority.toLowerCase() as ChipKind);

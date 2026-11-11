@@ -61,7 +61,10 @@
 #      computed from _tokens.scss, which has no token since the group's base; the board's fixed columns with
 #      their bar and icon, the ⋮ only on the project's own, "+ Task" only in Backlog, the project's own
 #      moved only between Backlog and Gata, a started card kept out of the columns before În lucru, by the
-#      mouse and the keyboard, and the board's specs. The packages only.
+#      mouse and the keyboard, and the board's specs; the estimate's sheet before a task without one starts
+#      and the pause's before every pause, by the mouse and the keyboard, their texts, the card waiting in its
+#      new column while they ask and back in its place when they're turned down, the chip "lucrat / estimat"
+#      and the pause's reason on the card, and their specs. The packages only.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1255,12 +1258,57 @@ the_board_specs_pass() {
   specs_pass 'src/app/features/board/*.spec.ts' 94
 }
 
+# The estimate's sheet and the pause's (UI §7.4), shared with the task's panel, their texts, and the card.
+the_sheets_ask_as_the_spec_says() {
+  sheets=$app/shared/ui
+  in_file 'Cât estimezi pentru «{{ data.key }}»?' "$sheets/estimate-sheet.ts" &&
+    in_file 'Estimare (ore)' "$sheets/estimate-sheet.ts" &&
+    in_file 'Cât timp de lucru crezi că ia. O poți schimba din task.' "$sheets/estimate-sheet.ts" &&
+    in_file 'Începe lucrul' "$sheets/estimate-sheet.ts" &&
+    in_file 'Între 0,25 și 1000 de ore.' "$app/shared/models/estimate.ts" &&
+    in_file 'De ce pui pe pauză «{{ data.key }}»?' "$sheets/pause-sheet.ts" &&
+    in_file 'Pune pe pauză' "$sheets/pause-sheet.ts" &&
+    in_file 'Scrie motivul pauzei.' "$sheets/pause-sheet.ts" &&
+    in_file 'export const PAUSE_REASON_MAX = 500;' "$sheets/pause-sheet.ts" &&
+    in_file 'width: SHEET_WIDTH.confirm,' "$app/shared/move-questions.ts" &&
+    in_file 'Mutarea a fost anulată.' "$board/board-page.ts"
+}
+
+the_card_shows_the_work_and_the_pause() {
+  in_file 'timer</span' "$board/task-card.ts" &&
+    in_file "[kind]=\"over() ? 'over' : 'neutral'\"" "$board/task-card.ts" &&
+    in_file 'color: var(--kb-accent-600);' "$board/task-card.ts" &&
+    in_file 'pause_circle</span>' "$board/task-card.ts" &&
+    in_file '[matTooltip]="reason"' "$board/task-card.ts" &&
+    in_file 'text-overflow: ellipsis;' "$board/task-card.ts" &&
+    in_file 'Pe pauză: ${task.pauseReason}:reason:' "$board/board-column.ts"
+}
+
+the_asking_specs_pass() {
+  specs_named "$board/board-page.spec.ts" \
+    'asks for an estimate before a card without one starts, and sends it with the move' \
+    'moves a card that has an estimate into În lucru without asking' \
+    'asks why before every pause, and shows the reason on the card' \
+    'asks nothing for a card reordered within În pauză' \
+    'puts the card back and asks the API nothing when the sheet is turned down' \
+    'asks from the keyboard too, and says when the sheet was turned down' \
+    'shows the time worked against the estimate, danger once over, the timer in accent in În lucru' || return 1
+  specs_named "$board/board-store.spec.ts" \
+    'lets the card wait in its new place while the move asks, then sends the answers and shows them' \
+    'puts the card back, asking the API nothing, when the person gives up' || return 1
+  specs_pass 'src/app/shared/move-questions.spec.ts' 9 &&
+    specs_pass 'src/app/shared/models/estimate.spec.ts' 6
+}
+
 task_5() {
   echo "22.5 the frontend"
   check "the fixed columns' bars and icons reach 3:1 on the column, in light and in dark" fixed_colors_reach_3_to_1
   check "no token is new since the group's base" no_token_is_new
   check "the fixed columns wear their kind: bar, icon, no menu, + Task in Backlog only, no going back" the_fixed_columns_wear_their_kind
   check "the board's specs pass: the fixed columns, the columns of the project, no going back" the_board_specs_pass
+  check "the estimate's and the pause's sheets ask as UI §7.4 says, 440px, shared with the task's panel" the_sheets_ask_as_the_spec_says
+  check "the card shows the time worked against the estimate, and in În pauză the reason" the_card_shows_the_work_and_the_pause
+  check "the specs of the questions pass: the sheets, the board's moves by mouse and keyboard, the store" the_asking_specs_pass
 }
 
 tasks=${*:-1 2 3 4 5}

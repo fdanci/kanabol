@@ -26,6 +26,7 @@ import {
   filtersToQuery,
   hasFilters,
 } from '../../shared/models/task-filters';
+import { MoveQuestions } from '../../shared/move-questions';
 import { TaskChanges } from '../../shared/task-changes';
 import { openTaskPanel } from '../../shared/task-panel';
 import { Confirmation } from '../../shared/ui/confirm-dialog';
@@ -37,7 +38,7 @@ import { BoardColumn, NewCard } from './board-column';
 import { cardFilter } from './board-filters';
 import { placeAmong } from './board-moves';
 import { BoardStore } from './board-store';
-import { BoardColumnDto, BoardTaskDto } from './models';
+import { BoardColumnDto, BoardTaskDto, MoveAnswers } from './models';
 
 /** A card picked up from the keyboard: where it would land, among the cards that column shows. */
 interface Lifted {
@@ -84,6 +85,7 @@ export class BoardPage {
   private readonly snackbar = inject(Snackbar);
   private readonly announcer = inject(LiveAnnouncer);
   private readonly confirmation = inject(Confirmation);
+  private readonly questions = inject(MoveQuestions);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -232,6 +234,7 @@ export class BoardPage {
       task.id,
       column.id,
       this.placeFor(task.id, column.id, event.currentIndex),
+      this.questionsFor(task, column),
     );
   }
 
@@ -365,16 +368,58 @@ export class BoardPage {
     }
     const count = this.othersIn(column.id, lifted.taskId).length + 1;
     const position = this.placeFor(lifted.taskId, column.id, lifted.index);
+    const task = this.store.board()?.tasks.find((found) => found.id === lifted.taskId);
+    const ask = task ? this.questionsFor(task, column) : undefined;
+    // Set from inside the question, which the compiler can't follow.
+    const asked = { gaveUp: false };
     this.lifted.set(null);
-    const moving = this.store.moveTask(lifted.taskId, column.id, position);
+    const moving = this.store.moveTask(
+      lifted.taskId,
+      column.id,
+      position,
+      ask &&
+        (async () => {
+          const answers = await ask();
+          asked.gaveUp = answers === null;
+          return answers;
+        }),
+    );
     this.store.release();
     const moved = await moving;
     void this.announcer.announce(
       moved
         ? $localize`Mutat în «${column.name}:column:», poziția ${lifted.index + 1}:place: din ${count}:count:`
-        : $localize`Mutarea nu s-a salvat: task-ul a revenit la locul lui.`,
+        : asked.gaveUp
+          ? $localize`Mutarea a fost anulată.`
+          : $localize`Mutarea nu s-a salvat: task-ul a revenit la locul lui.`,
     );
     this.focus(lifted.taskId);
+  }
+
+  /**
+   * What a move asks first (docs/UI_UX_SPEC.md §7.4): an estimate for a task entering În lucru without one,
+   * a reason for every task entering În pauză; nothing for any other move.
+   */
+  private questionsFor(
+    task: BoardTaskDto,
+    column: BoardColumnDto,
+  ): (() => Promise<MoveAnswers | null>) | undefined {
+    if (column.id === task.columnId) {
+      return undefined;
+    }
+    if (column.kind === 'InProgress' && task.estimatedMinutes === null) {
+      return async () => {
+        const minutes = await this.questions.estimate(task.key);
+        return minutes === null ? null : { estimatedMinutes: minutes };
+      };
+    }
+    if (column.kind === 'Paused') {
+      return async () => {
+        const reason = await this.questions.pauseReason(task.key);
+        return reason === null ? null : { pauseReason: reason };
+      };
+    }
+    return undefined;
   }
 
   /** A task in În lucru or after it, put in a column before it (docs/SPEC.md §4.4, Task.CannotMoveBack). */

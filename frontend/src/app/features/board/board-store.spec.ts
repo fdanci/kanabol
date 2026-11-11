@@ -11,7 +11,7 @@ import { FakeRealtime, provideFakeRealtime } from '../../core/realtime/realtime-
 import { BoardApi } from './board-api';
 import { BoardStore } from './board-store';
 import { aBoard, aBoardMember, refusedWith, titlesByColumn } from './board-testing';
-import { BoardColumnDto, BoardDto } from './models';
+import { BoardColumnDto, BoardDto, MoveAnswers } from './models';
 
 /**
  * docs/SPEC.md §6.2: the store reads the board through resources, moves a card at once and asks the
@@ -230,6 +230,42 @@ describe('BoardStore', () => {
     it('moves nothing before the board is read', async () => {
       expect(await store.moveTask('id-KAN-1', 'c2', 0)).toBe(false);
       expect(api['move']).not.toHaveBeenCalled();
+    });
+
+    // docs/UI_UX_SPEC.md §7.4: the card waits in În lucru while the sheet asks for its estimate.
+    it('lets the card wait in its new place while the move asks, then sends the answers and shows them', async () => {
+      await opened();
+      let answer!: (answers: MoveAnswers | null) => void;
+
+      const moving = store.moveTask(
+        id('B'),
+        'c2',
+        0,
+        () => new Promise<MoveAnswers | null>((resolve) => (answer = resolve)),
+      );
+      await Promise.resolve();
+      expect(shown()).toBe('A C | B D | E');
+      expect(api['move']).not.toHaveBeenCalled();
+      answer({ estimatedMinutes: 90 });
+
+      expect(await moving).toBe(true);
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-2', 'c2', 0, { estimatedMinutes: 90 });
+      expect(store.board()!.tasks.find((task) => task.title === 'B')).toMatchObject({
+        estimatedMinutes: 90,
+        isWorking: true,
+        pauseReason: null,
+      });
+    });
+
+    it('puts the card back, asking the API nothing, when the person gives up', async () => {
+      await opened();
+
+      const moved = await store.moveTask(id('B'), 'c2', 0, () => Promise.resolve(null));
+
+      expect(moved).toBe(false);
+      expect(shown()).toBe('A B C | D | E');
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(api['board']).toHaveBeenCalledTimes(1);
     });
   });
 

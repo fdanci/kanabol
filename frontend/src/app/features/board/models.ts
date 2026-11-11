@@ -64,6 +64,15 @@ export interface BoardMemberDto {
   isActive: boolean;
 }
 
+/**
+ * What a move into În lucru or În pauză asks for first (docs/SPEC.md §4.4): the estimate, in minutes, of a
+ * task that starts without one, and the reason of every pause.
+ */
+export interface MoveAnswers {
+  estimatedMinutes?: number;
+  pauseReason?: string;
+}
+
 /** What POST /api/projects/{id}/tasks answers, as far as the board reads it. */
 export interface CreatedTaskDto {
   id: string;

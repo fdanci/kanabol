@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiClient } from '../../core/api/api-client';
-import { BoardColumnDto, BoardDto, BoardMemberDto, CreatedTaskDto } from './models';
+import { BoardColumnDto, BoardDto, BoardMemberDto, CreatedTaskDto, MoveAnswers } from './models';
 
 /**
  * The board of a project (docs/UI_UX_SPEC.md §7.4, docs/SPEC.md §6.3). Moving a card needs a real
@@ -19,9 +19,17 @@ export class BoardApi {
     return this.api.get<BoardMemberDto[]>(`/projects/${projectId}/members`);
   }
 
-  /** To a place from 0 in the column; the API moves the others up or down. */
-  move(taskId: string, columnId: string, position: number): Observable<unknown> {
-    return this.api.patch<unknown>(`/tasks/${taskId}/position`, { columnId, position });
+  /**
+   * To a place from 0 in the column; the API moves the others up or down. Into În lucru without an estimate,
+   * or into În pauză, with what the move asked for (docs/SPEC.md §4.4).
+   */
+  move(
+    taskId: string,
+    columnId: string,
+    position: number,
+    answers: MoveAnswers = {},
+  ): Observable<unknown> {
+    return this.api.patch<unknown>(`/tasks/${taskId}/position`, { columnId, position, ...answers });
   }
 
   /** A column of the project's own. The columns change for owners and projects.manage only. */

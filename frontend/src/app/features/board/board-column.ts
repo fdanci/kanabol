@@ -145,13 +145,14 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
             [cdkDragData]="task"
             [cdkDragDisabled]="!canMove()"
             [task]="task"
+            [kind]="column().kind"
             [done]="column().kind === 'Done'"
             [pulse]="pulses().get(task.id) ?? 0"
             [class.lifted]="task.id === liftedId()"
             [attr.data-task-id]="task.id"
             tabindex="0"
             role="button"
-            [attr.aria-label]="task.key + ' ' + task.title"
+            [attr.aria-label]="cardLabel(task)"
             [attr.aria-describedby]="canMove() ? keysHelpId() : null"
             (click)="opened.emit(task)"
             (keydown.enter)="opened.emit(task)"
@@ -345,6 +346,13 @@ export class BoardColumn {
 
   protected readonly adding = signal(false);
   protected readonly icon = computed(() => KIND_ICONS[this.column().kind] ?? null);
+
+  /** The key and the title, as on the card, and in În pauză its reason too (docs/UI_UX_SPEC.md §7.4). */
+  protected cardLabel(task: BoardTaskDto): string {
+    return this.column().kind === 'Paused' && task.pauseReason
+      ? $localize`${task.key}:key: ${task.title}:title:. Pe pauză: ${task.pauseReason}:reason:`
+      : `${task.key} ${task.title}`;
+  }
   /** Kept out while dragged, so the column takes no target border; the page says why when it's let go there. */
   protected readonly accepts = (drag: CdkDrag<BoardTaskDto>): boolean =>
     !this.beforeInProgress() || !this.startedColumnIds().has(drag.data.columnId);
