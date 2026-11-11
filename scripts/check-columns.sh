@@ -1,9 +1,11 @@
 #!/bin/sh
 # Acceptance checks for the fixed columns, the estimate, the worked time and the general settings (group 22
 # in the project's Tasks.md; docs/SPEC.md §4.4, §5.1, §5.1.1, §13.3, §14.7; docs/UI_UX_SPEC.md §5, §7.4,
-# §7.5, §7.8, §7.9). The tests hold the rules, so these checks run them, and add what they can't see: the
-# migration over an old database on the local PostgreSQL, the real API process on it, its answers, and one task
-# through all of it, as boards hear it over the hub.
+# §7.5, §7.8, §7.9), and for group 23's columns.manage, the dragging of the columns and group 22's fixes (task
+# 7; docs/SPEC.md §4.4, §9, §13.3; docs/UI_UX_SPEC.md §7.4, §7.7, §7.8, §7.9, §11). The tests hold the rules,
+# so these checks run them, and add what they can't see: the migration over an old database on the local
+# PostgreSQL, the real API process on it, its answers, and one task through all of it, as boards hear it over
+# the hub.
 #
 # Usage: scripts/check-columns.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
@@ -94,6 +96,39 @@
 #      by Dan and by CAP, cycle-time from În lucru, between the time worked and the lead time. Last,
 #      backend/CLAUDE.md and frontend/CLAUDE.md say what the group changed, and nothing of what it took away.
 #      Docker, PostgreSQL, Node.
+#   7  group 23: the tests (PermissionsTests, ProjectColumnTests, ProjectAccessTests, the column handlers, the
+#      board's query and endpoint, BoardEventsHandlerTests, GetArchivedTasksQueryHandlerTests,
+#      WorkedTimeHandlerTests, ArchivedTasksEndpointTests, BoardRealtimeFlowTests); then the API built from this
+#      code, in Production. columns.manage: seeded and the Admin's; on PRM, the admin's, Mara (a member whose
+#      role has it) adds, renames, moves and deletes columns, Petru (a member without it) and Vera (outside, with
+#      it and projects.view_all) get 403 Project.OwnerRequired and change nothing, the board says canManage and
+#      canManageColumns as 'true|true' for the admin, 'false|true' for Mara, 'false|false' for the others, and
+#      once Mara's role loses it her token, which still lists it, changes nothing (read from the database).
+#      Column.CrossesInProgress on CRS: Analiză before În lucru and Review after it, each holding a task, can't
+#      cross it either way (409, nothing moved), a place before Backlog is 400 first, Review moves on its side;
+#      with its task archived Review still can't, and an empty column crosses both ways. Arhivate, ARHIVATE and
+#      " arhivate " are 400 on name to POST and PUT. ColumnsChanged: Mara's board and Petru's, connected over
+#      WebSockets as a browser is (Node's hub client), each hear her four changes from her connection, with
+#      projectId, byUserId and originConnectionId only, and nothing of Petru's 403. archivedCount: CRS's for the
+#      admin, null for Petru. compose.yaml has the refresh tokens' cleanup comment (group 19) word for word as
+#      docs/SPEC.md §13.3, between groups 17 and 22. REI-1, created with 30 minutes, goes into În lucru, on pause
+#      after two seconds and back into În lucru without an estimate: 200, the same 30 minutes, no history of
+#      them, its counter where the pause left it and then going on (every hour of every day worked, as in 3).
+#      Then the frontend: columns.manage on the roles screen, the column's menu and "+ Coloană" on
+#      canManageColumns, the board reading itself again on ColumnsChanged, Arhivate's band counting with
+#      archivedCount and its cards read only while open, a task with an estimate asked nothing back from În
+#      pauză (the board by the mouse and the keyboard, the panel's Stare), the columns of the project's own
+#      dragged by their head between Backlog and Gata with the cards' lists still connected, the dialog
+#      "Coloana «X» are task-uri" at a drop, a menu move and the API's 409, the settings' day names whole with
+#      the short ones aria-hidden and docs/ui-review.md's axe-core run, the report's work time in hours and
+#      minutes with its screenshot taken again since v1.1.0, and the specs of the board, the roles, the panel,
+#      the settings, the reports and the confirmation sheet. Last, backend/CLAUDE.md and frontend/CLAUDE.md say
+#      what the group changed. Its controls, run by hand: columns.manage without the membership let Vera in;
+#      the move's check without the archived tasks let Review cross; the board without ColumnsChanged's handler
+#      heard nothing; the column without Arhivate among the reserved names took it; the API asking an estimate
+#      every time answered 400; the board and the panel asking every time failed four specs; Arhivate reading
+#      while closed, the cards' group back on the board's list and a day duration left in the section each
+#      failed their check. Docker, PostgreSQL, Node and the packages.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1752,9 +1787,10 @@ the_flow_answers_as_the_spec_says() {
 the_boards_hear_every_step_in_order() {
   the_flow_ran || return 1
   expected="TaskCreated,TaskUpdated:Assignees,TaskUpdated:EstimatedMinutes,TaskMoved:$cap_InProgress,TaskMoved:$cap_Paused,TaskArchived,TaskRestored,TaskMoved:$cap_InProgress,TaskMoved:$cap_Done"
-  for board in ana dan; do
-    is "$expected" "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').map((h) => h.event + (h.payload.field ? ':' + h.payload.field : '') + (h.event === 'TaskMoved' ? ':' + h.payload.columnId : '')).join(',')" "$board")" || return 1
-    is true "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').every((h) => h.payload.taskId === r.kept.task.id && h.payload.projectId === '$cap' && h.payload.byUserId === '$admin_id' && h.payload.originConnectionId === r.connections.ana)" "$board")" || return 1
+  # Not "board", which names the board's folder for the frontend's checks after it.
+  for listener in ana dan; do
+    is "$expected" "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').map((h) => h.event + (h.payload.field ? ':' + h.payload.field : '') + (h.event === 'TaskMoved' ? ':' + h.payload.columnId : '')).join(',')" "$listener")" || return 1
+    is true "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').every((h) => h.payload.taskId === r.kept.task.id && h.payload.projectId === '$cap' && h.payload.byUserId === '$admin_id' && h.payload.originConnectionId === r.connections.ana)" "$listener")" || return 1
   done
 }
 
@@ -1895,15 +1931,15 @@ a_project_whose_columns_a_member_manages() {
   [ -n "${prm:-}" ] && return 0
   status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Permisiunea coloanelor","key":"PRM"}')" || return 1
   prm_id=$(body_field id)
-  someone_signs_in "mara@example.com" "Mara Coloane" '["columns.manage"]' 11 || return 1
+  someone_signs_in "mara.coloane@example.com" "Mara Coloane" '["columns.manage"]' 11 || return 1
   mara_token=$person_token
   mara_role=$person_role
   mara_id=$person_id
   status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
-  someone_signs_in "petru@example.com" "Petru Fără Coloane" '["tasks.create"]' 12 || return 1
+  someone_signs_in "petru.coloane@example.com" "Petru Fără Coloane" '["tasks.create"]' 12 || return 1
   petru_token=$person_token
   status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
-  someone_signs_in "vera@example.com" "Vera Din Afară" '["columns.manage","projects.view_all"]' 13 || return 1
+  someone_signs_in "vera.coloane@example.com" "Vera Din Afară" '["columns.manage","projects.view_all"]' 13 || return 1
   vera_token=$person_token
   prm=$prm_id
 }
@@ -2241,6 +2277,16 @@ the_board_listens_to_columns_changed() {
     specs_named "$board/board-store.spec.ts" 'reads itself again quietly on ColumnsChanged from another tab, and not from its own'
 }
 
+the_notes_say_group_23() {
+  notes_say backend/CLAUDE.md '`columns.manage` (group 23' '`IProjectAccess.EnsureColumnManagerAsync`' \
+    '`Column.CrossesInProgress`' 'nor Arhivate' '`ColumnsChangedEvent`' '| `ColumnsChanged`' '`canManageColumns`' \
+    '`archivedCount`' '7 (group 23)' &&
+    notes_say frontend/CLAUDE.md '`scripts/check-columns.sh 7`' 'For `canManageColumns`' '"Tragerea coloanelor"' \
+    '`div.cards-group`' '`Confirmation.tell`' 'So does `ColumnsChanged`' '`BoardStore.archivedCount`' \
+    '`formatWorkDuration`' 'no `aria-label`, so the name read holds what is seen' 'after group 23' &&
+    lacks 'For `canManage` \(an owner|their full names in `aria-label`' frontend/CLAUDE.md
+}
+
 group_23_specs_pass() {
   specs_pass "src/app/features/board/**/*.spec.ts" 120 &&
     specs_pass "src/app/features/roles/**/*.spec.ts" 25
@@ -2273,6 +2319,7 @@ task_7() {
   check "Setări generale names each day whole, the short name aria-hidden; ui-review.md has axe-core's run" the_days_are_named_whole
   check "Estimare și timp lucrat writes hours and minutes, never days; its screenshot taken again" the_work_time_is_in_hours
   check "the board's and the roles screen's specs pass" group_23_specs_pass
+  check "backend/CLAUDE.md and frontend/CLAUDE.md say what group 23 changed" the_notes_say_group_23
 }
 
 tasks=${*:-1 2 3 4 5 6 7}
