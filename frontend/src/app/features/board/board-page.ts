@@ -44,7 +44,7 @@ import { ARCHIVED_COLUMN, ArchivedColumn } from './archived-column';
 import { ArchivedStore } from './archived-store';
 import { BoardColumn, NewCard } from './board-column';
 import { cardFilter } from './board-filters';
-import { placeAmong } from './board-moves';
+import { crossesInProgress, placeAmong } from './board-moves';
 import { BoardStore } from './board-store';
 import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto, MoveAnswers } from './models';
 
@@ -375,14 +375,37 @@ export class BoardPage {
     void this.moveColumnTo(column, column.position + by);
   }
 
-  /** Dragged or moved from its ⋮, the column takes its place at once and the screen reader hears where. */
+  /**
+   * Dragged or moved from its ⋮, the column takes its place at once and the screen reader hears where. One
+   * holding cards doesn't cross În lucru (docs/UI_UX_SPEC.md §7.4, group 23): it stays, and a dialog says why,
+   * before any request; one whose tasks the board doesn't show, archived ones, hears it from the API.
+   */
   private async moveColumnTo(column: BoardColumnDto, position: number): Promise<void> {
-    if (await this.store.moveColumn(column, position)) {
+    if (
+      this.store.cardsIn(column.id).length > 0 &&
+      crossesInProgress(this.store.columns(), column.id, position)
+    ) {
+      await this.tellColumnHasTasks(column);
+      return;
+    }
+    const moved = await this.store.moveColumn(column, position);
+    if (moved === 'moved') {
       const count = this.store.columns().length;
       void this.announcer.announce(
         $localize`«${column.name}:column:» mutată pe poziția ${position + 1}:place: din ${count}:count:.`,
       );
+    } else if (moved === 'crossesInProgress') {
+      await this.tellColumnHasTasks(column);
     }
+  }
+
+  private tellColumnHasTasks(column: BoardColumnDto): Promise<void> {
+    return this.confirmation.tell({
+      title: $localize`Coloana «${column.name}:column:» are task-uri`,
+      message: $localize`O coloană cu task-uri nu poate trece peste «În lucru», pentru că un task început nu se mai întoarce înaintea ei. Mută întâi task-urile în altă coloană.`,
+      confirmLabel: $localize`Am înțeles`,
+      icon: 'info',
+    });
   }
 
   protected async deleteColumn(column: BoardColumnDto): Promise<void> {

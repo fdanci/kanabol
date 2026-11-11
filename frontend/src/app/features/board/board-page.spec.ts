@@ -61,7 +61,11 @@ describe('BoardPage', () => {
   const held = signal<string[]>(['tasks.create']);
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   let announcer: { announce: ReturnType<typeof vi.fn> };
-  let confirmation: { ask: ReturnType<typeof vi.fn>; discardChanges: ReturnType<typeof vi.fn> };
+  let confirmation: {
+    ask: ReturnType<typeof vi.fn>;
+    tell: ReturnType<typeof vi.fn>;
+    discardChanges: ReturnType<typeof vi.fn>;
+  };
   let questions: { estimate: ReturnType<typeof vi.fn>; pauseReason: ReturnType<typeof vi.fn> };
   let harness: RouterTestingHarness;
 
@@ -85,6 +89,7 @@ describe('BoardPage', () => {
     announcer = { announce: vi.fn(() => Promise.resolve()) };
     confirmation = {
       ask: vi.fn(() => Promise.resolve(true)),
+      tell: vi.fn(() => Promise.resolve()),
       discardChanges: vi.fn(() => Promise.resolve(true)),
     };
     // The sheets of docs/UI_UX_SPEC.md §7.4 answer at once: an hour, or the reason.
@@ -1013,6 +1018,58 @@ describe('BoardPage', () => {
         await settle();
 
         expect(api['board']).toHaveBeenCalledTimes(2);
+      });
+
+      // docs/UI_UX_SPEC.md §7.4 (group 23): a column with tasks doesn't cross În lucru; the board says why.
+      const HAS_TASKS = (name: string) => ({
+        title: `Coloana «${name}» are task-uri`,
+        message:
+          'O coloană cu task-uri nu poate trece peste «În lucru», pentru că un task început nu se mai întoarce înaintea ei. Mută întâi task-urile în altă coloană.',
+        confirmLabel: 'Am înțeles',
+        icon: 'info',
+      });
+
+      it('puts back a column with tasks let go across În lucru and says why, asking the API nothing', async () => {
+        await visit();
+
+        dropColumn('Analiză', 1, 3);
+        await settle();
+
+        expect(confirmation.tell).toHaveBeenCalledWith(HAS_TASKS('Analiză'));
+        expect(api['moveColumn']).not.toHaveBeenCalled();
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'În pauză', 'Review', 'Gata']);
+      });
+
+      it('says the same when the menu would move a column with tasks across În lucru', async () => {
+        await visit();
+
+        await choose('Analiză', 'Mută la dreapta');
+
+        expect(confirmation.tell).toHaveBeenCalledWith(HAS_TASKS('Analiză'));
+        expect(api['moveColumn']).not.toHaveBeenCalled();
+      });
+
+      it('says the same at a 409 Column.CrossesInProgress of the API, for tasks the board does not show', async () => {
+        api['moveColumn'].mockReturnValue(refusedWith(409, 'Column.CrossesInProgress'));
+        await visit();
+
+        dropColumn('Review', 4, 1);
+        await settle();
+
+        expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c6', 1);
+        expect(confirmation.tell).toHaveBeenCalledWith(HAS_TASKS('Review'));
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'În pauză', 'Review', 'Gata']);
+      });
+
+      it('moves a column with tasks on its side of În lucru, and an empty one across it, without a word', async () => {
+        await visit();
+
+        dropColumn('Analiză', 1, 1);
+        dropColumn('Review', 4, 1);
+        await settle();
+
+        expect(confirmation.tell).not.toHaveBeenCalled();
+        expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c6', 1);
       });
 
       it('says where the menu moved a column too', async () => {

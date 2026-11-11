@@ -93,3 +93,22 @@ export function placeColumn(
   others.splice(Math.max(0, Math.min(position, others.length)), 0, moving);
   return others.map((column, index) => ({ ...column, position: index }));
 }
+
+/**
+ * Whether a column moved to a place from 0 lands on the other side of În lucru (docs/SPEC.md §4.4, group 23):
+ * one that holds tasks doesn't.
+ */
+export function crossesInProgress(
+  columns: readonly BoardColumnDto[],
+  columnId: string,
+  position: number,
+): boolean {
+  const side = (placed: readonly BoardColumnDto[]) => {
+    const column = placed.find((found) => found.id === columnId);
+    const inProgress = placed.find((found) => found.kind === 'InProgress');
+    return (
+      column !== undefined && inProgress !== undefined && column.position < inProgress.position
+    );
+  };
+  return side(columns) !== side(placeColumn(columns, columnId, position));
+}

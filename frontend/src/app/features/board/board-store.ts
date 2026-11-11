@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   DestroyRef,
   Injectable,
@@ -13,11 +14,15 @@ import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
 import { ProjectMessage, TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
 import { Realtime } from '../../core/realtime/realtime';
+import { problemIn } from '../../shared/models/problem-details';
 import { BoardApi } from './board-api';
 import { cardsIn, moveCard, placeColumn } from './board-moves';
 import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto, MoveAnswers } from './models';
 
 export type BoardState = 'loading' | 'ready' | 'error';
+
+/** How a move of a column ended: Column.CrossesInProgress is the page's to say (docs/UI_UX_SPEC.md §7.4). */
+export type ColumnMove = 'moved' | 'crossesInProgress' | 'refused';
 
 /**
  * The board of the project on screen (docs/SPEC.md §6.2, §6.3). The reads are resources of the
@@ -267,25 +272,28 @@ export class BoardStore {
 
   /**
    * The column takes its new place at once (docs/UI_UX_SPEC.md §7.4, group 23), then the order the API
-   * answers; refused, it goes back, and the board is read again.
+   * answers; refused, it goes back and the board is read again, and Column.CrossesInProgress, which the
+   * page says in a dialog, answers crossesInProgress.
    */
-  moveColumn(column: BoardColumnDto, position: number): Promise<boolean> {
-    const before = this.board()?.columns;
-    if (before && this.board()?.canManageColumns) {
-      this.placeColumns((columns) => placeColumn(columns, column.id, position));
+  async moveColumn(column: BoardColumnDto, position: number): Promise<ColumnMove> {
+    const board = this.board();
+    if (!board?.canManageColumns) {
+      return 'refused';
     }
-    return this.changeColumns(
-      (board) => this.api.moveColumn(board.projectId, column.id, position),
-      false,
-      (columns) => {
-        this.placeColumns(() => columns);
-      },
-      () => {
-        if (before) {
-          this.placeColumns(() => before);
-        }
-      },
-    );
+    const before = board.columns;
+    this.placeColumns((columns) => placeColumn(columns, column.id, position));
+    try {
+      const columns = await firstValueFrom(
+        this.api.moveColumn(board.projectId, column.id, position),
+      );
+      this.placeColumns(() => columns);
+      return 'moved';
+    } catch (error) {
+      this.placeColumns(() => before);
+      this.reload();
+      const problem = error instanceof HttpErrorResponse ? problemIn(error) : null;
+      return problem?.code === 'Column.CrossesInProgress' ? 'crossesInProgress' : 'refused';
+    }
   }
 
   deleteColumn(column: BoardColumnDto): Promise<boolean> {
@@ -296,7 +304,6 @@ export class BoardStore {
     call: (board: BoardDto) => Observable<T>,
     readAgain: boolean,
     apply?: (saved: T) => void,
-    undo?: () => void,
   ): Promise<boolean> {
     const board = this.board();
     if (!board?.canManageColumns) {
@@ -310,7 +317,6 @@ export class BoardStore {
       }
       return true;
     } catch {
-      undo?.();
       this.reload();
       return false;
     }

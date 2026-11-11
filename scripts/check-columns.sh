@@ -2159,6 +2159,27 @@ the_columns_drag_by_their_head() {
     specs_named "$board/board-store.spec.ts" 'moves a column at once, before the API answers, and puts it back when refused'
 }
 
+# The dialog "Coloana «X» are task-uri" (UI §7.4): a sheet of 440px with one button, at a drop of a column with
+# cards across În lucru and at the menu's moves that would cross it, before any request, and at the API's 409
+# Column.CrossesInProgress, which the error snackbar leaves to it.
+the_column_with_tasks_says_why() {
+  in_file 'Coloana «${column.name}:column:» are task-uri' "$board/board-page.ts" &&
+    in_file 'O coloană cu task-uri nu poate trece peste «În lucru», pentru că un task început nu se mai întoarce înaintea ei. Mută întâi task-urile în altă coloană.' "$board/board-page.ts" &&
+    in_file 'Am înțeles' "$board/board-page.ts" &&
+    in_file "{ context: handledHere('Column.CrossesInProgress') }," "$board/board-api.ts" &&
+    in_file '@if (!request.tellOnly) {' "$app/shared/ui/confirm-dialog.ts" &&
+    in_file 'export function crossesInProgress(' "$board/board-moves.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'puts back a column with tasks let go across În lucru and says why, asking the API nothing' \
+      'says the same when the menu would move a column with tasks across În lucru' \
+      'says the same at a 409 Column.CrossesInProgress of the API, for tasks the board does not show' \
+      'moves a column with tasks on its side of În lucru, and an empty one across it, without a word' &&
+    specs_named "$board/board-store.spec.ts" \
+      'answers crossesInProgress at a Column.CrossesInProgress of the API, the column back in its place' &&
+    specs_named "$app/shared/ui/confirm-dialog.spec.ts" 'tells something with one button, which closes it' &&
+    specs_pass "src/app/shared/ui/confirm-dialog.spec.ts" 8
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2207,6 +2228,7 @@ task_7() {
   check "Arhivate's band counts with archivedCount, and its cards are read only when it opens" the_archived_column_reads_when_it_opens
   check "back from În pauză a task with an estimate asks nothing: the board's mouse and keyboard, the panel's Stare" the_estimate_is_asked_only_once
   check "the columns of the project's own drag by their head between Backlog and Gata, the cards still between columns" the_columns_drag_by_their_head
+  check "a column with tasks across În lucru: the dialog, by a drop, the menu and the API's 409" the_column_with_tasks_says_why
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 

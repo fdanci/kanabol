@@ -332,7 +332,7 @@ describe('BoardStore', () => {
       api['moveColumn'].mockReturnValue(of(order));
       await opened();
 
-      expect(await store.moveColumn(store.columns()[2], 0)).toBe(true);
+      expect(await store.moveColumn(store.columns()[2], 0)).toBe('moved');
 
       expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c3', 0);
       expect(store.columns().map((column) => column.name)).toEqual([
@@ -358,7 +358,17 @@ describe('BoardStore', () => {
         `${before[1]}:2`,
       ]);
       answer.error(new Error('refused'));
-      expect(await moving).toBe(false);
+      expect(await moving).toBe('refused');
+      expect(store.columns().map((column) => column.name)).toEqual(before);
+    });
+
+    // docs/UI_UX_SPEC.md §7.4 (group 23): the page says this one in a dialog of its own.
+    it('answers crossesInProgress at a Column.CrossesInProgress of the API, the column back in its place', async () => {
+      api['moveColumn'].mockReturnValue(refusedWith(409, 'Column.CrossesInProgress'));
+      await opened();
+      const before = store.columns().map((column) => column.name);
+
+      expect(await store.moveColumn(store.columns()[2], 1)).toBe('crossesInProgress');
       expect(store.columns().map((column) => column.name)).toEqual(before);
     });
 
