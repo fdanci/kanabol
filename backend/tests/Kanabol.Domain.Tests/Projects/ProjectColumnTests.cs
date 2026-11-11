@@ -1,4 +1,5 @@
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Projects.Events;
 using Kanabol.Tests.Shared.Builders;
 
 namespace Kanabol.Domain.Tests.Projects;
@@ -10,6 +11,9 @@ namespace Kanabol.Domain.Tests.Projects;
 /// </summary>
 public sealed class ProjectColumnTests
 {
+    // Who changes the columns, which their event names (group 23).
+    private static readonly Guid _by = Guid.CreateVersion7();
+
     private readonly Project _project = new ProjectBuilder().Build();
 
     private BoardColumn At(int position) => _project.Columns.Single(column => column.Position == position);
@@ -36,8 +40,8 @@ public sealed class ProjectColumnTests
     [Fact]
     public void AddColumn_Always_PutsACustomOneRightBeforeGata()
     {
-        var review = _project.AddColumn("  Review ");
-        var qa = _project.AddColumn("QA");
+        var review = _project.AddColumn("  Review ", _by);
+        var qa = _project.AddColumn("QA", _by);
 
         review.Name.Should().Be("Review");
         review.Kind.Should().Be(ColumnKind.Custom);
@@ -51,7 +55,7 @@ public sealed class ProjectColumnTests
     [Fact]
     public void AddColumn_WithABlankName_Throws()
     {
-        var add = () => _project.AddColumn("  ");
+        var add = () => _project.AddColumn("  ", _by);
 
         add.Should().Throw<ArgumentException>();
         _project.Columns.Should().HaveCount(4);
@@ -60,9 +64,9 @@ public sealed class ProjectColumnTests
     [Fact]
     public void RenameColumn_OfItsOwn_ChangesOnlyItsName()
     {
-        var review = _project.AddColumn("Review");
+        var review = _project.AddColumn("Review", _by);
 
-        var change = _project.RenameColumn(review.Id, " Verificare ");
+        var change = _project.RenameColumn(review.Id, " Verificare ", _by);
 
         change.Should().Be(ColumnChange.Done);
         review.Name.Should().Be("Verificare");
@@ -75,7 +79,7 @@ public sealed class ProjectColumnTests
     {
         var name = Fixed(kind).Name;
 
-        _project.RenameColumn(Fixed(kind).Id, "Altceva").Should().Be(ColumnChange.Fixed);
+        _project.RenameColumn(Fixed(kind).Id, "Altceva", _by).Should().Be(ColumnChange.Fixed);
 
         Fixed(kind).Name.Should().Be(name);
     }
@@ -86,10 +90,10 @@ public sealed class ProjectColumnTests
     [InlineData(4, new[] { "Backlog", "În lucru", "În pauză", "QA", "Review", "Gata" })]
     public void MoveColumn_OfItsOwnBetweenBacklogAndGata_PutsItThereAndTheOthersAroundIt(int position, string[] expected)
     {
-        var review = _project.AddColumn("Review");
-        _project.AddColumn("QA");
+        var review = _project.AddColumn("Review", _by);
+        _project.AddColumn("QA", _by);
 
-        var change = _project.MoveColumn(review.Id, position, holdsTasks: false);
+        var change = _project.MoveColumn(review.Id, position, holdsTasks: false, _by);
 
         change.Should().Be(ColumnChange.Done);
         Names.Should().Equal(expected);
@@ -102,10 +106,10 @@ public sealed class ProjectColumnTests
     [InlineData(9)]
     public void MoveColumn_OfItsOwnBeforeBacklogOrAfterGata_IsOutOfRangeAndMovesNothing(int position)
     {
-        var review = _project.AddColumn("Review");
-        _project.AddColumn("QA");
+        var review = _project.AddColumn("Review", _by);
+        _project.AddColumn("QA", _by);
 
-        _project.MoveColumn(review.Id, position, holdsTasks: false).Should().Be(ColumnChange.OutOfRange);
+        _project.MoveColumn(review.Id, position, holdsTasks: false, _by).Should().Be(ColumnChange.OutOfRange);
 
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "QA", "Gata");
     }
@@ -114,19 +118,50 @@ public sealed class ProjectColumnTests
     [MemberData(nameof(FixedKinds))]
     public void MoveColumn_AFixedOne_IsRefusedAndMovesNothing(ColumnKind kind)
     {
-        _project.AddColumn("Review");
+        _project.AddColumn("Review", _by);
 
-        _project.MoveColumn(Fixed(kind).Id, 2, holdsTasks: false).Should().Be(ColumnChange.Fixed);
+        _project.MoveColumn(Fixed(kind).Id, 2, holdsTasks: false, _by).Should().Be(ColumnChange.Fixed);
 
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "Gata");
+    }
+
+    // SPEC section 9, group 23: every change of the columns raises ColumnsChanged, with who made it.
+    [Fact]
+    public void EachChangeOfTheColumns_RaisesColumnsChangedWithWhoMadeIt()
+    {
+        _project.ClearDomainEvents();
+
+        var review = _project.AddColumn("Review", _by);
+        _project.RenameColumn(review.Id, "În review", _by);
+        _project.MoveColumn(review.Id, 2, holdsTasks: false, _by);
+        _project.RemoveColumn(review.Id, holdsTasks: false, _by);
+
+        _project.DomainEvents.Should().Equal(Enumerable.Repeat(new ColumnsChangedEvent(_project.Id, _by), 4));
+    }
+
+    [Fact]
+    public void AChangeOfTheColumnsThatIsRefusedOrChangesNothing_RaisesNothing()
+    {
+        var review = _project.AddColumn("Review", _by);
+        _project.ClearDomainEvents();
+
+        _project.RenameColumn(Fixed(ColumnKind.Backlog).Id, "Altceva", _by).Should().Be(ColumnChange.Fixed);
+        _project.MoveColumn(Fixed(ColumnKind.Paused).Id, 1, holdsTasks: false, _by).Should().Be(ColumnChange.Fixed);
+        _project.MoveColumn(review.Id, 0, holdsTasks: false, _by).Should().Be(ColumnChange.OutOfRange);
+        _project.MoveColumn(review.Id, 1, holdsTasks: true, _by).Should().Be(ColumnChange.CrossesInProgress);
+        _project.RemoveColumn(review.Id, holdsTasks: true, _by).Should().Be(ColumnChange.NotEmpty);
+        _project.RenameColumn(review.Id, " Review ", _by).Should().Be(ColumnChange.Done);
+        _project.MoveColumn(review.Id, review.Position, holdsTasks: false, _by).Should().Be(ColumnChange.Done);
+
+        _project.DomainEvents.Should().BeEmpty();
     }
 
     [Fact]
     public void MoveColumn_ToANegativePlace_Throws()
     {
-        var review = _project.AddColumn("Review");
+        var review = _project.AddColumn("Review", _by);
 
-        var move = () => _project.MoveColumn(review.Id, -1, holdsTasks: false);
+        var move = () => _project.MoveColumn(review.Id, -1, holdsTasks: false, _by);
 
         move.Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -136,9 +171,9 @@ public sealed class ProjectColumnTests
     [Fact]
     public void MoveColumn_HoldingTasksFromAfterInProgressToBeforeIt_CrossesInProgressAndMovesNothing()
     {
-        var review = _project.AddColumn("Review");
+        var review = _project.AddColumn("Review", _by);
 
-        _project.MoveColumn(review.Id, 1, holdsTasks: true).Should().Be(ColumnChange.CrossesInProgress);
+        _project.MoveColumn(review.Id, 1, holdsTasks: true, _by).Should().Be(ColumnChange.CrossesInProgress);
 
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "Gata");
     }
@@ -146,11 +181,11 @@ public sealed class ProjectColumnTests
     [Fact]
     public void MoveColumn_HoldingTasksFromBeforeInProgressToAfterIt_CrossesInProgressAndMovesNothing()
     {
-        var analysis = _project.AddColumn("Analiză");
-        _project.MoveColumn(analysis.Id, 1, holdsTasks: false);
+        var analysis = _project.AddColumn("Analiză", _by);
+        _project.MoveColumn(analysis.Id, 1, holdsTasks: false, _by);
 
-        _project.MoveColumn(analysis.Id, 2, holdsTasks: true).Should().Be(ColumnChange.CrossesInProgress);
-        _project.MoveColumn(analysis.Id, 3, holdsTasks: true).Should().Be(ColumnChange.CrossesInProgress);
+        _project.MoveColumn(analysis.Id, 2, holdsTasks: true, _by).Should().Be(ColumnChange.CrossesInProgress);
+        _project.MoveColumn(analysis.Id, 3, holdsTasks: true, _by).Should().Be(ColumnChange.CrossesInProgress);
 
         Names.Should().Equal("Backlog", "Analiză", "În lucru", "În pauză", "Gata");
     }
@@ -160,10 +195,10 @@ public sealed class ProjectColumnTests
     [InlineData(4, new[] { "Backlog", "În lucru", "În pauză", "QA", "Review", "Gata" })]
     public void MoveColumn_HoldingTasksOnItsSideOfInProgress_Moves(int position, string[] expected)
     {
-        var review = _project.AddColumn("Review");
-        _project.AddColumn("QA");
+        var review = _project.AddColumn("Review", _by);
+        _project.AddColumn("QA", _by);
 
-        _project.MoveColumn(review.Id, position, holdsTasks: true).Should().Be(ColumnChange.Done);
+        _project.MoveColumn(review.Id, position, holdsTasks: true, _by).Should().Be(ColumnChange.Done);
 
         Names.Should().Equal(expected);
     }
@@ -171,12 +206,12 @@ public sealed class ProjectColumnTests
     [Fact]
     public void MoveColumn_HoldingTasksBeforeInProgress_MovesAmongTheOthersThere()
     {
-        var analysis = _project.AddColumn("Analiză");
-        var design = _project.AddColumn("Design");
-        _project.MoveColumn(analysis.Id, 1, holdsTasks: false);
-        _project.MoveColumn(design.Id, 2, holdsTasks: false);
+        var analysis = _project.AddColumn("Analiză", _by);
+        var design = _project.AddColumn("Design", _by);
+        _project.MoveColumn(analysis.Id, 1, holdsTasks: false, _by);
+        _project.MoveColumn(design.Id, 2, holdsTasks: false, _by);
 
-        _project.MoveColumn(analysis.Id, 2, holdsTasks: true).Should().Be(ColumnChange.Done);
+        _project.MoveColumn(analysis.Id, 2, holdsTasks: true, _by).Should().Be(ColumnChange.Done);
 
         Names.Should().Equal("Backlog", "Design", "Analiză", "În lucru", "În pauză", "Gata");
     }
@@ -184,21 +219,21 @@ public sealed class ProjectColumnTests
     [Fact]
     public void MoveColumn_Empty_CrossesInProgressEitherWay()
     {
-        var review = _project.AddColumn("Review");
+        var review = _project.AddColumn("Review", _by);
 
-        _project.MoveColumn(review.Id, 1, holdsTasks: false).Should().Be(ColumnChange.Done);
+        _project.MoveColumn(review.Id, 1, holdsTasks: false, _by).Should().Be(ColumnChange.Done);
         Names.Should().Equal("Backlog", "Review", "În lucru", "În pauză", "Gata");
-        _project.MoveColumn(review.Id, 3, holdsTasks: false).Should().Be(ColumnChange.Done);
+        _project.MoveColumn(review.Id, 3, holdsTasks: false, _by).Should().Be(ColumnChange.Done);
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Review", "Gata");
     }
 
     [Fact]
     public void RemoveColumn_OfItsOwnWhenEmpty_TakesItOutAndClosesTheGap()
     {
-        var review = _project.AddColumn("Review");
-        _project.MoveColumn(review.Id, 1, holdsTasks: false);
+        var review = _project.AddColumn("Review", _by);
+        _project.MoveColumn(review.Id, 1, holdsTasks: false, _by);
 
-        var change = _project.RemoveColumn(review.Id, holdsTasks: false);
+        var change = _project.RemoveColumn(review.Id, holdsTasks: false, _by);
 
         change.Should().Be(ColumnChange.Done);
         Names.Should().Equal("Backlog", "În lucru", "În pauză", "Gata");
@@ -208,9 +243,9 @@ public sealed class ProjectColumnTests
     [Fact]
     public void RemoveColumn_OfItsOwnThatHoldsTasks_IsRefused()
     {
-        var review = _project.AddColumn("Review");
+        var review = _project.AddColumn("Review", _by);
 
-        _project.RemoveColumn(review.Id, holdsTasks: true).Should().Be(ColumnChange.NotEmpty);
+        _project.RemoveColumn(review.Id, holdsTasks: true, _by).Should().Be(ColumnChange.NotEmpty);
 
         _project.Columns.Should().HaveCount(5);
     }
@@ -219,8 +254,8 @@ public sealed class ProjectColumnTests
     [MemberData(nameof(FixedKinds))]
     public void RemoveColumn_AFixedOne_IsRefusedEmptyOrNot(ColumnKind kind)
     {
-        _project.RemoveColumn(Fixed(kind).Id, holdsTasks: false).Should().Be(ColumnChange.Fixed);
-        _project.RemoveColumn(Fixed(kind).Id, holdsTasks: true).Should().Be(ColumnChange.Fixed);
+        _project.RemoveColumn(Fixed(kind).Id, holdsTasks: false, _by).Should().Be(ColumnChange.Fixed);
+        _project.RemoveColumn(Fixed(kind).Id, holdsTasks: true, _by).Should().Be(ColumnChange.Fixed);
 
         _project.Columns.Should().HaveCount(4);
     }
@@ -230,9 +265,9 @@ public sealed class ProjectColumnTests
     {
         var elsewhere = new ProjectBuilder().Build().Columns.First().Id;
 
-        _project.RenameColumn(elsewhere, "X").Should().Be(ColumnChange.NotFound);
-        _project.MoveColumn(elsewhere, 1, holdsTasks: false).Should().Be(ColumnChange.NotFound);
-        _project.RemoveColumn(elsewhere, holdsTasks: false).Should().Be(ColumnChange.NotFound);
+        _project.RenameColumn(elsewhere, "X", _by).Should().Be(ColumnChange.NotFound);
+        _project.MoveColumn(elsewhere, 1, holdsTasks: false, _by).Should().Be(ColumnChange.NotFound);
+        _project.RemoveColumn(elsewhere, holdsTasks: false, _by).Should().Be(ColumnChange.NotFound);
     }
 
     // The fixed names are taken, in any case: a column of the project's own can't pass for one.

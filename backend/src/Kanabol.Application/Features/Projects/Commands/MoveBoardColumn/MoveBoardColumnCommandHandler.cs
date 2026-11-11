@@ -13,7 +13,7 @@ namespace Kanabol.Application.Features.Projects.Commands.MoveBoardColumn;
 /// moved into it meanwhile doesn't change the project's version, so that race of milliseconds stays, as with
 /// the deletion's check before its foreign key.
 /// </summary>
-public sealed class MoveBoardColumnCommandHandler(IAppDbContext db, ProjectChanges changes)
+public sealed class MoveBoardColumnCommandHandler(IAppDbContext db, ProjectChanges changes, ICurrentUser currentUser)
     : ICommandHandler<MoveBoardColumnCommand, BoardColumnDto[]>
 {
     public async Task<Result<BoardColumnDto[]>> Handle(MoveBoardColumnCommand command, CancellationToken ct)
@@ -25,7 +25,7 @@ public sealed class MoveBoardColumnCommandHandler(IAppDbContext db, ProjectChang
         }
 
         var holdsTasks = await db.TaskItems.IgnoreQueryFilters().AnyAsync(task => task.ColumnId == command.ColumnId, ct);
-        switch (loaded.Value.MoveColumn(command.ColumnId, command.Position, holdsTasks))
+        switch (loaded.Value.MoveColumn(command.ColumnId, command.Position, holdsTasks, currentUser.Id))
         {
             case ColumnChange.NotFound:
                 return ColumnErrors.NotFound;

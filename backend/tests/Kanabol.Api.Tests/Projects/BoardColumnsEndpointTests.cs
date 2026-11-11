@@ -99,7 +99,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
     {
         var (owner, token) = await SignedIn();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var review = project.AddColumn("Review");
+        var review = project.AddColumn("Review", owner.Id);
         await using (var db = Api.Postgres.CreateContext())
         {
             db.BoardColumns.Add(review);
@@ -119,7 +119,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
     {
         var (owner, token) = await SignedIn();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var review = project.AddColumn("Review");
+        var review = project.AddColumn("Review", owner.Id);
         await using (var db = Api.Postgres.CreateContext())
         {
             db.BoardColumns.Add(review);

@@ -3,6 +3,11 @@ using Kanabol.Application.Common;
 using Kanabol.Application.Features.Comments;
 using Kanabol.Application.Features.Comments.Commands.AddComment;
 using Kanabol.Application.Features.Comments.Commands.EditComment;
+using Kanabol.Application.Features.Projects;
+using Kanabol.Application.Features.Projects.Commands.AddBoardColumn;
+using Kanabol.Application.Features.Projects.Commands.DeleteBoardColumn;
+using Kanabol.Application.Features.Projects.Commands.MoveBoardColumn;
+using Kanabol.Application.Features.Projects.Commands.UpdateBoardColumn;
 using Kanabol.Application.Features.Realtime;
 using Kanabol.Application.Features.Tasks;
 using Kanabol.Application.Features.Tasks.Commands.ArchiveTask;
@@ -87,6 +92,33 @@ public sealed class BoardEventsHandlerTests(PostgresFixture postgres) : TaskHand
         SentToProjects().Should().Equal(
             (project.Id, "TaskCreated", new TaskEventDto(task.Id, project.Id, owner.Id, Tab)),
             (project.Id, "TaskUpdated", new TaskUpdatedDto(task.Id, project.Id, owner.Id, Tab, "Assignees")));
+    }
+
+    // SPEC section 9, group 23: each change of the columns tells the project ColumnsChanged.
+    [Fact]
+    public async Task EachChangeOfTheColumns_TellsTheProjectColumnsChangedWithWhoAndTheTab()
+    {
+        var (owner, _, project, _) = await ATaskOnTheBoard();
+        SignIn(owner);
+
+        var review = (await Handle<AddBoardColumnCommand, BoardColumnDto>(new AddBoardColumnCommand(project.Id, "Review"))).Value;
+        (await Handle<UpdateBoardColumnCommand, BoardColumnDto>(new UpdateBoardColumnCommand(project.Id, review.Id, "În review"))).IsSuccess.Should().BeTrue();
+        (await HandleInOwnScope<MoveBoardColumnCommand, BoardColumnDto[]>(new MoveBoardColumnCommand(project.Id, review.Id, 2))).IsSuccess.Should().BeTrue();
+        (await HandleInOwnScope<DeleteBoardColumnCommand, Unit>(new DeleteBoardColumnCommand(project.Id, review.Id))).IsSuccess.Should().BeTrue();
+
+        SentToProjects().Should().Equal(Enumerable.Repeat((project.Id, "ColumnsChanged", (object)new ColumnsChangedDto(project.Id, owner.Id, Tab)), 4));
+    }
+
+    [Fact]
+    public async Task AChangeOfTheColumnsThatIsRefused_TellsNobody()
+    {
+        var (owner, _, project, _) = await ATaskOnTheBoard();
+        SignIn(owner);
+
+        (await Handle<MoveBoardColumnCommand, BoardColumnDto[]>(new MoveBoardColumnCommand(project.Id, DoneColumn(project).Id, 1))).IsFailure.Should().BeTrue();
+        (await Handle<AddBoardColumnCommand, BoardColumnDto>(new AddBoardColumnCommand(project.Id, "Arhivate"))).IsFailure.Should().BeTrue();
+
+        SentToProjects().Should().BeEmpty();
     }
 
     [Fact]

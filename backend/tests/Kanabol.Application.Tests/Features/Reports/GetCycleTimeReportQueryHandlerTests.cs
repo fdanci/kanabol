@@ -74,7 +74,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
     {
         var team = await FinishedWork();
         var (ana, project) = await AProjectOfItsOwn(team, "ANA");
-        var analysis = project.AddColumn("Analiză");
+        var analysis = project.AddColumn("Analiză", Guid.Empty);
         await using (var db = Postgres.CreateContext())
         {
             db.BoardColumns.Add(analysis);
@@ -190,7 +190,7 @@ public sealed class GetCycleTimeReportQueryHandlerTests(PostgresFixture postgres
     {
         var team = await FinishedWork();
         var (ana, project) = await AProjectOfItsOwn(team, "REV");
-        var review = project.AddColumn("Review");
+        var review = project.AddColumn("Review", Guid.Empty);
         await using (var db = Postgres.CreateContext())
         {
             db.BoardColumns.Add(review);

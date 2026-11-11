@@ -1863,7 +1863,8 @@ task_6() {
 group_23_tests_pass() {
   classes_pass Kanabol.Domain.Tests 30 PermissionsTests ProjectColumnTests &&
     classes_pass Kanabol.Application.Tests 95 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
-    classes_pass Kanabol.Api.Tests 16 BoardColumnsEndpointTests BoardEndpointTests
+    classes_pass Kanabol.Api.Tests 20 BoardColumnsEndpointTests BoardEndpointTests BoardRealtimeFlowTests &&
+    classes_pass Kanabol.Application.Tests 15 BoardEventsHandlerTests
 }
 
 # Someone with a role of their own, signed in from an address of their own (5 logins a minute per address):
@@ -1896,6 +1897,7 @@ a_project_whose_columns_a_member_manages() {
   someone_signs_in "mara@example.com" "Mara Coloane" '["columns.manage"]' 11 || return 1
   mara_token=$person_token
   mara_role=$person_role
+  mara_id=$person_id
   status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
   someone_signs_in "petru@example.com" "Petru Fără Coloane" '["tasks.create"]' 12 || return 1
   petru_token=$person_token
@@ -2005,6 +2007,42 @@ arhivate_is_a_reserved_name() {
   is "$before" "$(columns_of "$prm")"
 }
 
+heard() { # heard <JavaScript expression on r, the result of the hub's steps, in ASCII>: prints its value
+  node -e "const r = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))"     "$(native "$scratch/columns-heard.json")" "$1" | tr -d '
+'
+}
+
+# Mara's board and Petru's, both of PRM, listen over WebSockets as a browser does; from her tab Mara adds,
+# moves, renames and deletes a column, and Petru's 403 comes in between. Petru's board hears ColumnsChanged
+# four times, by Mara from her connection, and nothing of the 403; hers hears the same, as her own.
+columns_changed_reaches_another_board() {
+  a_project_whose_columns_a_member_manages || return 1
+  from_mara="\"token\": \"$mara_token\", \"as\": \"mara\""
+  cat >"$scratch/columns-steps.json" <<JSON
+[
+  { "connect": "mara", "token": "$mara_token" },
+  { "connect": "petru", "token": "$petru_token" },
+  { "join": "mara", "project": "$prm" },
+  { "join": "petru", "project": "$prm" },
+  { "request": "/api/projects/$prm/board-columns", "method": "POST", $from_mara, "keep": "added", "body": { "name": "Auzită" } },
+  { "request": "/api/projects/$prm/board-columns/{added}/position", "method": "PATCH", $from_mara, "body": { "position": 3 } },
+  { "request": "/api/projects/$prm/board-columns", "method": "POST", "token": "$petru_token", "as": "petru", "body": { "name": "Petru" } },
+  { "request": "/api/projects/$prm/board-columns/{added}", "method": "PUT", $from_mara, "body": { "name": "Auzită de toți" } },
+  { "request": "/api/projects/$prm/board-columns/{added}", "method": "DELETE", $from_mara }
+]
+JSON
+  hub_client || return 1
+  node "$(native "$scratch/hub.mjs")" "$API_URL" "$(native "$scratch/columns-steps.json")" >"$scratch/columns-heard.json" 2>"$scratch/columns-error.log" || {
+    cat "$scratch/columns-error.log"
+    return 1
+  }
+  is 'connected|connected|joined|joined|201|200|403|200|204' "$(heard "r.steps.join('|')")" || return 1
+  for listener in mara petru; do
+    is 'ColumnsChanged,ColumnsChanged,ColumnsChanged,ColumnsChanged' "$(heard "r.heard.$listener.map((h) => h.event).join(',')")" || return 1
+    is true "$(heard "r.heard.$listener.every((h) => Object.keys(h.payload).join(',') === 'projectId,byUserId,originConnectionId' && h.payload.projectId === '$prm' && h.payload.byUserId === '$mara_id' && h.payload.originConnectionId === r.connections.mara)")" || return 1
+  done
+}
+
 the_columns_permission_reaches_the_ui() {
   in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
     in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
@@ -2017,6 +2055,12 @@ the_columns_permission_reaches_the_ui() {
       'gives one who manages the project but not its columns neither the menu nor a new column' &&
     specs_named "$board/board-store.spec.ts" 'changes the columns for a member with columns.manage' \
       'changes nothing for one who manages the project but not its columns'
+}
+
+the_board_listens_to_columns_changed() {
+  in_file 'ColumnsChanged: ColumnsChangedMessage;' "$app/core/realtime/models.ts" &&
+    in_file "this.realtime.on('ColumnsChanged'" "$board/board-store.ts" &&
+    specs_named "$board/board-store.spec.ts" 'reads itself again quietly on ColumnsChanged from another tab, and not from its own'
 }
 
 group_23_specs_pass() {
@@ -2038,7 +2082,9 @@ task_7() {
   check "a column holding tasks doesn't cross În lucru, either way (409 Column.CrossesInProgress), but moves on its side" a_column_with_tasks_stays_on_its_side_of_in_progress
   check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere
   check "Arhivate is a reserved name, in any case: 400 on name to POST and PUT, nothing changed" arhivate_is_a_reserved_name
+  check "ColumnsChanged: Petru's board hears each of Mara's four changes from her tab, nothing of his 403" columns_changed_reaches_another_board
   check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
+  check "the board reads itself again on ColumnsChanged from another tab" the_board_listens_to_columns_changed
   check "the board's and the roles screen's specs pass" group_23_specs_pass
 }
 

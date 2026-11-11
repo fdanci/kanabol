@@ -9,5 +9,6 @@ public static class BoardEvents
     public const string TaskArchived = nameof(TaskArchived);
     public const string TaskRestored = nameof(TaskRestored);
     public const string CommentAdded = nameof(CommentAdded);
+    public const string ColumnsChanged = nameof(ColumnsChanged);
     public const string NotificationCreated = nameof(NotificationCreated);
 }

@@ -21,7 +21,7 @@ namespace Kanabol.Api.Tests.Realtime;
 /// </summary>
 public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api)
 {
-    private static readonly string[] _taskEvents = ["TaskCreated", "TaskMoved", "TaskUpdated", "TaskArchived", "TaskRestored", "NotificationCreated", "Probe"];
+    private static readonly string[] _taskEvents = ["TaskCreated", "TaskMoved", "TaskUpdated", "TaskArchived", "TaskRestored", "ColumnsChanged", "NotificationCreated", "Probe"];
 
     private async Task<(User Ana, User Dan, string AnaToken, string DanToken, Project Project, Guid TaskId)> ABoardWithATask()
     {
@@ -82,6 +82,34 @@ public sealed class BoardRealtimeFlowTests(ApiFixture api) : RealtimeApiTest(api
         moved.GetProperty("originConnectionId").GetString().Should().Be(dansTab.Connection.ConnectionId);
         moved.GetProperty("columnId").GetGuid().Should().Be(target.Id);
         moved.GetProperty("position").GetInt32().Should().Be(0);
+    }
+
+    // SPEC section 9, group 23: a change of the columns reaches the other boards as ColumnsChanged.
+    [Fact]
+    public async Task PostAndPatchBoardColumns_ReachAnotherBoardAsColumnsChanged()
+    {
+        var (ana, dan, anaToken, danToken, project, _) = await ABoardWithATask();
+        var dansBoard = await OnTheBoard(danToken, project);
+        var anasTab = await Connect(anaToken);
+
+        using var created = await JsonFrom(await SendFrom(anasTab, HttpMethod.Post, $"/api/projects/{project.Id}/board-columns", anaToken, new { name = "Review" }));
+        var review = created.RootElement.GetProperty("id").GetGuid();
+        (await SendFrom(anasTab, HttpMethod.Patch, $"/api/projects/{project.Id}/board-columns/{review}/position", anaToken, new { position = 2 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SendFrom(anasTab, HttpMethod.Patch, $"/api/projects/{project.Id}/board-columns/{review}/position", anaToken, new { position = 0 }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await Probe(dan.Id);
+
+        foreach (var _ in Enumerable.Range(0, 2))
+        {
+            var changed = await dansBoard.NextIs("ColumnsChanged");
+            NamesIn(changed).Should().Equal("projectId", "byUserId", "originConnectionId");
+            changed.GetProperty("projectId").GetGuid().Should().Be(project.Id);
+            changed.GetProperty("byUserId").GetGuid().Should().Be(ana.Id);
+            changed.GetProperty("originConnectionId").GetString().Should().Be(anasTab.Connection.ConnectionId);
+        }
+
+        (await dansBoard.NextIs("Probe")).GetProperty("marker").GetString().Should().Be("the end", "the refused move sent nothing");
     }
 
     [Fact]

@@ -10,6 +10,9 @@ namespace Kanabol.Domain.Tests.Projects;
 /// </summary>
 public sealed class ColumnOrderTests
 {
+    // Who changes the columns, which their event names (group 23).
+    private static readonly Guid _by = Guid.CreateVersion7();
+
     private readonly Project _project = new ProjectBuilder().Build();
     private readonly BoardColumn _before;
     private readonly BoardColumn _after;
@@ -17,9 +20,9 @@ public sealed class ColumnOrderTests
     public ColumnOrderTests()
     {
         // Backlog, Analiză, În lucru, În pauză, Review, Gata.
-        _before = _project.AddColumn("Analiză");
-        _project.MoveColumn(_before.Id, 1, holdsTasks: false);
-        _after = _project.AddColumn("Review");
+        _before = _project.AddColumn("Analiză", _by);
+        _project.MoveColumn(_before.Id, 1, holdsTasks: false, _by);
+        _after = _project.AddColumn("Review", _by);
     }
 
     private BoardColumn Named(string name) => _project.Columns.Single(column => column.Name == name);

@@ -11,7 +11,7 @@ import {
 import { Observable, firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
-import { TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
+import { ProjectMessage, TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
 import { Realtime } from '../../core/realtime/realtime';
 import { BoardApi } from './board-api';
 import { cardsIn, moveCard } from './board-moves';
@@ -105,6 +105,12 @@ export class BoardStore {
       }),
       this.realtime.on('CommentAdded', (message) => {
         this.heardChange(message, true);
+      }),
+      // A column added, renamed, moved or deleted elsewhere (docs/SPEC.md §9, group 23).
+      this.realtime.on('ColumnsChanged', (message) => {
+        if (this.concerns(message)) {
+          this.readAgain();
+        }
       }),
       // Whatever happened while the connection was away went unheard.
       this.realtime.onReconnected(() => {
@@ -325,7 +331,7 @@ export class BoardStore {
    * which connection made it, so anyone could send this tab's id: only the signed-in user's own change
    * from this tab is ignored, byUserId coming from the API's token, not from a header.
    */
-  private concerns(message: TaskMessage): boolean {
+  private concerns(message: ProjectMessage): boolean {
     const fromThisTab =
       message.originConnectionId !== null &&
       message.originConnectionId === this.realtime.connectionId() &&

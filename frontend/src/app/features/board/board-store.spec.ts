@@ -514,6 +514,33 @@ describe('BoardStore', () => {
       expect(store.pulses().get(id('B'))).toBe(1);
     });
 
+    // docs/SPEC.md §9, group 23: a change of the columns elsewhere reads the board again, quietly.
+    it('reads itself again quietly on ColumnsChanged from another tab, and not from its own', async () => {
+      await opened();
+
+      realtime.send('ColumnsChanged', {
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      await settle();
+      expect(reads()).toBe(2);
+      expect(store.state()).toBe('ready');
+
+      realtime.send('ColumnsChanged', {
+        projectId: 'p9',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      realtime.send('ColumnsChanged', {
+        projectId: 'p1',
+        byUserId: 'u1',
+        originConnectionId: 'my-tab',
+      });
+      await settle();
+      expect(reads()).toBe(2);
+    });
+
     it('ignores the changes of other projects', async () => {
       await opened();
 

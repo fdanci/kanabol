@@ -1,3 +1,4 @@
+using Kanabol.Application.Abstractions;
 using Kanabol.Application.Abstractions.Messaging;
 using Kanabol.Application.Common;
 using Microsoft.Extensions.Logging;
@@ -11,6 +12,7 @@ namespace Kanabol.Application.Features.Projects.Commands.AddBoardColumn;
 /// </summary>
 public sealed class AddBoardColumnCommandHandler(
     ProjectChanges changes,
+    ICurrentUser currentUser,
     ILogger<AddBoardColumnCommandHandler> logger) : ICommandHandler<AddBoardColumnCommand, BoardColumnDto>
 {
     public async Task<Result<BoardColumnDto>> Handle(AddBoardColumnCommand command, CancellationToken ct)
@@ -21,7 +23,7 @@ public sealed class AddBoardColumnCommandHandler(
             return loaded.Error;
         }
 
-        var column = loaded.Value.AddColumn(command.Name);
+        var column = loaded.Value.AddColumn(command.Name, currentUser.Id);
 
         var saved = await changes.Save(ct);
         if (saved.IsFailure)
