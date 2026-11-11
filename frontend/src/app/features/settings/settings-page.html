@@ -1,0 +1,118 @@
+<kb-page-header [title]="heading" [crumbs]="crumbs" />
+
+<div class="content">
+  @switch (state()) {
+    @case ('error') {
+      <kb-empty-state icon="error" [title]="loadFailed">
+        <p i18n>Verifică conexiunea și reîncearcă.</p>
+        <button
+          kbEmptyAction
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          (click)="load()"
+          i18n
+        >
+          Reîncearcă
+        </button>
+      </kb-empty-state>
+    }
+    @case ('loading') {
+      <section class="card" aria-busy="true">
+        <kb-skeleton width="160px" height="20px" />
+        <kb-skeleton width="80%" />
+        <kb-skeleton width="60%" />
+      </section>
+    }
+    @default {
+      <section class="card" aria-labelledby="kb-work-schedule">
+        <h2 id="kb-work-schedule" class="kb-title" i18n>Program de lucru</h2>
+        <p class="lead" i18n>
+          Timpul lucrat pe task-uri se numără doar în acest program. O schimbare se aplică de acum
+          înainte; task-urile aflate în lucru se socotesc cu programul nou.
+        </p>
+
+        <div class="kb-form-group">
+          <div class="kb-form-row">
+            <span id="kb-work-days" class="kb-form-label kb-required" i18n>Zile</span>
+            <div>
+              <div class="days" role="group" aria-labelledby="kb-work-days">
+                @for (day of days; track day.day) {
+                  <button
+                    type="button"
+                    class="kb-filter-chip day"
+                    [attr.aria-pressed]="isChosen(day.day)"
+                    [attr.aria-label]="day.name"
+                    [matTooltip]="day.name"
+                    (click)="toggle(day.day)"
+                  >
+                    {{ day.short }}
+                  </button>
+                }
+              </div>
+              @if (daysError(); as error) {
+                <p class="kb-field-error">{{ error }}</p>
+              }
+            </div>
+          </div>
+
+          <div class="kb-form-row">
+            <label class="kb-form-label kb-required" for="kb-work-start" i18n>De la</label>
+            <div>
+              <input
+                #startInput
+                id="kb-work-start"
+                class="kb-field time"
+                type="time"
+                step="60"
+                [value]="start()"
+                (input)="start.set(startInput.value)"
+              />
+            </div>
+          </div>
+
+          <div class="kb-form-row">
+            <label class="kb-form-label kb-required" for="kb-work-end" i18n>Până la</label>
+            <div>
+              <input
+                #endInput
+                id="kb-work-end"
+                class="kb-field time"
+                type="time"
+                step="60"
+                [value]="end()"
+                [attr.aria-invalid]="hoursError() !== null"
+                [attr.aria-describedby]="hoursError() !== null ? 'kb-work-hours-error' : null"
+                (input)="end.set(endInput.value)"
+              />
+              @if (hoursError(); as error) {
+                <p id="kb-work-hours-error" class="kb-field-error">{{ error }}</p>
+              }
+            </div>
+          </div>
+
+          <div class="kb-form-row">
+            <span class="kb-form-label" i18n>Fus orar</span>
+            <div>
+              <p class="zone" i18n>Fus orar: {{ timeZone() }}</p>
+              <p class="kb-form-help" i18n>Se schimbă din configurația serverului.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button
+            matButton="filled"
+            class="kb-default"
+            type="button"
+            [disabled]="!changed() || saving()"
+            (click)="save()"
+            i18n
+          >
+            Salvează
+          </button>
+        </div>
+      </section>
+    }
+  }
+</div>

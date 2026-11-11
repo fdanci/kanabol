@@ -146,6 +146,10 @@ Run from `frontend/`:
 - `kb-chart` (`shared/ui/chart.ts`) draws bars on a canvas with chart.js 4, registering only the bar's pieces: the main series `--kb-chart-1`, the second `--kb-chart-2`, over 3:1 on the card in both themes (docs/UI_UX_SPEC.md §2.1–§2.3; brand-800 had 1.4:1 on the dark card and sky-300 1.8:1 on white), the grid `--kb-border-200`, a 2px gap in the card's color between stacked pieces, a 4px rounded end, a legend only for two series or more, and its colors read again when the theme changes. Its tooltip is an element of its own, written as text, with the global class `kb-chart-tooltip` in `_utilities.scss` for its white on ink. `CHART_RENDERER` draws; specs give a fake, since jsdom has no canvas.
 - The page shows each chart inside `@defer (on idle)`, so `kb-chart` and chart.js come in a chunk of their own after the page, and `ChartSeries` is an `import type`: a symbol of the chart named outside `@defer` keeps it in the page's chunk. The first `@defer` brought Angular's runtime for it into the initial bundle, about 9 kB; the navbar's theme switch uses it too, so `kb-chart` keeps `@defer` rather than an `import()` of chart.js, which would save nothing.
 
+## Settings
+
+- `/settings` is `SettingsPage` (`features/settings`, docs/UI_UX_SPEC.md §7.9), for `settings.manage` (`withPermission`, and "Setări generale" with `settings` last in the sidebar's Administrare): the h1 "Setări generale" and the card "Program de lucru" from `GET /api/settings/work-schedule` (`SettingsApi`): the work days as seven `kb-filter-chip`s, L to D, their full names in `aria-label` and tooltip, "De la" and "Până la" as `<input type="time">`, the time zone to read, and "Salvează", on only once something changed. "Alege cel puțin o zi." and "Ora de început trebuie să fie înaintea celei de sfârșit." stop a save; a save says "Programul de lucru a fost salvat."; a 409 `Settings.ChangedMeanwhile`, which `BY_CODE` says, reads the schedule again. The page comes in a chunk of its own. The roles screen groups `settings.manage` under "Setări".
+
 ## Access rules
 
 - Hiding something in the UI is not access control: the backend enforces permissions.

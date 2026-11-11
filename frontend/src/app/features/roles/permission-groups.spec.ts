@@ -12,12 +12,14 @@ describe('permissionGroups', () => {
       'Proiecte',
       'Task-uri',
       'Rapoarte',
+      'Setări',
     ]);
     expect(groups.map((group) => group.permissions.map((permission) => permission.name))).toEqual([
       ['users.manage', 'roles.manage'],
       ['projects.create', 'projects.view_all', 'projects.manage'],
       ['tasks.create', 'tasks.archive'],
       ['reports.view'],
+      ['settings.manage'],
     ]);
   });
 

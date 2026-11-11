@@ -71,7 +71,10 @@
 #      in place, "Timp lucrat" counting now in În lucru against the estimate, "Motivul pauzei", the "Stare"
 #      select asking the board's sheets and keeping a started task from the columns before În lucru, the
 #      "Reîncarcă" of Atașamente and Istoric, the history's lines of the estimate and the pause, and their
-#      specs; the lists on columnKind. The packages only.
+#      specs; the lists on columnKind; "Setări generale" at /settings for settings.manage, in the sidebar
+#      and with its group on the roles screen, its card's texts and specs; the production build without a
+#      warning, its Initial total, printed, under 750 kB, and the settings page in a chunk of its own, not
+#      in what index.html loads. The packages only.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1384,6 +1387,76 @@ the_panel_specs_pass() {
   specs_pass 'src/app/features/tasks/*.spec.ts' 154
 }
 
+# "Setări generale" (UI §7.9, §5): /settings for settings.manage, in a chunk of its own, the sidebar's entry
+# and the roles screen's group, the card's texts, and the 409's.
+the_settings_page_is_as_the_spec_says() {
+  settings_web=$app/features/settings
+  in_file "settingsManage: 'settings.manage'," "$app/core/auth/permissions.ts" &&
+    in_file '...withPermission(PERMISSIONS.settingsManage, {' "$app/app.routes.ts" &&
+    in_file "import('./features/settings/settings.routes')" "$app/app.routes.ts" &&
+    in_file "link: '/settings'," "$app/core/layout/navigation.ts" &&
+    in_file "icon: 'settings'," "$app/core/layout/navigation.ts" &&
+    in_file '[PERMISSIONS.settingsManage, $localize`Schimbă setările generale`]' "$app/features/roles/permission-groups.ts" &&
+    in_file 'Program de lucru' "$settings_web/settings-page.html" &&
+    in_file 'Timpul lucrat pe task-uri se numără doar în acest program.' "$settings_web/settings-page.html" &&
+    in_file 'class="kb-filter-chip day"' "$settings_web/settings-page.html" &&
+    in_file 'type="time"' "$settings_web/settings-page.html" &&
+    in_file 'Se schimbă din configurația serverului.' "$settings_web/settings-page.html" &&
+    in_file 'Alege cel puțin o zi.' "$settings_web/settings-page.ts" &&
+    in_file 'Ora de început trebuie să fie înaintea celei de sfârșit.' "$settings_web/settings-page.ts" &&
+    in_file 'Programul de lucru a fost salvat.' "$settings_web/settings-page.ts" &&
+    in_file 'Programul a fost schimbat între timp de altcineva.' "$app/core/api/error-interceptor.ts"
+}
+
+the_settings_specs_pass() {
+  specs_pass 'src/app/features/settings/*.spec.ts' 6 &&
+    specs_named "$app/core/layout/layout.spec.ts" 'adds Setări generale last in Administrare for settings.manage' &&
+    specs_pass 'src/app/features/roles/*.spec.ts' 24 &&
+    specs_pass 'src/app/core/layout/*.spec.ts' 20
+}
+
+# The production build, once per run: no warning, the Initial total under 750 kB, and the new pages and
+# sections (the settings page, the reports' new section) in chunks of their own, not in what index.html loads.
+built_web() {
+  [ -f "$scratch/web-built" ] && return 0
+  (cd "$web" && npx ng build --output-path "$scratch/web-dist") >"$scratch/web-build.log" 2>&1 || {
+    plain "$scratch/web-build.log" | tail -n 25
+    return 1
+  }
+  touch "$scratch/web-built"
+}
+
+the_build_is_clean_and_under_750_kb() {
+  built_web || return 1
+  if plain "$scratch/web-build.log" | grep -F 'WARNING'; then
+    return 1
+  fi
+  total=$(plain "$scratch/web-build.log" | sed -n 's/.*Initial total *| *\([0-9.]*\) kB.*/\1/p')
+  [ -n "$total" ] || {
+    echo "no Initial total in the build's output"
+    return 1
+  }
+  echo "Initial total $total kB"
+  node -e "process.exit(Number(process.argv[1]) < 750 ? 0 : 1)" "$total"
+}
+
+lazy_in_a_chunk() { # lazy_in_a_chunk <text the chunk holds>: in a file of the build, none of those index.html loads
+  built_web || return 1
+  initial=$(grep -oE '<script src="[^"]*"|<link rel="modulepreload" href="[^"]*"' "$scratch/web-dist/browser/index.html" |
+    sed 's/.*"\([^"]*\)"$/\1/')
+  holders=$(grep -lF -- "$1" "$scratch/web-dist/browser/"*.js 2>/dev/null)
+  [ -n "$holders" ] || {
+    echo "no chunk holds $1"
+    return 1
+  }
+  for file in $initial; do
+    if grep -qF -- "$1" "$scratch/web-dist/browser/$file"; then
+      echo "$1 is in $file, which index.html loads"
+      return 1
+    fi
+  done
+}
+
 task_5() {
   echo "22.5 the frontend"
   check "the fixed columns' bars and icons reach 3:1 on the column, in light and in dark" fixed_colors_reach_3_to_1
@@ -1397,6 +1470,10 @@ task_5() {
   check "the specs of Arhivate pass: the band, the pages, archiving by a drop, restoring by a drop or the ⋮" the_archived_specs_pass
   check "the task's panel: Estimare in place, Timp lucrat, Motivul pauzei, Stare's rules, Reîncarcă, the history's lines" the_panel_is_as_the_spec_says
   check "the specs of the panel pass: the estimate, the worked time, the pause, the moves, the tabs' Reîncarcă" the_panel_specs_pass
+  check "Setări generale: /settings for settings.manage, the sidebar, the roles screen's group, the card's texts" the_settings_page_is_as_the_spec_says
+  check "the specs of the settings pass: the page, the sidebar, the roles screen" the_settings_specs_pass
+  check "the production build warns of nothing, its Initial total under 750 kB" the_build_is_clean_and_under_750_kb
+  check "the settings page comes in a chunk of its own, not in the first bundle" lazy_in_a_chunk 'kb-settings-page'
 }
 
 tasks=${*:-1 2 3 4 5}

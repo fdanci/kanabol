@@ -46,6 +46,12 @@ export function navigation(): NavGroup[] {
           link: '/reports',
           permission: PERMISSIONS.reportsView,
         },
+        {
+          label: $localize`Setări generale`,
+          icon: 'settings',
+          link: '/settings',
+          permission: PERMISSIONS.settingsManage,
+        },
       ],
     },
   ];

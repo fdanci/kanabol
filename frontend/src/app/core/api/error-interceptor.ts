@@ -50,6 +50,7 @@ const BY_CODE: Record<string, () => string> = {
   'Project.NotFound': () => $localize`Proiectul nu mai există.`,
   'Project.KeyTaken': () => $localize`Există deja un proiect cu această cheie.`,
   'Project.Archived': () => $localize`Proiectul e arhivat. Restaurează-l întâi.`,
+  'Settings.ChangedMeanwhile': () => $localize`Programul a fost schimbat între timp de altcineva.`,
   'Project.AlreadyAMember': () => $localize`Utilizatorul e deja în proiect.`,
   'Project.MemberNotFound': () => $localize`Utilizatorul nu mai e în proiect. Reîncarcă pagina.`,
   'Project.LastOwner': () =>

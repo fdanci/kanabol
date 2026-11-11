@@ -98,6 +98,14 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/reports/reports.routes').then((reports) => reports.REPORTS_ROUTES),
       }),
+      ...withPermission(PERMISSIONS.settingsManage, {
+        path: 'settings',
+        title: $localize`Setări generale · Kanabol`,
+        loadChildren: () =>
+          import('./features/settings/settings.routes').then(
+            (settings) => settings.SETTINGS_ROUTES,
+          ),
+      }),
       { path: '**', title: $localize`Pagina nu există · Kanabol`, component: NotFoundPage },
     ],
   },

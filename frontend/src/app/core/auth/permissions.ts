@@ -8,6 +8,7 @@ export const PERMISSIONS = {
   tasksCreate: 'tasks.create',
   tasksArchive: 'tasks.archive',
   reportsView: 'reports.view',
+  settingsManage: 'settings.manage',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

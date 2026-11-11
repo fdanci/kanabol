@@ -1,0 +1,60 @@
+:host {
+  display: block;
+}
+
+.content {
+  max-width: var(--kb-content-max);
+  margin: 0 auto;
+  padding: 0 var(--kb-space-6) var(--kb-space-6);
+}
+
+// One flat card (6.0.10), as wide as a form sheet.
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kb-space-2);
+  box-sizing: border-box;
+  max-width: 640px;
+  padding: var(--kb-space-6);
+  background: var(--kb-surface-0);
+  border: 1px solid var(--kb-border-200);
+  border-radius: var(--kb-radius-md);
+}
+
+h2 {
+  margin: 0;
+}
+
+.lead {
+  margin: 0;
+  color: var(--kb-text-600);
+}
+
+.kb-form-group {
+  margin-top: var(--kb-space-2);
+}
+
+.days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kb-space-2);
+}
+
+.day {
+  min-width: 36px;
+  justify-content: center;
+}
+
+.time {
+  max-width: 140px;
+}
+
+.zone {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--kb-space-4);
+}
