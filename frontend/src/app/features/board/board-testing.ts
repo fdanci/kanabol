@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto } from './models';
+import { ArchivedTaskDto, BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto } from './models';
 
 /** What the specs of the board build their boards from: a plain file, so importing it runs no spec. */
 export const COLUMNS: BoardColumnDto[] = [
@@ -67,6 +67,24 @@ export function aBoard(extra: Partial<BoardDto> = {}): BoardDto {
       aCard('KAN-4', 'c2', 0, { title: 'D' }),
       aCard('KAN-5', 'c3', 0, { title: 'E', completedAt: '2026-11-05T08:00:00Z' }),
     ],
+    ...extra,
+  };
+}
+
+/** A card of Arhivate, archived by Florin on 1 November 2026, back to the column given. */
+export function anArchivedCard(
+  key: string,
+  columnId: string,
+  columnName: string,
+  extra: Partial<ArchivedTaskDto> = {},
+): ArchivedTaskDto {
+  const card: Partial<BoardTaskDto> = aCard(key, columnId, 0);
+  delete card.position;
+  return {
+    ...(card as Omit<BoardTaskDto, 'position'>),
+    columnName,
+    archivedAt: '2026-11-01T10:00:00Z',
+    archivedBy: { userId: 'u1', displayName: 'Florin Danci' },
     ...extra,
   };
 }

@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MatTooltip } from '@angular/material/tooltip';
+import { RelativeTimePipe, fullDate } from '../../shared/pipes/relative-time-pipe';
 import { ColumnKind } from '../../shared/models/column-kind';
 import { formatHoursMinutes, formatWorked, isOverEstimate } from '../../shared/models/estimate';
 import { priorityLabel } from '../../shared/models/task-filters';
@@ -7,6 +8,9 @@ import { AvatarStack } from '../../shared/ui/avatar-stack';
 import { Chip, ChipKind } from '../../shared/ui/chip';
 import { DeadlineChip } from '../../shared/ui/deadline-chip';
 import { BoardTaskDto } from './models';
+
+/** What a card shows of a task, on the board or in Arhivate. */
+export type CardTask = Omit<BoardTaskDto, 'position'>;
 
 /**
  * A card on the board (docs/UI_UX_SPEC.md §7.4): the key and the priority, the title on at most two
@@ -18,11 +22,12 @@ import { BoardTaskDto } from './models';
 @Component({
   selector: 'kb-task-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AvatarStack, Chip, DeadlineChip, MatTooltip],
+  imports: [AvatarStack, Chip, DeadlineChip, MatTooltip, RelativeTimePipe],
   // Two names for one pulse, so the next change starts it again (docs/UI_UX_SPEC.md §7.4).
   host: {
     '[class.pulse-a]': 'pulse() % 2 === 1',
     '[class.pulse-b]': 'pulse() > 0 && pulse() % 2 === 0',
+    '[class.archived]': 'archivedAt() !== null',
   },
   template: `
     <div class="card">
@@ -38,7 +43,11 @@ import { BoardTaskDto } from './models';
         </p>
       }
       <div class="bottom">
-        @if (task().dueDate; as dueDate) {
+        @if (archivedAt(); as archivedAt) {
+          <span class="archived-at" [matTooltip]="archivedOn()" i18n
+            >arhivat {{ archivedAt | relativeTime }}</span
+          >
+        } @else if (task().dueDate; as dueDate) {
           <kb-deadline-chip [dueDate]="dueDate" [done]="done()" />
         }
         @if (worked(); as worked) {
@@ -182,6 +191,16 @@ import { BoardTaskDto } from './models';
       -webkit-box-orient: vertical;
     }
 
+    /* In Arhivate (docs/UI_UX_SPEC.md §7.4). */
+    :host(.archived) .card {
+      opacity: 0.72;
+    }
+
+    .archived-at {
+      font-size: 12px;
+      color: var(--kb-text-600);
+    }
+
     .reason {
       display: flex;
       align-items: center;
@@ -252,11 +271,13 @@ import { BoardTaskDto } from './models';
   `,
 })
 export class TaskCard {
-  readonly task = input.required<BoardTaskDto>();
+  readonly task = input.required<CardTask>();
   /** In a done column the deadline no longer warns. */
   readonly done = input(false);
   /** How many times someone else changed it: each change pulses it once. */
   readonly pulse = input(0);
+  /** When it was archived, for a card of Arhivate: it shows in place of the deadline. */
+  readonly archivedAt = input<string | null>(null);
   /** The kind of its column: În lucru colors the timer, În pauză shows the reason. */
   readonly kind = input<ColumnKind>('Custom');
 
@@ -266,6 +287,10 @@ export class TaskCard {
     return estimatedMinutes === null
       ? null
       : `${formatWorked(workedSeconds)} / ${formatHoursMinutes(estimatedMinutes)}`;
+  });
+  protected readonly archivedOn = computed(() => {
+    const archivedAt = this.archivedAt();
+    return archivedAt === null ? '' : fullDate(archivedAt);
   });
   protected readonly over = computed(() =>
     isOverEstimate(this.task().workedSeconds, this.task().estimatedMinutes),

@@ -109,6 +109,24 @@
           }
         </div>
       }
+      @if (store.canSeeArchived()) {
+        <kb-archived-column
+          [cards]="archived.cards()"
+          [total]="archived.total()"
+          [open]="archived.open()"
+          [state]="archived.state()"
+          [hasMore]="archived.hasMore()"
+          [loadingMore]="archived.loadingMore()"
+          [canArchive]="store.canMove()"
+          [canRestore]="!(store.board()?.isArchived ?? true)"
+          (toggled)="archived.toggle()"
+          (more)="archived.more()"
+          (retried)="archived.read()"
+          (opened)="open($event)"
+          (restored)="restore($event)"
+          (dropped)="dropped($event)"
+        />
+      }
     </div>
   }
 }

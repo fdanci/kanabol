@@ -14,7 +14,7 @@ import { MatButton, MatIconButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { ColumnKind } from '../../shared/models/column-kind';
-import { BoardColumnDto, BoardTaskDto } from './models';
+import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto } from './models';
 import { TaskCard } from './task-card';
 
 /** A title as long as the API takes (docs/SPEC.md §5.1). */
@@ -353,9 +353,14 @@ export class BoardColumn {
       ? $localize`${task.key}:key: ${task.title}:title:. Pe pauză: ${task.pauseReason}:reason:`
       : `${task.key} ${task.title}`;
   }
-  /** Kept out while dragged, so the column takes no target border; the page says why when it's let go there. */
-  protected readonly accepts = (drag: CdkDrag<BoardTaskDto>): boolean =>
-    !this.beforeInProgress() || !this.startedColumnIds().has(drag.data.columnId);
+  /**
+   * Kept out while dragged, so the column takes no target border; the page says why when it's let go there.
+   * A card of Arhivate comes in anywhere: it goes back to its own column.
+   */
+  protected readonly accepts = (drag: CdkDrag<BoardTaskDto | ArchivedTaskDto>): boolean =>
+    'archivedAt' in drag.data ||
+    !this.beforeInProgress() ||
+    !this.startedColumnIds().has(drag.data.columnId);
   protected readonly maxTitleLength = MAX_TITLE_LENGTH;
   protected readonly maxNameLength = MAX_NAME_LENGTH;
   protected readonly renaming = signal(false);

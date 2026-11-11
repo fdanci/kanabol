@@ -75,6 +75,8 @@ export class BoardStore {
   });
   readonly canMove = computed(() => this.board()?.canMove ?? false);
   readonly canManage = computed(() => this.board()?.canManage ?? false);
+  /** tasks.archive in the token: the column Arhivate (docs/SPEC.md §4.4). */
+  readonly canSeeArchived = computed(() => this.board()?.canSeeArchived ?? false);
   /** tasks.create from the token, and a real membership of an open project (docs/SPEC.md §4.4). */
   readonly canCreate = computed(() => this.canMove() && this.auth.has(PERMISSIONS.tasksCreate));
   readonly members = computed<BoardMemberDto[]>(() =>

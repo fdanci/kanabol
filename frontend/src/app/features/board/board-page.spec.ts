@@ -19,8 +19,17 @@ import { Snackbar } from '../../shared/ui/snackbar';
 import { BoardApi } from './board-api';
 import { BoardColumn } from './board-column';
 import { BoardPage } from './board-page';
-import { OWN_COLUMNS, aBoard, aBoardMember, aCard, refusedWith } from './board-testing';
-import { BoardColumnDto, BoardDto, BoardTaskDto } from './models';
+import { ARCHIVED_COLUMN, ArchivedColumn } from './archived-column';
+import { ARCHIVED_STATE_KEY } from './archived-store';
+import {
+  OWN_COLUMNS,
+  aBoard,
+  aBoardMember,
+  aCard,
+  anArchivedCard,
+  refusedWith,
+} from './board-testing';
+import { ArchivedTaskDto, BoardColumnDto, BoardDto, BoardTaskDto } from './models';
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1066,6 +1075,253 @@ describe('BoardPage', () => {
       expect(over.classList).toContain('over');
       expect(card('A').querySelector('.worked')).toBeNull();
       expect(card('D').querySelector('.reason-text')?.textContent.trim()).toBe('Aștept clientul');
+    });
+  });
+
+  // docs/UI_UX_SPEC.md §7.4 (group 22): Arhivate, for tasks.archive, last; KAN-9 back to În lucru, KAN-8 to Gata.
+  describe('the column Arhivate', () => {
+    let archivedCards: ArchivedTaskDto[];
+
+    beforeEach(() => {
+      localStorage.removeItem(ARCHIVED_STATE_KEY);
+      board.canSeeArchived = true;
+      archivedCards = [
+        anArchivedCard('KAN-9', 'c2', 'În lucru', { title: 'Arhivat din lucru' }),
+        anArchivedCard('KAN-8', 'c3', 'Gata', { title: 'Arhivat din Gata', priority: 'Low' }),
+      ];
+      api['archived'] = vi.fn((_: string, page: number) =>
+        of({
+          items: page === 1 ? archivedCards : [],
+          page,
+          pageSize: 50,
+          totalCount: archivedCards.length,
+        }),
+      );
+      api['archive'] = vi.fn(() => of(undefined));
+      api['restore'] = vi.fn(() => of({}));
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(ARCHIVED_STATE_KEY);
+      document.querySelector('.cdk-overlay-container')?.replaceChildren();
+    });
+
+    function archivedColumn(): HTMLElement | null {
+      return page().querySelector<HTMLElement>('kb-archived-column');
+    }
+
+    function archivedComponent(): ArchivedColumn {
+      return harness.fixture.debugElement.query(By.directive(ArchivedColumn))
+        .componentInstance as ArchivedColumn;
+    }
+
+    async function opened(): Promise<HTMLElement> {
+      await visit();
+      archivedColumn()!.querySelector<HTMLButtonElement>('.band')!.click();
+      await settle();
+      return archivedColumn()!;
+    }
+
+    it('comes last, after + Coloană, only for tasks.archive', async () => {
+      await visit();
+
+      const board = page().querySelector('.board')!;
+      expect(board.lastElementChild?.tagName.toLowerCase()).toBe('kb-archived-column');
+      expect(board.lastElementChild?.previousElementSibling?.classList).toContain(
+        'add-column-slot',
+      );
+      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
+    });
+
+    it('stays away, and reads nothing, without tasks.archive', async () => {
+      board.canSeeArchived = false;
+      await visit();
+
+      expect(archivedColumn()).toBeNull();
+      expect(api['archived']).not.toHaveBeenCalled();
+    });
+
+    it('is closed at first: a band with its icon, its name downwards and its count, which a click opens', async () => {
+      await visit();
+      const band = archivedColumn()!.querySelector<HTMLButtonElement>('.band')!;
+
+      expect(band.getAttribute('aria-expanded')).toBe('false');
+      expect(band.getAttribute('aria-label')).toBe('Arhivate, 2 task-uri. Deschide coloana.');
+      expect(band.querySelector('.kind-icon')?.textContent.trim()).toBe('inventory_2');
+      expect(band.querySelector('.band-name')?.textContent.trim()).toBe('Arhivate');
+      expect(band.querySelector('.count')?.textContent.trim()).toBe('2');
+      expect(archivedColumn()!.querySelector('kb-task-card')).toBeNull();
+
+      band.click();
+      await settle();
+
+      expect(archivedColumn()!.querySelector('h2')?.textContent.trim()).toBe('Arhivate');
+      expect(localStorage.getItem(ARCHIVED_STATE_KEY)).toBe('open');
+    });
+
+    it('opens as this browser left it', async () => {
+      localStorage.setItem(ARCHIVED_STATE_KEY, 'open');
+
+      await visit();
+
+      expect(archivedColumn()!.classList).toContain('open');
+    });
+
+    it('shows its cards faded, with when they were archived in place of the deadline', async () => {
+      archivedCards[0] = anArchivedCard('KAN-9', 'c2', 'În lucru', {
+        title: 'Arhivat din lucru',
+        dueDate: '2026-11-20T21:59:59Z',
+        archivedAt: new Date(Date.now() - 3 * 24 * 3_600_000).toISOString(),
+      });
+      const column = await opened();
+
+      const cards = [...column.querySelectorAll('kb-task-card')];
+      expect(cards.map((found) => found.getAttribute('aria-label'))).toEqual([
+        'KAN-9 Arhivat din lucru',
+        'KAN-8 Arhivat din Gata',
+      ]);
+      expect(cards[0].classList).toContain('archived');
+      expect(cards[0].querySelector('.archived-at')?.textContent.trim()).toBe(
+        'arhivat acum 3 zile',
+      );
+      expect(cards[0].querySelector('kb-deadline-chip')).toBeNull();
+    });
+
+    it('reads 50 at a time, with Încarcă mai multe at the end', async () => {
+      archivedCards = Array.from({ length: 50 }, (_, index) =>
+        anArchivedCard(`KAN-${String(100 + index)}`, 'c1', 'De făcut'),
+      );
+      api['archived'] = vi.fn((_: string, page: number) =>
+        of({
+          items: page === 1 ? archivedCards : [anArchivedCard('KAN-99', 'c1', 'De făcut')],
+          page,
+          pageSize: 50,
+          totalCount: 51,
+        }),
+      );
+      const column = await opened();
+
+      column.querySelector<HTMLButtonElement>('.more')!.click();
+      await settle();
+
+      expect(api['archived']).toHaveBeenCalledWith('p1', 2);
+      expect(column.querySelectorAll('kb-task-card')).toHaveLength(51);
+      expect(column.querySelector('.more')).toBeNull();
+    });
+
+    it('says when nothing is archived', async () => {
+      archivedCards = [];
+      const column = await opened();
+
+      expect(column.querySelector('.empty')?.textContent.trim()).toBe('Niciun task arhivat.');
+    });
+
+    it('archives a card of the board let go on it, after the question', async () => {
+      await visit();
+
+      archivedComponent().dropped.emit({
+        item: { data: task('A') },
+        container: { data: ARCHIVED_COLUMN },
+        previousContainer: { data: board.columns.find((found) => found.id === 'c1') },
+        previousIndex: 0,
+        currentIndex: 0,
+      } as unknown as CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>);
+      await settle();
+
+      expect(confirmation.ask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Arhivezi task-ul «A»?', confirmLabel: 'Arhivează' }),
+      );
+      expect(api['archive']).toHaveBeenCalledWith('id-KAN-1');
+      expect(api['board']).toHaveBeenCalledTimes(2);
+      expect(api['archived']).toHaveBeenCalledTimes(2);
+      expect(snackbar.show).toHaveBeenCalledWith('Task-ul KAN-1 a fost arhivat.');
+      expect(api['move']).not.toHaveBeenCalled();
+    });
+
+    it('archives nothing when the question is turned down', async () => {
+      confirmation.ask.mockReturnValue(Promise.resolve(false));
+      await visit();
+
+      archivedComponent().dropped.emit({
+        item: { data: task('A') },
+        container: { data: ARCHIVED_COLUMN },
+        previousContainer: { data: board.columns.find((found) => found.id === 'c1') },
+        previousIndex: 0,
+        currentIndex: 0,
+      } as unknown as CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>);
+      await settle();
+
+      expect(api['archive']).not.toHaveBeenCalled();
+    });
+
+    it('restores one of its cards let go anywhere on the board into its own column', async () => {
+      await opened();
+      const target = harness.fixture.debugElement
+        .queryAll(By.directive(BoardColumn))
+        .map((found) => found.componentInstance as BoardColumn)
+        .find((found) => found.column().id === 'c1')!;
+
+      target.dropped.emit({
+        item: { data: archivedCards[0] },
+        container: { data: target.column() },
+        previousContainer: { data: ARCHIVED_COLUMN },
+        previousIndex: 0,
+        currentIndex: 0,
+      } as unknown as CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>);
+      await settle();
+
+      expect(api['restore']).toHaveBeenCalledWith('id-KAN-9');
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(snackbar.show).toHaveBeenCalledWith('«KAN-9» a revenit în «În lucru».');
+      expect(api['board']).toHaveBeenCalledTimes(2);
+    });
+
+    it('restores a card from its ⋮, from the keyboard', async () => {
+      await opened();
+
+      const menu = await TestbedHarnessEnvironment.documentRootLoader(harness.fixture).getHarness(
+        MatMenuHarness.with({ selector: '[aria-label="Acțiunile task-ului KAN-8"]' }),
+      );
+      await menu.clickItem({ text: /Restaurează$/ });
+      await settle();
+
+      expect(api['restore']).toHaveBeenCalledWith('id-KAN-8');
+      expect(snackbar.show).toHaveBeenCalledWith('«KAN-8» a revenit în «Gata».');
+    });
+
+    it('lets every column of the board take one of its cards, Backlog too, and takes the board cards of a member', async () => {
+      board.columns = OWN_COLUMNS.map((found) => ({ ...found }));
+      board.tasks = [aCard('KAN-3', 'c2', 0, { title: 'C' })];
+      await opened();
+
+      const lists = harness.fixture.debugElement
+        .queryAll(By.directive(CdkDropList))
+        .map((found) => found.injector.get(CdkDropList<BoardColumnDto>));
+      const archivedDrag = { data: archivedCards[0] } as unknown as CdkDrag<BoardTaskDto>;
+      const boardDrag = { data: task('C') } as CdkDrag<BoardTaskDto>;
+      expect(lists.every((list) => list.enterPredicate(archivedDrag, list))).toBe(true);
+      const archivedList = lists.find((list) => list.data.id === ARCHIVED_COLUMN.id)!;
+      expect(archivedList.enterPredicate(boardDrag, archivedList)).toBe(true);
+    });
+
+    it('takes no card of the board from one who may not move cards', async () => {
+      board.canMove = false;
+      await visit();
+
+      const list = harness.fixture.debugElement
+        .queryAll(By.directive(CdkDropList))
+        .map((found) => found.injector.get(CdkDropList<BoardColumnDto>))
+        .find((found) => found.data.id === ARCHIVED_COLUMN.id)!;
+      expect(list.enterPredicate({ data: task('A') } as CdkDrag<BoardTaskDto>, list)).toBe(false);
+    });
+
+    // docs/UI_UX_SPEC.md §7.4: the board's filters don't touch it.
+    it('keeps all its cards whatever the filters', async () => {
+      localStorage.setItem(ARCHIVED_STATE_KEY, 'open');
+
+      await visit('/projects/p1/board?priority=High');
+
+      expect(archivedColumn()!.querySelectorAll('kb-task-card')).toHaveLength(2);
     });
   });
 

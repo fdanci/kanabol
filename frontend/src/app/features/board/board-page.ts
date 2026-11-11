@@ -34,11 +34,13 @@ import { EmptyState } from '../../shared/ui/empty-state';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { Snackbar } from '../../shared/ui/snackbar';
 import { TaskFilterBar } from '../../shared/ui/task-filter-bar';
+import { ARCHIVED_COLUMN, ArchivedColumn } from './archived-column';
+import { ArchivedStore } from './archived-store';
 import { BoardColumn, NewCard } from './board-column';
 import { cardFilter } from './board-filters';
 import { placeAmong } from './board-moves';
 import { BoardStore } from './board-store';
-import { BoardColumnDto, BoardTaskDto, MoveAnswers } from './models';
+import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto, MoveAnswers } from './models';
 
 /** A card picked up from the keyboard: where it would land, among the cards that column shows. */
 interface Lifted {
@@ -71,13 +73,23 @@ const MOVES: Record<string, [columns: number, places: number] | undefined> = {
 @Component({
   selector: 'kb-board-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [BoardStore],
-  imports: [CdkDropListGroup, BoardColumn, EmptyState, Skeleton, MatButton, MatIcon, TaskFilterBar],
+  providers: [BoardStore, ArchivedStore],
+  imports: [
+    CdkDropListGroup,
+    BoardColumn,
+    ArchivedColumn,
+    EmptyState,
+    Skeleton,
+    MatButton,
+    MatIcon,
+    TaskFilterBar,
+  ],
   templateUrl: './board-page.html',
   styleUrl: './board-page.scss',
 })
 export class BoardPage {
   protected readonly store = inject(BoardStore);
+  protected readonly archived = inject(ArchivedStore);
   private readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -174,6 +186,15 @@ export class BoardPage {
         });
       }
     });
+    // Arhivate, for tasks.archive: its cards are read with the board's.
+    effect(() => {
+      const projectId = this.projectId();
+      if (projectId !== '' && this.store.canSeeArchived()) {
+        untracked(() => {
+          this.archived.show(projectId);
+        });
+      }
+    });
     // The name field takes the focus as it opens.
     effect(() => {
       this.newColumn()?.nativeElement.focus();
@@ -186,6 +207,9 @@ export class BoardPage {
         seen = version;
         untracked(() => {
           this.store.reload();
+          if (this.store.canSeeArchived()) {
+            void this.archived.read();
+          }
         });
       }
     });
@@ -207,7 +231,7 @@ export class BoardPage {
     this.filter(NO_TASK_FILTERS);
   }
 
-  protected open(task: BoardTaskDto): void {
+  protected open(task: Pick<BoardTaskDto, 'key'>): void {
     if (!this.lifted()) {
       void openTaskPanel(this.router, task.key);
     }
@@ -218,6 +242,19 @@ export class BoardPage {
    * API wants the place among all the column's cards, which the filters may hide some of.
    */
   protected dropped(event: CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>): void {
+    // Arhivate (docs/UI_UX_SPEC.md §7.4): a card of the board let go there is archived, after a question;
+    // one of its cards let go anywhere on the board goes back to its own column.
+    const fromArchived = event.previousContainer.data.id === ARCHIVED_COLUMN.id;
+    if (event.container.data.id === ARCHIVED_COLUMN.id) {
+      if (!fromArchived) {
+        void this.archive(event.item.data);
+      }
+      return;
+    }
+    if (fromArchived) {
+      void this.restore(event.item.data as unknown as ArchivedTaskDto);
+      return;
+    }
     const task = event.item.data;
     const column = event.container.data;
     // A column before În lucru keeps a started card out, so the CDK hands it back to where it was:
@@ -322,6 +359,28 @@ export class BoardPage {
     });
     if (sure && (await this.store.deleteColumn(column))) {
       this.snackbar.show($localize`Coloana «${column.name}:column:» a fost ștearsă.`);
+    }
+  }
+
+  protected async archive(task: BoardTaskDto): Promise<void> {
+    const sure = await this.confirmation.ask({
+      title: $localize`Arhivezi task-ul «${task.title}:title:»?`,
+      message: $localize`Nu mai apare pe board și în listă, dar istoricul lui rămâne. Cine are permisiunea de arhivare îl poate restaura.`,
+      confirmLabel: $localize`Arhivează`,
+      icon: 'archive',
+      destructive: true,
+    });
+    if (sure && (await this.archived.archive(task.id))) {
+      this.store.reload();
+      this.snackbar.show($localize`Task-ul ${task.key}:key: a fost arhivat.`);
+    }
+  }
+
+  /** Back in its own column, wherever it was let go. */
+  protected async restore(card: ArchivedTaskDto): Promise<void> {
+    if (await this.archived.restore(card)) {
+      this.store.reload();
+      this.snackbar.show($localize`«${card.key}:key:» a revenit în «${card.columnName}:column:».`);
     }
   }
 

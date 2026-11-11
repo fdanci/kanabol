@@ -64,7 +64,10 @@
 #      mouse and the keyboard, and the board's specs; the estimate's sheet before a task without one starts
 #      and the pause's before every pause, by the mouse and the keyboard, their texts, the card waiting in its
 #      new column while they ask and back in its place when they're turned down, the chip "lucrat / estimat"
-#      and the pause's reason on the card, and their specs. The packages only.
+#      and the pause's reason on the card, and their specs; Arhivate, for tasks.archive, last, closed at first
+#      in a 44px band with its count, open at 300px, as this browser left it, 50 at a time, a card of the
+#      board archived by a drop on it after the question, one of its own restored into its column by a drop
+#      anywhere or by its ⋮, untouched by the filters, and their specs. The packages only.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1300,6 +1303,44 @@ the_asking_specs_pass() {
     specs_pass 'src/app/shared/models/estimate.spec.ts' 6
 }
 
+# Arhivate (UI §7.4): for tasks.archive, last, closed at first in a 44px band, open at 300px, its state in
+# localStorage, 50 at a time, archiving by a drop after the question, restoring by a drop or its ⋮.
+the_archived_column_is_as_the_spec_says() {
+  in_file "export const ARCHIVED_STATE_KEY = 'kb.board.archived';" "$board/archived-store.ts" &&
+    in_file 'export const ARCHIVED_PAGE_SIZE = 50;' "$board/board-api.ts" &&
+    in_file '`/projects/${projectId}/board/archived`' "$board/board-api.ts" &&
+    in_file '@if (store.canSeeArchived()) {' "$board/board-page.html" &&
+    in_file 'width: 44px;' "$board/archived-column.ts" &&
+    in_file 'width: 300px;' "$board/archived-column.ts" &&
+    in_file 'writing-mode: vertical-rl;' "$board/archived-column.ts" &&
+    in_file 'inventory_2' "$board/archived-column.ts" &&
+    in_file '--kb-kind: var(--kb-text-600);' "$board/archived-column.ts" &&
+    in_file 'Încarcă mai multe' "$board/archived-column.ts" &&
+    in_file 'Niciun task arhivat.' "$board/archived-column.ts" &&
+    in_file 'Restaurează' "$board/archived-column.ts" &&
+    in_file 'opacity: 0.72;' "$board/task-card.ts" &&
+    in_file 'arhivat {{ archivedAt | relativeTime }}' "$board/task-card.ts" &&
+    in_file 'Arhivezi task-ul «${task.title}:title:»?' "$board/board-page.ts" &&
+    in_file '«${card.key}:key:» a revenit în «${card.columnName}:column:».' "$board/board-page.ts"
+}
+
+the_archived_specs_pass() {
+  specs_named "$board/board-page.spec.ts" \
+    'comes last, after + Coloană, only for tasks.archive' \
+    'stays away, and reads nothing, without tasks.archive' \
+    'is closed at first: a band with its icon, its name downwards and its count, which a click opens' \
+    'opens as this browser left it' \
+    'shows its cards faded, with when they were archived in place of the deadline' \
+    'reads 50 at a time, with Încarcă mai multe at the end' \
+    'says when nothing is archived' \
+    'archives a card of the board let go on it, after the question' \
+    'restores one of its cards let go anywhere on the board into its own column' \
+    'restores a card from its ⋮, from the keyboard' \
+    'lets every column of the board take one of its cards, Backlog too, and takes the board cards of a member' \
+    'keeps all its cards whatever the filters' &&
+    specs_pass 'src/app/features/board/*.spec.ts' 117
+}
+
 task_5() {
   echo "22.5 the frontend"
   check "the fixed columns' bars and icons reach 3:1 on the column, in light and in dark" fixed_colors_reach_3_to_1
@@ -1309,6 +1350,8 @@ task_5() {
   check "the estimate's and the pause's sheets ask as UI §7.4 says, 440px, shared with the task's panel" the_sheets_ask_as_the_spec_says
   check "the card shows the time worked against the estimate, and in În pauză the reason" the_card_shows_the_work_and_the_pause
   check "the specs of the questions pass: the sheets, the board's moves by mouse and keyboard, the store" the_asking_specs_pass
+  check "Arhivate: for tasks.archive, last, a 44px band or 300px, its state kept, 50 at a time, archive and restore" the_archived_column_is_as_the_spec_says
+  check "the specs of Arhivate pass: the band, the pages, archiving by a drop, restoring by a drop or the ⋮" the_archived_specs_pass
 }
 
 tasks=${*:-1 2 3 4 5}

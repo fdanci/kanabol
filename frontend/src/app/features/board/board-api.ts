@@ -1,7 +1,18 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiClient } from '../../core/api/api-client';
-import { BoardColumnDto, BoardDto, BoardMemberDto, CreatedTaskDto, MoveAnswers } from './models';
+import { Page } from '../../shared/models/page';
+import {
+  ArchivedTaskDto,
+  BoardColumnDto,
+  BoardDto,
+  BoardMemberDto,
+  CreatedTaskDto,
+  MoveAnswers,
+} from './models';
+
+/** The archived cards come 50 at a time (docs/UI_UX_SPEC.md §7.4). */
+export const ARCHIVED_PAGE_SIZE = 50;
 
 /**
  * The board of a project (docs/UI_UX_SPEC.md §7.4, docs/SPEC.md §6.3). Moving a card needs a real
@@ -13,6 +24,23 @@ export class BoardApi {
 
   board(projectId: string): Observable<BoardDto> {
     return this.api.get<BoardDto>(`/projects/${projectId}/board`);
+  }
+
+  /** The column Arhivate, from the latest archiving, for tasks.archive (docs/SPEC.md §4.4). */
+  archived(projectId: string, page: number): Observable<Page<ArchivedTaskDto>> {
+    return this.api.get<Page<ArchivedTaskDto>>(`/projects/${projectId}/board/archived`, {
+      params: { page, pageSize: ARCHIVED_PAGE_SIZE },
+    });
+  }
+
+  /** DELETE archives: any real member may (docs/SPEC.md §5.1). */
+  archive(taskId: string): Observable<void> {
+    return this.api.delete(`/tasks/${taskId}`);
+  }
+
+  /** Back in its own column, for tasks.archive. */
+  restore(taskId: string): Observable<unknown> {
+    return this.api.post<unknown>(`/tasks/${taskId}/restore`);
   }
 
   members(projectId: string): Observable<BoardMemberDto[]> {

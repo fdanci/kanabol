@@ -73,6 +73,16 @@ export interface MoveAnswers {
   pauseReason?: string;
 }
 
+/**
+ * A card of the column Arhivate (docs/SPEC.md §4.4): the board's card, with when and by whom it was archived
+ * and the column it comes back to.
+ */
+export interface ArchivedTaskDto extends Omit<BoardTaskDto, 'position'> {
+  columnName: string;
+  archivedAt: string;
+  archivedBy: BoardPersonDto | null;
+}
+
 /** What POST /api/projects/{id}/tasks answers, as far as the board reads it. */
 export interface CreatedTaskDto {
   id: string;
