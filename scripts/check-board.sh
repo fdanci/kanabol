@@ -696,13 +696,13 @@ the_columns_use_their_endpoints() {
 }
 
 the_menu_is_for_owners_only() {
-  in_file '@if (canManage()) {' "$board/board-column.ts" &&
+  in_file "@if (canManage() && column().kind === 'Custom') {" "$board/board-column.ts" &&
     in_file '[canManage]="store.canManage()"' "$board/board-page.html" &&
     in_file '@if (store.canManage()) {' "$board/board-page.html"
 }
 
 only_an_empty_column_is_offered_for_deletion() {
-  in_file 'this.store.columns().length > 1 && this.store.cardsIn(column.id).length === 0' "$board/board-page.ts" &&
+  in_file "column.kind === 'Custom' && this.store.cardsIn(column.id).length === 0" "$board/board-page.ts" &&
     in_file 'this.confirmation.ask({' "$board/board-page.ts"
 }
 
@@ -712,8 +712,8 @@ task_5() {
   check "the lint is clean" frontend_lint_is_clean
   check "the formatting is clean" frontend_formatting_is_clean
   check "the columns go through their endpoints" the_columns_use_their_endpoints
-  check "the ⋮ and the new column are for owners and projects.manage" the_menu_is_for_owners_only
-  check "only an empty column, not the last, is offered for deletion, after a question" only_an_empty_column_is_offered_for_deletion
+  check "the ⋮ and the new column are for owners and projects.manage, the ⋮ on the project's own columns (group 22)" the_menu_is_for_owners_only
+  check "only an empty column of the project's own is offered for deletion, after a question (group 22)" only_an_empty_column_is_offered_for_deletion
   check "the board writes no colors by hand" no_colors_by_hand
   check "nor reaches into Material's classes" no_deep_selectors
   check "the menu renames" messages_have 'Redenumește'

@@ -9,6 +9,19 @@ export const COLUMNS: BoardColumnDto[] = [
   { id: 'c2', name: 'În lucru', position: 1, kind: 'InProgress' },
 ];
 
+/**
+ * The fixed columns with two of the project's own between them (docs/SPEC.md §4.4): Backlog, Analiză, În
+ * lucru, În pauză, Review and Gata, out of order, as the API may give them.
+ */
+export const OWN_COLUMNS: BoardColumnDto[] = [
+  { id: 'c3', name: 'Gata', position: 5, kind: 'Done' },
+  { id: 'c1', name: 'Backlog', position: 0, kind: 'Backlog' },
+  { id: 'c4', name: 'Analiză', position: 1, kind: 'Custom' },
+  { id: 'c6', name: 'Review', position: 4, kind: 'Custom' },
+  { id: 'c2', name: 'În lucru', position: 2, kind: 'InProgress' },
+  { id: 'c5', name: 'În pauză', position: 3, kind: 'Paused' },
+];
+
 export function aCard(
   key: string,
   columnId: string,

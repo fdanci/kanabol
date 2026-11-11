@@ -1,5 +1,5 @@
 import { LiveAnnouncer } from '@angular/cdk/a11y';
-import { CdkDragDrop } from '@angular/cdk/drag-drop';
+import { CdkDrag, CdkDragDrop, CdkDropList } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
@@ -17,7 +17,7 @@ import { Snackbar } from '../../shared/ui/snackbar';
 import { BoardApi } from './board-api';
 import { BoardColumn } from './board-column';
 import { BoardPage } from './board-page';
-import { aBoard, aBoardMember, aCard, refusedWith } from './board-testing';
+import { OWN_COLUMNS, aBoard, aBoardMember, aCard, refusedWith } from './board-testing';
 import { BoardColumnDto, BoardDto, BoardTaskDto } from './models';
 
 @Component({
@@ -216,8 +216,6 @@ describe('BoardPage', () => {
     ).toEqual(['De făcut', 'În lucru', 'Gata']);
     expect(shown()).toBe('A B C | D | E');
     expect(column('De făcut').querySelector('.count')?.textContent.trim()).toBe('3');
-    expect(column('Gata').querySelector('.done')).not.toBeNull();
-    expect(column('De făcut').querySelector('.done')).toBeNull();
   });
 
   it('shows on a card its key, priority, title, deadline and assignees, or an empty avatar', async () => {
@@ -352,22 +350,22 @@ describe('BoardPage', () => {
     expect(page().querySelector('kb-board-column .add')).toBeNull();
   });
 
-  it('adds a card at the end of a column from its title, and keeps the field for the next one', async () => {
+  it('adds a card at the end of Backlog from its title, and keeps the field for the next one', async () => {
     await visit();
-    const inProgress = column('În lucru');
+    const backlog = column('De făcut');
 
-    inProgress.querySelector<HTMLButtonElement>('.add')!.click();
+    backlog.querySelector<HTMLButtonElement>('.add')!.click();
     await settle();
-    const field = inProgress.querySelector<HTMLInputElement>('.new-title')!;
+    const field = backlog.querySelector<HTMLInputElement>('.new-title')!;
     expect(document.activeElement).toBe(field);
     field.value = '  Login SSO ';
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     await settle();
 
-    expect(api['create']).toHaveBeenCalledWith('p1', 'c2', 'Login SSO');
+    expect(api['create']).toHaveBeenCalledWith('p1', 'c1', 'Login SSO');
     expect(snackbar.show).toHaveBeenCalledWith('Task-ul KAN-6 a fost creat.');
     expect(api['board']).toHaveBeenCalledTimes(2);
-    expect(inProgress.querySelector<HTMLInputElement>('.new-title')?.value).toBe('');
+    expect(backlog.querySelector<HTMLInputElement>('.new-title')?.value).toBe('');
   });
 
   it('closes an empty title field with Esc, creating nothing', async () => {
@@ -595,17 +593,18 @@ describe('BoardPage', () => {
       expect(shown()).toBe('Login SSO B C | D | E');
     });
 
-    // A card dropped among filtered ones lands just before the one it was dropped above.
+    // A card dropped among filtered ones lands just before the one it was dropped above: H, hidden, keeps its place.
     it('moves a card dropped among filtered ones to its true place in the column', async () => {
       board.tasks[2] = aCard('KAN-3', 'c1', 2, { title: 'C', priority: 'High' });
-      board.tasks[3] = aCard('KAN-4', 'c2', 0, { title: 'D', priority: 'High' });
+      board.tasks[3] = aCard('KAN-4', 'c2', 1, { title: 'D', priority: 'High' });
+      board.tasks.push(aCard('KAN-6', 'c2', 0, { title: 'H' }));
       await visit('/projects/p1/board?priority=High');
       expect(shown()).toBe('Login SSO C | D | ');
 
-      drop(task('D'), 'c2', 'c1', 0, 1);
+      drop(task('C'), 'c1', 'c2', 2, 0);
       await settle();
 
-      expect(api['move']).toHaveBeenCalledWith('id-KAN-4', 'c1', 2);
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-3', 'c2', 1);
     });
 
     it('moves from the keyboard among the cards it shows', async () => {
@@ -627,9 +626,23 @@ describe('BoardPage', () => {
   });
 
   // docs/UI_UX_SPEC.md §7.4: the ⋮ of a column renames it, moves it, marks it done, deletes it when empty.
+  // docs/UI_UX_SPEC.md §7.4 (group 22): Backlog, Analiză (the project's own), În lucru, În pauză, Review (the
+  // project's own) and Gata; A in Backlog, B in Analiză, C in În lucru, D in În pauză, E in Gata, Review empty.
   describe('the columns', () => {
     /** The items' icons, whose ligatures the harness reads as words. */
-    const ICONS = /^(edit|arrow_back|arrow_forward|remove_done|check_circle|delete)\s*/;
+    const ICONS = /^(edit|arrow_back|arrow_forward|delete)\s*/;
+    const NO_GOING_BACK = 'Un task început nu se mai întoarce înainte de «În lucru».';
+
+    beforeEach(() => {
+      board.columns = OWN_COLUMNS.map((found) => ({ ...found }));
+      board.tasks = [
+        aCard('KAN-1', 'c1', 0, { title: 'A' }),
+        aCard('KAN-2', 'c4', 0, { title: 'B' }),
+        aCard('KAN-3', 'c2', 0, { title: 'C' }),
+        aCard('KAN-4', 'c5', 0, { title: 'D', pauseReason: 'Aștept clientul' }),
+        aCard('KAN-5', 'c3', 0, { title: 'E', completedAt: '2026-11-05T08:00:00Z' }),
+      ];
+    });
 
     function menuOf(name: string): HTMLButtonElement | null {
       return column(name).querySelector<HTMLButtonElement>('.menu');
@@ -657,14 +670,50 @@ describe('BoardPage', () => {
       return found;
     }
 
+    function columnOf(id: string): BoardColumn {
+      return harness.fixture.debugElement
+        .queryAll(By.directive(BoardColumn))
+        .map((found) => found.componentInstance as BoardColumn)
+        .find((found) => found.column().id === id)!;
+    }
+
     afterEach(() => {
       document.querySelector('.cdk-overlay-container')?.replaceChildren();
     });
 
-    it('gives an owner a menu on each column', async () => {
+    it('marks each fixed column with the bar and the icon of its kind, hidden from screen readers, and none of its own', async () => {
       await visit();
 
-      expect(menuOf('De făcut')?.getAttribute('aria-label')).toBe('Acțiunile coloanei De făcut');
+      const kinds = [...page().querySelectorAll('kb-board-column')].map((host) => {
+        const kind =
+          [...host.querySelector('.column')!.classList].find((name) => name.startsWith('kind-')) ??
+          '-';
+        const icon = host.querySelector('.kind-icon');
+        return `${host.querySelector('.name')!.textContent.trim()} ${kind} ${icon?.textContent.trim() ?? '-'}`;
+      });
+      expect(kinds).toEqual([
+        'Backlog kind-backlog inbox',
+        'Analiză kind-custom -',
+        'În lucru kind-inprogress play_circle',
+        'În pauză kind-paused pause_circle',
+        'Review kind-custom -',
+        'Gata kind-done check_circle',
+      ]);
+      expect(
+        [...page().querySelectorAll('.kind-icon')].every(
+          (icon) => icon.getAttribute('aria-hidden') === 'true' && !icon.hasAttribute('aria-label'),
+        ),
+      ).toBe(true);
+    });
+
+    it('gives an owner a menu on the columns of the project only, and a new column', async () => {
+      await visit();
+
+      expect(menuOf('Analiză')?.getAttribute('aria-label')).toBe('Acțiunile coloanei Analiză');
+      expect(menuOf('Review')).not.toBeNull();
+      for (const fixed of ['Backlog', 'În lucru', 'În pauză', 'Gata']) {
+        expect(menuOf(fixed)).toBeNull();
+      }
       expect(page().querySelector('.add-column')).not.toBeNull();
     });
 
@@ -672,108 +721,202 @@ describe('BoardPage', () => {
       board.canManage = false;
       await visit();
 
-      expect(menuOf('De făcut')).toBeNull();
+      expect(menuOf('Analiză')).toBeNull();
       expect(page().querySelector('.add-column')).toBeNull();
     });
 
-    it('adds a column at the right end from its name', async () => {
+    it('offers "+ Task" in Backlog only', async () => {
+      await visit();
+
+      expect(
+        [...page().querySelectorAll('kb-board-column')]
+          .filter((host) => host.querySelector('.add'))
+          .map((host) => host.querySelector('.name')!.textContent.trim()),
+      ).toEqual(['Backlog']);
+    });
+
+    it('adds a column right before Gata from its name', async () => {
       await visit();
 
       page().querySelector<HTMLButtonElement>('.add-column')!.click();
       await settle();
       const field = page().querySelector<HTMLInputElement>('.new-column')!;
       expect(document.activeElement).toBe(field);
-      field.value = ' Review ';
+      field.value = ' QA ';
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       await settle();
 
-      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'Review');
+      expect(api['addColumn']).toHaveBeenCalledWith('p1', 'QA');
       expect(api['board']).toHaveBeenCalledTimes(2);
       expect(page().querySelector('.new-column')).toBeNull();
     });
 
-    it('renames a column in place: Enter saves, Esc gives up', async () => {
+    it('renames a column of its own in place: Enter saves, Esc gives up', async () => {
       await visit();
 
-      await choose('În lucru', 'Redenumește');
-      let field = column('În lucru').querySelector<HTMLInputElement>('.rename')!;
+      await choose('Analiză', 'Redenumește');
+      let field = column('Analiză').querySelector<HTMLInputElement>('.rename')!;
       expect(document.activeElement).toBe(field);
       field.value = 'Altceva';
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       await settle();
       expect(api['updateColumn']).not.toHaveBeenCalled();
 
-      await choose('În lucru', 'Redenumește');
-      field = column('În lucru').querySelector<HTMLInputElement>('.rename')!;
-      field.value = ' Lucrez ';
+      await choose('Analiză', 'Redenumește');
+      field = column('Analiză').querySelector<HTMLInputElement>('.rename')!;
+      field.value = ' Design ';
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       await settle();
 
-      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez');
-      expect(column('Lucrez')).toBeDefined();
+      expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c4', 'Design');
+      expect(column('Design')).toBeDefined();
     });
 
     // docs/SPEC.md §4.4: Gata is the done column, and no column's kind changes from the menu.
     it('offers no way to mark a column done', async () => {
       await visit();
 
-      expect(await items('În lucru')).not.toContain('Marchează ca terminată');
-      expect(await items('Gata')).not.toContain('Nu mai e de task-uri terminate');
+      expect(await items('Analiză')).not.toContain('Marchează ca terminată');
     });
 
-    it('moves a column to the left or the right, and not past the ends', async () => {
+    it('moves a column of its own only between Backlog and Gata', async () => {
       api['moveColumn'].mockReturnValue(
-        of([
-          { id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' },
-          { id: 'c3', name: 'Gata', position: 1, kind: 'Done' },
-          { id: 'c2', name: 'În lucru', position: 2, kind: 'InProgress' },
-        ]),
+        of(
+          ['c1', 'c4', 'c2', 'c6', 'c5', 'c3'].map((id, position) => ({
+            ...OWN_COLUMNS.find((found) => found.id === id)!,
+            position,
+          })),
+        ),
       );
       await visit();
-      expect(await items('De făcut')).not.toContain('Mută la stânga');
-      expect(await items('Gata')).not.toContain('Mută la dreapta');
+      expect(await items('Analiză')).toEqual(['Redenumește', 'Mută la dreapta']);
+      expect(await items('Review')).toEqual(['Redenumește', 'Mută la stânga', 'Șterge']);
 
-      await choose('Gata', 'Mută la stânga');
+      await choose('Review', 'Mută la stânga');
 
-      expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c3', 1);
+      expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c6', 3);
       expect(
         [...page().querySelectorAll('kb-board-column .name')].map((name) =>
           name.textContent.trim(),
         ),
-      ).toEqual(['De făcut', 'Gata', 'În lucru']);
+      ).toEqual(['Backlog', 'Analiză', 'În lucru', 'Review', 'În pauză', 'Gata']);
     });
 
-    it('offers to delete only an empty column, and asks first', async () => {
-      board.tasks = board.tasks.filter((task) => task.columnId !== 'c3');
+    it('offers to delete only an empty column of its own, and asks first', async () => {
       await visit();
-      expect(await items('De făcut')).not.toContain('Șterge');
+      expect(await items('Analiză')).not.toContain('Șterge');
 
-      await choose('Gata', 'Șterge');
+      await choose('Review', 'Șterge');
 
       expect(confirmation.ask).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Ștergi coloana «Gata»?', destructive: true }),
+        expect.objectContaining({ title: 'Ștergi coloana «Review»?', destructive: true }),
       );
-      expect(api['deleteColumn']).toHaveBeenCalledWith('p1', 'c3');
+      expect(api['deleteColumn']).toHaveBeenCalledWith('p1', 'c6');
       expect(api['board']).toHaveBeenCalledTimes(2);
-      expect(snackbar.show).toHaveBeenCalledWith('Coloana «Gata» a fost ștearsă.');
+      expect(snackbar.show).toHaveBeenCalledWith('Coloana «Review» a fost ștearsă.');
     });
 
     it('deletes nothing when the question is turned down', async () => {
-      board.tasks = board.tasks.filter((task) => task.columnId !== 'c3');
       confirmation.ask.mockReturnValue(Promise.resolve(false));
       await visit();
 
-      await choose('Gata', 'Șterge');
+      await choose('Review', 'Șterge');
 
       expect(api['deleteColumn']).not.toHaveBeenCalled();
     });
 
-    it('never offers to delete the last column', async () => {
-      board.columns = [{ id: 'c1', name: 'De făcut', position: 0, kind: 'Backlog' }];
-      board.tasks = [];
+    // docs/UI_UX_SPEC.md §7.4, "Înapoi": a card from În lucru on doesn't enter Backlog, nor Analiză before În lucru.
+    it('keeps a started card out of the columns before În lucru while it is dragged', async () => {
       await visit();
 
-      expect(await items('De făcut')).not.toContain('Șterge');
+      const lists = harness.fixture.debugElement.queryAll(By.directive(CdkDropList));
+      const takes = (title: string) =>
+        lists.map((found) => {
+          const list = found.injector.get(CdkDropList<BoardColumnDto>);
+          const drag = { data: task(title) } as CdkDrag<BoardTaskDto>;
+          return `${list.data.name} ${list.enterPredicate(drag, list) ? 'yes' : 'no'}`;
+        });
+      expect(takes('C')).toEqual([
+        'Backlog no',
+        'Analiză no',
+        'În lucru yes',
+        'În pauză yes',
+        'Review yes',
+        'Gata yes',
+      ]);
+      expect(takes('E')).toContain('Backlog no');
+      expect(takes('A').every((line) => line.endsWith('yes'))).toBe(true);
+    });
+
+    it('puts a started card let go before În lucru back where it was, saying why', async () => {
+      await visit();
+
+      drop(task('C'), 'c2', 'c1', 0, 0);
+      await settle();
+
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(shown()).toBe('A | B | C | D |  | E');
+      expect(snackbar.show).toHaveBeenCalledWith(NO_GOING_BACK);
+    });
+
+    // The CDK hands a card a column refused back to its own, with the point it was let go at.
+    it('says why when the CDK hands back a started card let go over Analiză', async () => {
+      await visit();
+      const analysis = column('Analiză');
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: (): Element | null => analysis.querySelector('.cards'),
+      });
+
+      try {
+        const source = columnOf('c2');
+        source.dropped.emit({
+          item: { data: task('C') },
+          container: { data: source.column() },
+          previousContainer: { data: source.column() },
+          previousIndex: 0,
+          currentIndex: 0,
+          isPointerOverContainer: false,
+          dropPoint: { x: 40, y: 200 },
+        } as unknown as CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>);
+        await settle();
+      } finally {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+
+      expect(api['move']).not.toHaveBeenCalled();
+      expect(snackbar.show).toHaveBeenCalledWith(NO_GOING_BACK);
+    });
+
+    it('moves a started card between the columns from În lucru on, and an unstarted one before it', async () => {
+      await visit();
+
+      drop(task('C'), 'c2', 'c6', 0, 0);
+      await settle();
+      drop(task('A'), 'c1', 'c4', 0, 1);
+      await settle();
+
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-3', 'c6', 0);
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c4', 1);
+      expect(snackbar.show).not.toHaveBeenCalled();
+    });
+
+    it('stops a started card at În lucru from the keyboard', async () => {
+      await visit();
+      const press = async (title: string, key: string) => {
+        card(title).dispatchEvent(
+          new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+        );
+        await settle();
+      };
+
+      await press('C', ' ');
+      await press('C', 'ArrowLeft');
+
+      expect(String(announcer.announce.mock.lastCall?.[0])).toBe(NO_GOING_BACK);
+      expect(shown()).toBe('A | B | C | D |  | E');
+      await press('C', 'Escape');
+      expect(api['move']).not.toHaveBeenCalled();
     });
   });
 

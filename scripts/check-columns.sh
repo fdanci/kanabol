@@ -57,6 +57,11 @@
 #      from Backlog to Gata from its creation), work-time's sums over the estimated tasks that were worked,
 #      the deviation, the overruns, by person and by project; a plain member of RAP gets 403
 #      Project.OwnerRequired, a missing from 400. Docker, PostgreSQL.
+#   5  the frontend: the fixed columns' bars and icons at 3:1 at least on the column, in light and in dark,
+#      computed from _tokens.scss, which has no token since the group's base; the board's fixed columns with
+#      their bar and icon, the ⋮ only on the project's own, "+ Task" only in Backlog, the project's own
+#      moved only between Backlog and Gata, a started card kept out of the columns before În lucru, by the
+#      mouse and the keyboard, and the board's specs. The packages only.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1134,13 +1139,138 @@ task_4() {
   check "work-time is read as the other reports: an owner, 403 Project.OwnerRequired for a member, 400 on from" the_work_time_report_is_read_as_the_others
 }
 
-tasks=${*:-1 2 3 4}
+# ---- Task 5: the frontend. Only the packages.
+
+web=frontend
+app=$web/src/app
+board=$app/features/board
+# The group's base: dev before group 22, whose tokens the fixed columns may not add to.
+group_base=acf782f
+
+plain() { # Without the colors the tools print
+  sed 's/\x1b\[[0-9;]*m//g' "$1"
+}
+
+in_file() { # in_file <text> <file>: the text, as it is, in the file
+  grep -qF -- "$1" "$2" || {
+    echo "no \"$1\" in $2"
+    return 1
+  }
+}
+
+specs_pass() { # specs_pass <spec file or glob, from frontend/> <minimum passed>
+  log="$scratch/specs-$(printf '%s' "$1" | tr '/*' '__').log"
+  (cd "$web" && npx ng test --no-watch --include "$1") >"$log" 2>&1 || {
+    plain "$log" | grep -E '×|FAIL|Error' | head -n 25
+    return 1
+  }
+  passed=$(plain "$log" | sed -n 's/^ *Tests *\([0-9]*\) passed.*/\1/p' | tail -n 1)
+  [ "${passed:-0}" -ge "$2" ] || {
+    echo "only ${passed:-0} specs passed, expected at least $2"
+    return 1
+  }
+}
+
+specs_named() { # specs_named <spec file> <name...>: each is an it() of the file
+  file=$1
+  shift
+  for name in "$@"; do
+    in_file "it('$name'" "$file" || return 1
+  done
+}
+
+# The fixed columns' colors (docs/UI_UX_SPEC.md §7.4): existing tokens only, and the bar and the icon at 3:1 at
+# least on the column's background, color-mix(navy-900 4%, surface-50), in light and in dark, from _tokens.scss.
+fixed_colors_reach_3_to_1() {
+  node - "$web/src/styles/_tokens.scss" <<'JS'
+const fs = require('fs');
+const text = fs.readFileSync(process.argv[2], 'utf8');
+const dark = text.indexOf('@mixin dark');
+const themes = { light: text.slice(0, dark), dark: text.slice(dark) };
+const token = (css, name) => {
+  const found = css.match(new RegExp(`--kb-${name}:\\s*(#[0-9a-fA-F]{6})`));
+  if (!found) throw new Error(`no --kb-${name}`);
+  return found[1];
+};
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+const lum = (c) => {
+  const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const ratio = (a, b) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+let failed = false;
+for (const [theme, css] of Object.entries(themes)) {
+  const navy = rgb(token(css, 'navy-900'));
+  const surface = rgb(token(css, 'surface-50'));
+  const background = navy.map((v, i) => v * 0.04 + surface[i] * 0.96);
+  for (const [column, name] of [['Backlog', 'text-500'], ['În lucru', 'accent-600'], ['În pauză', 'warning-600'], ['Gata', 'success-600'], ['Arhivate', 'text-600']]) {
+    const value = ratio(rgb(token(css, name)), background);
+    if (value < 3) {
+      console.log(`${theme}: ${column}, --kb-${name}, ${value.toFixed(2)}:1`);
+      failed = true;
+    }
+  }
+}
+process.exit(failed ? 1 : 0);
+JS
+}
+
+no_token_is_new() {
+  git diff --quiet "$group_base" -- "$web/src/styles/_tokens.scss" || {
+    echo "_tokens.scss changed since $group_base"
+    return 1
+  }
+}
+
+the_fixed_columns_wear_their_kind() {
+  for pair in 'backlog:text-500' 'inprogress:accent-600' 'paused:warning-600' 'done:success-600'; do
+    in_file ".kind-${pair%%:*} {" "$board/board-column.ts" || return 1
+    in_file "--kb-kind: var(--kb-${pair#*:});" "$board/board-column.ts" || return 1
+  done
+  for icon in "Backlog: 'inbox'" "InProgress: 'play_circle'" "Paused: 'pause_circle'" "Done: 'check_circle'"; do
+    in_file "$icon" "$board/board-column.ts" || return 1
+  done
+  in_file 'box-shadow: inset 0 3px 0 var(--kb-kind);' "$board/board-column.ts" &&
+    in_file 'class="material-symbols-outlined kind-icon" aria-hidden="true"' "$board/board-column.ts" &&
+    in_file "@if (canManage() && column().kind === 'Custom')" "$board/board-column.ts" &&
+    in_file "[canCreate]=\"store.canCreate() && column.kind === 'Backlog'\"" "$board/board-page.html" &&
+    in_file '[cdkDropListEnterPredicate]="accepts"' "$board/board-column.ts" &&
+    in_file 'Un task început nu se mai întoarce înainte de «În lucru».' "$board/board-page.ts"
+}
+
+the_board_specs_pass() {
+  specs_named "$board/board-page.spec.ts" \
+    'marks each fixed column with the bar and the icon of its kind, hidden from screen readers, and none of its own' \
+    'gives an owner a menu on the columns of the project only, and a new column' \
+    'offers "+ Task" in Backlog only' \
+    'moves a column of its own only between Backlog and Gata' \
+    'offers to delete only an empty column of its own, and asks first' \
+    'keeps a started card out of the columns before În lucru while it is dragged' \
+    'puts a started card let go before În lucru back where it was, saying why' \
+    'says why when the CDK hands back a started card let go over Analiză' \
+    'stops a started card at În lucru from the keyboard' || return 1
+  specs_pass 'src/app/features/board/*.spec.ts' 94
+}
+
+task_5() {
+  echo "22.5 the frontend"
+  check "the fixed columns' bars and icons reach 3:1 on the column, in light and in dark" fixed_colors_reach_3_to_1
+  check "no token is new since the group's base" no_token_is_new
+  check "the fixed columns wear their kind: bar, icon, no menu, + Task in Backlog only, no going back" the_fixed_columns_wear_their_kind
+  check "the board's specs pass: the fixed columns, the columns of the project, no going back" the_board_specs_pass
+}
+
+tasks=${*:-1 2 3 4 5}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
     3) task_3 ;;
     4) task_4 ;;
+    5) task_5 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

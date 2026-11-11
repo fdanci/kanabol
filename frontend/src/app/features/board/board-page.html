@@ -55,17 +55,19 @@
       [attr.aria-label]="boardLabel"
       (keydown)="keyed($event)"
     >
-      @for (column of store.columns(); track column.id; let first = $first, last = $last) {
+      @for (column of store.columns(); track column.id) {
         <kb-board-column
           [column]="column"
           [cards]="cardsOf(column)"
           [pulses]="store.pulses()"
           [canMove]="store.canMove()"
-          [canCreate]="store.canCreate()"
+          [canCreate]="store.canCreate() && column.kind === 'Backlog'"
           [canManage]="store.canManage()"
           [canDelete]="canDelete(column)"
-          [first]="first"
-          [last]="last"
+          [canMoveLeft]="canMoveLeft(column)"
+          [canMoveRight]="canMoveRight(column)"
+          [beforeInProgress]="beforeInProgress(column)"
+          [startedColumnIds]="startedColumnIds()"
           (renamed)="renameColumn(column, $event)"
           (moved)="moveColumn(column, $event)"
           (deleted)="deleteColumn(column)"

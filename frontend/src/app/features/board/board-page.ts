@@ -50,6 +50,9 @@ interface Lifted {
 /** docs/UI_UX_SPEC.md §8: a card someone else moved slides to its place in the reordering's time. */
 const MOVE_MS = 200;
 
+/** The API's Task.CannotMoveBack, said before asking it (docs/UI_UX_SPEC.md §7.4). */
+const NO_GOING_BACK = () => $localize`Un task început nu se mai întoarce înainte de «În lucru».`;
+
 const MOVES: Record<string, [columns: number, places: number] | undefined> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
@@ -106,6 +109,19 @@ export class BoardPage {
     this.store.members().filter((member) => member.isActive),
   );
   protected readonly lifted = signal<Lifted | null>(null);
+  /** Where În lucru is on the board: a task there or after it has started (docs/SPEC.md §4.4). */
+  private readonly inProgressPosition = computed(
+    () => this.store.columns().find((column) => column.kind === 'InProgress')?.position ?? 0,
+  );
+  protected readonly startedColumnIds = computed<ReadonlySet<string>>(
+    () =>
+      new Set(
+        this.store
+          .columns()
+          .filter((column) => column.position >= this.inProgressPosition())
+          .map((column) => column.id),
+      ),
+  );
   protected readonly addingColumn = signal(false);
   private readonly newColumn = viewChild<ElementRef<HTMLInputElement>>('newColumn');
 
@@ -202,6 +218,13 @@ export class BoardPage {
   protected dropped(event: CdkDragDrop<BoardColumnDto, BoardColumnDto, BoardTaskDto>): void {
     const task = event.item.data;
     const column = event.container.data;
+    // A column before În lucru keeps a started card out, so the CDK hands it back to where it was:
+    // let go over such a column, it says why (docs/UI_UX_SPEC.md §7.4).
+    const under = event.isPointerOverContainer ? null : this.columnUnder(event.dropPoint);
+    if (this.goesBack(task, under ?? column)) {
+      this.snackbar.show(NO_GOING_BACK());
+      return;
+    }
     if (event.previousContainer === event.container && event.previousIndex === event.currentIndex) {
       return;
     }
@@ -253,9 +276,22 @@ export class BoardPage {
     }
   }
 
-  /** Only an empty column, the hidden cards counting, and not the last one (docs/UI_UX_SPEC.md §7.4). */
+  /** Only an empty column of the project's own, the hidden cards counting (docs/UI_UX_SPEC.md §7.4). */
   protected canDelete(column: BoardColumnDto): boolean {
-    return this.store.columns().length > 1 && this.store.cardsIn(column.id).length === 0;
+    return column.kind === 'Custom' && this.store.cardsIn(column.id).length === 0;
+  }
+
+  /** A column of the project's own moves only between Backlog, always first, and Gata, always last. */
+  protected canMoveLeft(column: BoardColumnDto): boolean {
+    return column.kind === 'Custom' && column.position > 1;
+  }
+
+  protected canMoveRight(column: BoardColumnDto): boolean {
+    return column.kind === 'Custom' && column.position < this.store.columns().length - 2;
+  }
+
+  protected beforeInProgress(column: BoardColumnDto): boolean {
+    return column.position < this.inProgressPosition();
   }
 
   protected async addColumn(field: HTMLInputElement): Promise<void> {
@@ -307,6 +343,12 @@ export class BoardPage {
     const order = this.store.columns();
     const from = order.findIndex((column) => column.id === lifted.columnId);
     const target = order[Math.max(0, Math.min(order.length - 1, from + columns))];
+    const task = this.store.board()?.tasks.find((found) => found.id === lifted.taskId);
+    // A started card stops at În lucru (docs/UI_UX_SPEC.md §7.4).
+    if (task && this.goesBack(task, target)) {
+      void this.announcer.announce(NO_GOING_BACK());
+      return;
+    }
     const others = this.othersIn(target.id, lifted.taskId).length;
     const index = Math.max(0, Math.min(others, lifted.index + places));
     this.lifted.set({ ...lifted, columnId: target.id, index });
@@ -333,6 +375,23 @@ export class BoardPage {
         : $localize`Mutarea nu s-a salvat: task-ul a revenit la locul lui.`,
     );
     this.focus(lifted.taskId);
+  }
+
+  /** A task in În lucru or after it, put in a column before it (docs/SPEC.md §4.4, Task.CannotMoveBack). */
+  private goesBack(task: BoardTaskDto, target: BoardColumnDto): boolean {
+    return this.startedColumnIds().has(task.columnId) && this.beforeInProgress(target);
+  }
+
+  /** The board's column under where a card was let go, if any. */
+  private columnUnder(point: { x: number; y: number } | undefined): BoardColumnDto | null {
+    if (!point || typeof document.elementFromPoint !== 'function') {
+      return null;
+    }
+    const id = document
+      .elementFromPoint(point.x, point.y)
+      ?.closest<HTMLElement>('kb-board-column')
+      ?.getAttribute('data-column-id');
+    return this.store.columns().find((column) => column.id === id) ?? null;
   }
 
   /** The place among all the column's cards for one put at shownIndex among the cards it shows. */
