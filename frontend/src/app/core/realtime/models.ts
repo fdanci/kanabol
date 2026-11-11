@@ -2,12 +2,19 @@
  * What the board hub sends (docs/SPEC.md §9): small payloads, which say what changed and where, not the
  * task itself. originConnectionId is the connection of the tab that made the change, or null.
  */
-export interface TaskMessage {
-  taskId: string;
+export interface ProjectMessage {
   projectId: string;
   byUserId: string;
   originConnectionId: string | null;
 }
+
+/** A change of a task. */
+export interface TaskMessage extends ProjectMessage {
+  taskId: string;
+}
+
+/** A column added, renamed, moved or deleted (group 23): the board reads itself again. */
+export type ColumnsChangedMessage = ProjectMessage;
 
 /** Where the task went: the board moves the card itself, with its animation. */
 export interface TaskMovedMessage extends TaskMessage {
@@ -46,6 +53,7 @@ export interface BoardEvents {
   TaskArchived: TaskMessage;
   TaskRestored: TaskMessage;
   CommentAdded: CommentAddedMessage;
+  ColumnsChanged: ColumnsChangedMessage;
   NotificationCreated: NotificationCreatedMessage;
 }
 

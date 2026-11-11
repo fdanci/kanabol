@@ -1,4 +1,4 @@
-import { formatDuration } from './durations';
+import { formatDuration, formatWorkDuration } from './durations';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -31,5 +31,23 @@ describe('formatDuration', () => {
 
   it('writes a dash for nothing to measure', () => {
     expect(formatDuration(null)).toBe('–');
+  });
+});
+
+// docs/UI_UX_SPEC.md §7.8 (group 23): the hours of the work schedule, never days.
+describe('formatWorkDuration', () => {
+  it('writes hours and minutes, however many hours', () => {
+    expect(formatWorkDuration(40 * 3600)).toBe('40 h');
+    expect(formatWorkDuration(50 * 3600 + 30 * 60)).toBe('50 h 30 min');
+    expect(formatWorkDuration(2 * 3600 + 30 * 60)).toBe('2 h 30 min');
+  });
+
+  it('writes minutes under an hour, rounded to the nearest minute', () => {
+    expect(formatWorkDuration(35 * 60 + 29)).toBe('35 min');
+    expect(formatWorkDuration(0)).toBe('0 min');
+  });
+
+  it('writes a dash for nothing to measure', () => {
+    expect(formatWorkDuration(null)).toBe('–');
   });
 });

@@ -13,6 +13,28 @@
   scrollbar-color: color-mix(in srgb, var(--kb-navy-900) 25%, transparent) transparent;
 }
 
+/* The cards' lists' group, inside the columns' list: no box of its own, so the columns stay the board's row. */
+.cards-group {
+  display: contents;
+}
+
+/* Where a dragged column would land (docs/UI_UX_SPEC.md §7.4, group 23): its width, outlined. */
+.column-placeholder {
+  flex: none;
+  align-self: stretch;
+  box-sizing: border-box;
+  width: 300px;
+  min-height: 120px;
+  border: 1px dashed var(--kb-border-300);
+  border-radius: var(--kb-radius-md);
+}
+
+/* The other columns make room in the reordering's time (docs/UI_UX_SPEC.md §8). */
+.board.cdk-drop-list-dragging kb-board-column:not(.cdk-drag-placeholder),
+kb-board-column.cdk-drag-animating {
+  transition: transform 200ms var(--kb-ease);
+}
+
 .placeholder-column {
   display: flex;
   flex: none;

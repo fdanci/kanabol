@@ -14,6 +14,8 @@ export interface ConfirmationRequest {
   icon: string;
   /** Red button and red icon: archiving, deactivating, deleting. */
   destructive?: boolean;
+  /** One button and no Anulează: something that can't be done, said (Confirmation.tell). */
+  tellOnly?: boolean;
 }
 
 /**
@@ -36,16 +38,18 @@ export interface ConfirmationRequest {
       </div>
     </div>
     <div class="actions">
-      <button
-        matButton="outlined"
-        class="kb-bezel"
-        type="button"
-        [mat-dialog-close]="false"
-        [attr.cdkFocusInitial]="request.destructive ? '' : null"
-        i18n
-      >
-        Anulează
-      </button>
+      @if (!request.tellOnly) {
+        <button
+          matButton="outlined"
+          class="kb-bezel"
+          type="button"
+          [mat-dialog-close]="false"
+          [attr.cdkFocusInitial]="request.destructive ? '' : null"
+          i18n
+        >
+          Anulează
+        </button>
+      }
       <button
         matButton="filled"
         type="button"
@@ -125,6 +129,11 @@ export class Confirmation {
       ariaDescribedBy: 'kb-confirm-message',
     });
     return (await firstValueFrom(opened.afterClosed())) === true;
+  }
+
+  /** Says why something can't be done, in the same sheet with one button (docs/UI_UX_SPEC.md §7.4). */
+  async tell(request: Omit<ConfirmationRequest, 'destructive' | 'tellOnly'>): Promise<void> {
+    await this.ask({ ...request, tellOnly: true });
   }
 
   /** Before unsaved changes are thrown away: by leaving a form, Esc or a click beside a sheet. */

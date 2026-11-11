@@ -1,4 +1,5 @@
 using Kanabol.Domain.Common;
+using Kanabol.Domain.Projects.Events;
 
 namespace Kanabol.Domain.Projects;
 
@@ -83,17 +84,18 @@ public sealed class Project : AuditableEntity, IArchivable
     }
 
     /// <summary>A column of the project's own, right before Gata, which stays last (SPEC section 4.4).</summary>
-    public BoardColumn AddColumn(string name)
+    public BoardColumn AddColumn(string name, Guid changedById)
     {
         var done = _columns.Single(column => column.Kind == ColumnKind.Done);
         var column = new BoardColumn(Id, name, done.Position, ColumnKind.Custom);
         done.PlaceAt(done.Position + 1);
         _columns.Add(column);
+        Raise(new ColumnsChangedEvent(Id, changedById));
         return column;
     }
 
     /// <summary>Only a column of the project's own: the fixed ones keep their names.</summary>
-    public ColumnChange RenameColumn(Guid columnId, string name)
+    public ColumnChange RenameColumn(Guid columnId, string name, Guid changedById)
     {
         var column = FindColumn(columnId);
         if (column is null)
@@ -106,16 +108,23 @@ public sealed class Project : AuditableEntity, IArchivable
             return ColumnChange.Fixed;
         }
 
+        var before = column.Name;
         column.Rename(name);
+        if (column.Name != before)
+        {
+            Raise(new ColumnsChangedEvent(Id, changedById));
+        }
+
         return ColumnChange.Done;
     }
 
     /// <summary>
     /// A column of the project's own to a place from 0, the others closing up around it: only after
     /// Backlog and before Gata, so the four fixed ones keep their order, with any number of the project's
-    /// own between any two of them (SPEC section 4.4). The fixed ones never move.
+    /// own between any two of them (SPEC section 4.4). The fixed ones never move. One holding tasks, archived ones
+    /// too, stays on its side of În lucru (group 23): a started task would land before it, one not started after it.
     /// </summary>
-    public ColumnChange MoveColumn(Guid columnId, int position)
+    public ColumnChange MoveColumn(Guid columnId, int position, bool holdsTasks, Guid changedById)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(position);
         var column = FindColumn(columnId);
@@ -135,8 +144,21 @@ public sealed class Project : AuditableEntity, IArchivable
             return ColumnChange.OutOfRange;
         }
 
+        var inProgress = ordered.FindIndex(other => other.Kind == ColumnKind.InProgress);
+        var wasBefore = column.Position < ordered[inProgress].Position;
+        if (holdsTasks && wasBefore != (position <= inProgress))
+        {
+            return ColumnChange.CrossesInProgress;
+        }
+
+        var before = column.Position;
         ordered.Insert(position, column);
         Renumber(ordered);
+        if (column.Position != before)
+        {
+            Raise(new ColumnsChangedEvent(Id, changedById));
+        }
+
         return ColumnChange.Done;
     }
 
@@ -145,7 +167,7 @@ public sealed class Project : AuditableEntity, IArchivable
     /// Backlog to start in. Whether it holds a task, archived ones included, isn't the project's to know,
     /// so the handler says.
     /// </summary>
-    public ColumnChange RemoveColumn(Guid columnId, bool holdsTasks)
+    public ColumnChange RemoveColumn(Guid columnId, bool holdsTasks, Guid changedById)
     {
         var column = FindColumn(columnId);
         if (column is null)
@@ -165,6 +187,7 @@ public sealed class Project : AuditableEntity, IArchivable
 
         _columns.Remove(column);
         Renumber(OrderedColumns());
+        Raise(new ColumnsChangedEvent(Id, changedById));
         return ColumnChange.Done;
     }
 

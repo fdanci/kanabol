@@ -1,5 +1,11 @@
 import { LiveAnnouncer } from '@angular/cdk/a11y';
-import { CdkDrag, CdkDragDrop, CdkDropList } from '@angular/cdk/drag-drop';
+import {
+  CdkDrag,
+  CdkDragDrop,
+  CdkDragStart,
+  CdkDropList,
+  CdkDropListGroup,
+} from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
@@ -55,7 +61,11 @@ describe('BoardPage', () => {
   const held = signal<string[]>(['tasks.create']);
   let snackbar: { show: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   let announcer: { announce: ReturnType<typeof vi.fn> };
-  let confirmation: { ask: ReturnType<typeof vi.fn>; discardChanges: ReturnType<typeof vi.fn> };
+  let confirmation: {
+    ask: ReturnType<typeof vi.fn>;
+    tell: ReturnType<typeof vi.fn>;
+    discardChanges: ReturnType<typeof vi.fn>;
+  };
   let questions: { estimate: ReturnType<typeof vi.fn>; pauseReason: ReturnType<typeof vi.fn> };
   let harness: RouterTestingHarness;
 
@@ -79,6 +89,7 @@ describe('BoardPage', () => {
     announcer = { announce: vi.fn(() => Promise.resolve()) };
     confirmation = {
       ask: vi.fn(() => Promise.resolve(true)),
+      tell: vi.fn(() => Promise.resolve()),
       discardChanges: vi.fn(() => Promise.resolve(true)),
     };
     // The sheets of docs/UI_UX_SPEC.md §7.4 answer at once: an hour, or the reason.
@@ -737,6 +748,26 @@ describe('BoardPage', () => {
 
     it('gives a member neither the menu nor a new column', async () => {
       board.canManage = false;
+      board.canManageColumns = false;
+      await visit();
+
+      expect(menuOf('Analiză')).toBeNull();
+      expect(page().querySelector('.add-column')).toBeNull();
+    });
+
+    // docs/UI_UX_SPEC.md §7.4, group 23: the columns follow canManageColumns, not canManage.
+    it('gives a member with columns.manage the menu and a new column', async () => {
+      board.canManage = false;
+      board.canManageColumns = true;
+      await visit();
+
+      expect(menuOf('Analiză')).not.toBeNull();
+      expect(page().querySelector('.add-column')).not.toBeNull();
+    });
+
+    it('gives one who manages the project but not its columns neither the menu nor a new column', async () => {
+      board.canManage = true;
+      board.canManageColumns = false;
       await visit();
 
       expect(menuOf('Analiză')).toBeNull();
@@ -820,6 +851,239 @@ describe('BoardPage', () => {
       ).toEqual(['Backlog', 'Analiză', 'În lucru', 'Review', 'În pauză', 'Gata']);
     });
 
+    // docs/UI_UX_SPEC.md §7.4 "Tragerea coloanelor" (group 23): the project's own columns are dragged by their
+    // head between Backlog and Gata, the fixed ones stay, the new place is taken at once and given back when the
+    // API refuses, and the cards keep their own lists.
+    describe('dragging the columns', () => {
+      function columnList(): CdkDropList<BoardColumnDto[]> {
+        return harness.fixture.debugElement
+          .query(By.css('.board'))
+          .injector.get(CdkDropList<BoardColumnDto[]>);
+      }
+
+      function dragOf(name: string): CdkDrag<BoardColumnDto> {
+        return harness.fixture.debugElement
+          .queryAll(By.directive(BoardColumn))
+          .find((found) => (found.componentInstance as BoardColumn).column().name === name)!
+          .injector.get(CdkDrag) as CdkDrag<BoardColumnDto>;
+      }
+
+      function names(): string[] {
+        return [...page().querySelectorAll('kb-board-column .name')].map((name) =>
+          name.textContent.trim(),
+        );
+      }
+
+      /** What the CDK says when a column is let go on the board. */
+      function dropColumn(name: string, previousIndex: number, currentIndex: number): void {
+        columnList().dropped.emit({
+          item: { data: dragOf(name).data },
+          container: columnList(),
+          previousContainer: columnList(),
+          previousIndex,
+          currentIndex,
+        } as unknown as CdkDragDrop<BoardColumnDto[], BoardColumnDto[], BoardColumnDto>);
+      }
+
+      function order(...ids: string[]): BoardColumnDto[] {
+        return ids.map((id, position) => ({
+          ...OWN_COLUMNS.find((found) => found.id === id)!,
+          position,
+        }));
+      }
+
+      it('drags the columns of its own by their head, the fixed ones never', async () => {
+        await visit();
+
+        expect(
+          ['Backlog', 'În lucru', 'În pauză', 'Gata'].map((name) => dragOf(name).disabled),
+        ).toEqual([true, true, true, true]);
+        expect(['Analiză', 'Review'].map((name) => dragOf(name).disabled)).toEqual([false, false]);
+        expect(column('Review').querySelector('.head')?.classList).toContain('cdk-drag-handle');
+        expect(column('Review').querySelector('.head')?.classList).toContain('grab');
+        expect(column('Gata').querySelector('.head')?.classList).not.toContain('grab');
+      });
+
+      it('lets a column go only between Backlog and Gata', async () => {
+        await visit();
+
+        const fits = [0, 1, 2, 3, 4, 5].map((index) =>
+          columnList().sortPredicate(index, dragOf('Review'), columnList()),
+        );
+        expect(fits).toEqual([false, true, true, true, true, false]);
+        expect(columnList().orientation).toBe('horizontal');
+        expect(columnList().lockAxis).toBe('x');
+      });
+
+      it('takes the new place at once, keeps it once the API agrees, and says where it went', async () => {
+        const answer = new Subject<BoardColumnDto[]>();
+        api['moveColumn'].mockReturnValue(answer);
+        await visit();
+
+        dropColumn('Review', 4, 3);
+        await settle();
+
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'Review', 'În pauză', 'Gata']);
+        expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c6', 3);
+        answer.next(order('c1', 'c4', 'c2', 'c6', 'c5', 'c3'));
+        answer.complete();
+        await settle();
+
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'Review', 'În pauză', 'Gata']);
+        expect(String(announcer.announce.mock.lastCall?.[0])).toBe(
+          '«Review» mutată pe poziția 4 din 6.',
+        );
+        expect(api['board']).toHaveBeenCalledTimes(1);
+      });
+
+      it('goes back to its place when the API refuses, and the board reads itself again', async () => {
+        api['moveColumn'].mockReturnValue(refusedWith(409, 'Project.ChangedMeanwhile'));
+        await visit();
+
+        dropColumn('Review', 4, 3);
+        await settle();
+
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'În pauză', 'Review', 'Gata']);
+        expect(api['board']).toHaveBeenCalledTimes(2);
+        expect(announcer.announce).not.toHaveBeenCalledWith('«Review» mutată pe poziția 4 din 6.');
+      });
+
+      it('asks nothing when a column is let go where it was', async () => {
+        await visit();
+
+        dropColumn('Review', 4, 4);
+        await settle();
+
+        expect(api['moveColumn']).not.toHaveBeenCalled();
+      });
+
+      it('lets no one drag a column without canManageColumns', async () => {
+        board.canManageColumns = false;
+        await visit();
+
+        expect(columnList().disabled).toBe(true);
+        expect(['Analiză', 'Review'].map((name) => dragOf(name).disabled)).toEqual([true, true]);
+        expect(column('Review').querySelector('.head')?.classList).not.toContain('grab');
+      });
+
+      // A drop list gives the lists inside it no group (the CDK's own rule), so the cards' lists keep theirs on a
+      // box under the board's: without it no card would go from one column to another.
+      it('keeps the lists of the cards connected to each other and to Arhivate, apart from the list of the columns', async () => {
+        board.canSeeArchived = true;
+        await visit();
+
+        const group = harness.fixture.debugElement
+          .query(By.directive(CdkDropListGroup))
+          .injector.get(CdkDropListGroup<CdkDropList>);
+        const lists = harness.fixture.debugElement
+          .queryAll(By.directive(CdkDropList))
+          .map((found) => found.injector.get(CdkDropList<BoardColumnDto>));
+        const inGroup = lists.filter((list) => group._items.has(list));
+        expect(inGroup.map((list) => list.data.name)).toEqual([...names(), 'Arhivate']);
+        expect(group._items.has(columnList() as unknown as CdkDropList)).toBe(false);
+      });
+
+      it('keeps the cards and the columns apart: the board holds the columns, each column its cards', async () => {
+        await visit();
+
+        expect(
+          columnList()
+            .getSortedItems()
+            .map((drag) => (drag.data as BoardColumnDto).name),
+        ).toEqual(names());
+        const cards = harness.fixture.debugElement
+          .queryAll(By.css('.cards'))
+          .map((found) => found.injector.get(CdkDropList<BoardColumnDto>));
+        expect(cards.map((list) => list.data.name)).toEqual(names());
+        expect(
+          cards.flatMap((list) =>
+            list.getSortedItems().map((drag) => (drag.data as BoardTaskDto).title),
+          ),
+        ).toEqual(['A', 'B', 'C', 'D', 'E']);
+      });
+
+      it('keeps the board still while a column is dragged, and reads it once the column is let go', async () => {
+        await visit();
+        dragOf('Review').started.emit({ source: dragOf('Review') } as unknown as CdkDragStart);
+
+        realtime.send('ColumnsChanged', {
+          projectId: 'p1',
+          byUserId: 'u2',
+          originConnectionId: 'another-tab',
+        });
+        await settle();
+        expect(api['board']).toHaveBeenCalledTimes(1);
+
+        dragOf('Review').ended.emit({ source: dragOf('Review') } as never);
+        await settle();
+
+        expect(api['board']).toHaveBeenCalledTimes(2);
+      });
+
+      // docs/UI_UX_SPEC.md §7.4 (group 23): a column with tasks doesn't cross În lucru; the board says why.
+      const HAS_TASKS = (name: string) => ({
+        title: `Coloana «${name}» are task-uri`,
+        message:
+          'O coloană cu task-uri nu poate trece peste «În lucru», pentru că un task început nu se mai întoarce înaintea ei. Mută întâi task-urile în altă coloană.',
+        confirmLabel: 'Am înțeles',
+        icon: 'info',
+      });
+
+      it('puts back a column with tasks let go across În lucru and says why, asking the API nothing', async () => {
+        await visit();
+
+        dropColumn('Analiză', 1, 3);
+        await settle();
+
+        expect(confirmation.tell).toHaveBeenCalledWith(HAS_TASKS('Analiză'));
+        expect(api['moveColumn']).not.toHaveBeenCalled();
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'În pauză', 'Review', 'Gata']);
+      });
+
+      it('says the same when the menu would move a column with tasks across În lucru', async () => {
+        await visit();
+
+        await choose('Analiză', 'Mută la dreapta');
+
+        expect(confirmation.tell).toHaveBeenCalledWith(HAS_TASKS('Analiză'));
+        expect(api['moveColumn']).not.toHaveBeenCalled();
+      });
+
+      it('says the same at a 409 Column.CrossesInProgress of the API, for tasks the board does not show', async () => {
+        api['moveColumn'].mockReturnValue(refusedWith(409, 'Column.CrossesInProgress'));
+        await visit();
+
+        dropColumn('Review', 4, 1);
+        await settle();
+
+        expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c6', 1);
+        expect(confirmation.tell).toHaveBeenCalledWith(HAS_TASKS('Review'));
+        expect(names()).toEqual(['Backlog', 'Analiză', 'În lucru', 'În pauză', 'Review', 'Gata']);
+      });
+
+      it('moves a column with tasks on its side of În lucru, and an empty one across it, without a word', async () => {
+        await visit();
+
+        dropColumn('Analiză', 1, 1);
+        dropColumn('Review', 4, 1);
+        await settle();
+
+        expect(confirmation.tell).not.toHaveBeenCalled();
+        expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c6', 1);
+      });
+
+      it('says where the menu moved a column too', async () => {
+        api['moveColumn'].mockReturnValue(of(order('c1', 'c4', 'c2', 'c6', 'c5', 'c3')));
+        await visit();
+
+        await choose('Review', 'Mută la stânga');
+
+        expect(String(announcer.announce.mock.lastCall?.[0])).toBe(
+          '«Review» mutată pe poziția 4 din 6.',
+        );
+      });
+    });
+
     it('offers to delete only an empty column of its own, and asks first', async () => {
       await visit();
       expect(await items('Analiză')).not.toContain('Șterge');
@@ -847,7 +1111,8 @@ describe('BoardPage', () => {
     it('keeps a started card out of the columns before În lucru while it is dragged', async () => {
       await visit();
 
-      const lists = harness.fixture.debugElement.queryAll(By.directive(CdkDropList));
+      // The cards' lists: the board itself is the columns' (group 23).
+      const lists = harness.fixture.debugElement.queryAll(By.css('.cards'));
       const takes = (title: string) =>
         lists.map((found) => {
           const list = found.injector.get(CdkDropList<BoardColumnDto>);
@@ -996,6 +1261,31 @@ describe('BoardPage', () => {
       expect(api['move']).toHaveBeenCalledWith('id-KAN-1', 'c2', 1);
     });
 
+    // docs/SPEC.md §4.4 (group 23, an explicit check): back from În pauză, a card that has an estimate goes
+    // into În lucru without the sheet, by the mouse and by the keyboard.
+    it('moves a paused card with an estimate back into În lucru without asking, by the mouse', async () => {
+      await visit();
+
+      drop(task('D'), 'c5', 'c2', 0, 1);
+      await settle();
+
+      expect(questions.estimate).not.toHaveBeenCalled();
+      expect(questions.pauseReason).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-4', 'c2', 1);
+    });
+
+    it('moves a paused card with an estimate back into În lucru without asking, by the keyboard', async () => {
+      await visit();
+
+      await press('D', ' ');
+      await press('D', 'ArrowLeft');
+      await press('D', ' ');
+      await settle();
+
+      expect(questions.estimate).not.toHaveBeenCalled();
+      expect(api['move']).toHaveBeenCalledWith('id-KAN-4', 'c2', 0);
+    });
+
     it('asks why before every pause, and shows the reason on the card', async () => {
       await visit();
 
@@ -1085,6 +1375,7 @@ describe('BoardPage', () => {
     beforeEach(() => {
       localStorage.removeItem(ARCHIVED_STATE_KEY);
       board.canSeeArchived = true;
+      board.archivedCount = 2;
       archivedCards = [
         anArchivedCard('KAN-9', 'c2', 'În lucru', { title: 'Arhivat din lucru' }),
         anArchivedCard('KAN-8', 'c3', 'Gata', { title: 'Arhivat din Gata', priority: 'Low' }),
@@ -1123,8 +1414,8 @@ describe('BoardPage', () => {
     }
 
     // What was archived or restored while the connection was away went unheard, as for the board.
-    it('reads its cards again after a reconnection', async () => {
-      await visit();
+    it('reads its cards again after a reconnection, while it is open', async () => {
+      await opened();
       const reads = api['archived'].mock.calls.length;
 
       realtime.reconnect();
@@ -1133,15 +1424,74 @@ describe('BoardPage', () => {
       expect(api['archived'].mock.calls.length).toBe(reads + 1);
     });
 
+    // docs/SPEC.md §4.4 and docs/UI_UX_SPEC.md §7.4, group 23: the band counts with the board's archivedCount,
+    // and the cards come only when the column opens.
+    it('reads no card while closed, whatever it hears, and its cards each time it opens', async () => {
+      await visit();
+      realtime.reconnect();
+      realtime.send('TaskArchived', {
+        taskId: 'id-KAN-3',
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      await settle();
+      expect(api['archived']).not.toHaveBeenCalled();
+
+      archivedColumn()!.querySelector<HTMLButtonElement>('.band')!.click();
+      await settle();
+      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
+      expect(api['archived']).toHaveBeenCalledTimes(1);
+    });
+
+    // Review of group 23: a column renamed elsewhere changes the column names its cards come back to.
+    it('reads its cards again on ColumnsChanged while it is open, and not while closed', async () => {
+      await visit();
+      const changed = {
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      };
+      realtime.send('ColumnsChanged', changed);
+      await settle();
+      expect(api['archived']).not.toHaveBeenCalled();
+
+      archivedColumn()!.querySelector<HTMLButtonElement>('.band')!.click();
+      await settle();
+      realtime.send('ColumnsChanged', changed);
+      await settle();
+
+      expect(api['archived']).toHaveBeenCalledTimes(2);
+    });
+
+    it('counts on its band with the board, which reads it again when someone archives', async () => {
+      board.archivedCount = 7;
+      await visit();
+      const band = archivedColumn()!.querySelector<HTMLButtonElement>('.band')!;
+      expect(band.querySelector('.count')?.textContent.trim()).toBe('7');
+
+      api['board'].mockReturnValue(of({ ...structuredClone(board), archivedCount: 8 }));
+      realtime.send('TaskArchived', {
+        taskId: 'id-KAN-3',
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      await settle();
+
+      expect(band.querySelector('.count')?.textContent.trim()).toBe('8');
+      expect(band.getAttribute('aria-label')).toBe('Arhivate, 8 task-uri. Deschide coloana.');
+    });
+
     it('comes last, after + Coloană, only for tasks.archive', async () => {
       await visit();
 
-      const board = page().querySelector('.board')!;
+      // The columns' row is the cards' group under the board (display: contents), from group 23.
+      const board = page().querySelector('.board > .cards-group')!;
       expect(board.lastElementChild?.tagName.toLowerCase()).toBe('kb-archived-column');
       expect(board.lastElementChild?.previousElementSibling?.classList).toContain(
         'add-column-slot',
       );
-      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
     });
 
     it('stays away, and reads nothing, without tasks.archive', async () => {
@@ -1176,6 +1526,7 @@ describe('BoardPage', () => {
       await visit();
 
       expect(archivedColumn()!.classList).toContain('open');
+      expect(api['archived']).toHaveBeenCalledWith('p1', 1);
     });
 
     it('shows its cards faded, with when they were archived in place of the deadline', async () => {
@@ -1244,7 +1595,7 @@ describe('BoardPage', () => {
       );
       expect(api['archive']).toHaveBeenCalledWith('id-KAN-1');
       expect(api['board']).toHaveBeenCalledTimes(2);
-      expect(api['archived']).toHaveBeenCalledTimes(2);
+      expect(api['archived']).not.toHaveBeenCalled();
       expect(snackbar.show).toHaveBeenCalledWith('Task-ul KAN-1 a fost arhivat.');
       expect(api['move']).not.toHaveBeenCalled();
     });

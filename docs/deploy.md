@@ -50,10 +50,10 @@ Scriptul face în `certs/` CA-ul propriu și certificatul serverului. `docs/tls.
 ### 4. Imaginile
 
 ```sh
-scripts/release.sh v1.1.0
+scripts/release.sh v1.2.0
 ```
 
-Versiunea e cea a commit-ului din `main`, ultimul tag (`git describe --tags`): `APP_VERSION` din `frontend/src/app/core/layout/sidenav.ts`, pe care o arată sidebar-ul, și tag-ul implicit al imaginilor din `compose.prod.yaml`. `release.sh` verifică întâi că clona e pe `main`, curată și la un commit de pe `origin/main`, și că versiunea cerută e cea din cele două fișiere, apoi construiește `kanabol-api:v1.1.0` și `kanabol-web:v1.1.0`, pune tag-ul git adnotat dacă lipsește (`v1.1.0` vine deja cu `git pull`) și scrie `KANABOL_VERSION=v1.1.0` în `.env`. Nu pornește nimic: la final spune comanda de la pasul următor. Prima construcție durează câteva minute.
+Versiunea e cea a commit-ului din `main`, ultimul tag (`git describe --tags`): `APP_VERSION` din `frontend/src/app/core/layout/sidenav.ts`, pe care o arată sidebar-ul, și tag-ul implicit al imaginilor din `compose.prod.yaml`. `release.sh` verifică întâi că clona e pe `main`, curată și la un commit de pe `origin/main`, și că versiunea cerută e cea din cele două fișiere, apoi construiește `kanabol-api:v1.2.0` și `kanabol-web:v1.2.0`, pune tag-ul git adnotat dacă lipsește (`v1.2.0` vine deja cu `git pull`) și scrie `KANABOL_VERSION=v1.2.0` în `.env`. Nu pornește nimic: la final spune comanda de la pasul următor. Prima construcție durează câteva minute.
 
 ### 5. Pornirea
 

@@ -1,5 +1,5 @@
-import { cardsIn, moveCard, placeAmong } from './board-moves';
-import { COLUMNS, aBoard, aCard, titlesByColumn } from './board-testing';
+import { cardsIn, crossesInProgress, moveCard, placeAmong, placeColumn } from './board-moves';
+import { COLUMNS, OWN_COLUMNS, aBoard, aCard, titlesByColumn } from './board-testing';
 import { BoardTaskDto } from './models';
 
 /** docs/SPEC.md §6.3: the board after a move is the board the API will have. */
@@ -122,6 +122,33 @@ describe('board moves', () => {
       expect([0, 1, 2, 3, 4].map((index) => placeAmong(column, column, index))).toEqual([
         0, 1, 2, 3, 4,
       ]);
+    });
+  });
+
+  // docs/SPEC.md §4.4 and docs/UI_UX_SPEC.md §7.4 (group 23): the columns' order after a drag.
+  describe('placeColumn and crossesInProgress', () => {
+    const order = (columns: readonly { name: string; position: number }[]) =>
+      [...columns].sort((a, b) => a.position - b.position).map((column) => column.name);
+
+    it('puts a column at a place from 0, the others closing up, numbered 0, 1, 2...', () => {
+      const placed = placeColumn(OWN_COLUMNS, 'c6', 1);
+
+      expect(order(placed)).toEqual([
+        'Backlog',
+        'Review',
+        'Analiză',
+        'În lucru',
+        'În pauză',
+        'Gata',
+      ]);
+      expect(placed.map((column) => column.position)).toEqual([0, 1, 2, 3, 4, 5]);
+    });
+
+    it('says when a column lands on the other side of În lucru, either way, and not on its own side', () => {
+      expect(crossesInProgress(OWN_COLUMNS, 'c6', 1)).toBe(true);
+      expect(crossesInProgress(OWN_COLUMNS, 'c4', 2)).toBe(true);
+      expect(crossesInProgress(OWN_COLUMNS, 'c6', 3)).toBe(false);
+      expect(crossesInProgress(OWN_COLUMNS, 'c4', 1)).toBe(false);
     });
   });
 });

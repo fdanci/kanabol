@@ -1,3 +1,5 @@
+import { formatHoursMinutes } from '../../shared/models/estimate';
+
 const MINUTES_IN_HOUR = 60;
 const MINUTES_IN_DAY = 24 * MINUTES_IN_HOUR;
 
@@ -21,4 +23,13 @@ export function formatDuration(seconds: number | null): string {
     return rest === 0 ? $localize`${hours} h` : $localize`${hours} h ${rest} min`;
   }
   return $localize`${minutes} min`;
+}
+
+/**
+ * A duration of "Estimare și timp lucrat" (docs/UI_UX_SPEC.md §7.8, group 23): hours of the work schedule, so
+ * hours and minutes however many, never days ("40 h", "2 h 30 min", "35 min"), rounded to the minute first,
+ * and "–" for nothing to measure.
+ */
+export function formatWorkDuration(seconds: number | null): string {
+  return seconds === null ? '–' : formatHoursMinutes(Math.round(seconds / 60));
 }

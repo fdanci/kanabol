@@ -97,6 +97,25 @@ describe('Confirmation', () => {
     expect(await verb.getAttribute('cdkfocusinitial')).toBe('');
   });
 
+  // docs/UI_UX_SPEC.md §7.4 (group 23): what can't be done, said in a sheet with one button.
+  it('tells something with one button, which closes it', async () => {
+    const told = TestBed.inject(Confirmation).tell({
+      title: 'Coloana «Review» are task-uri',
+      message: 'Mută întâi task-urile în altă coloană.',
+      confirmLabel: 'Am înțeles',
+      icon: 'info',
+    });
+    const loader = TestbedHarnessEnvironment.documentRootLoader(TestBed.createComponent(Page));
+    const sheet = await loader.getHarness(MatDialogHarness);
+
+    const buttons = await sheet.getAllHarnesses(MatButtonHarness);
+    expect(await Promise.all(buttons.map((button) => button.getText()))).toEqual(['Am înțeles']);
+    expect(await (await sheet.host()).getAttribute('role')).toBe('alertdialog');
+    await buttons[0].click();
+    await told;
+    expect(await loader.getAllHarnesses(MatDialogHarness)).toHaveLength(0);
+  });
+
   it('asks the same thing before any unsaved change is thrown away', async () => {
     const confirmation = TestBed.inject(Confirmation);
     const ask = vi.spyOn(confirmation, 'ask').mockResolvedValue(true);

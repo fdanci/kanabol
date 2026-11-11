@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiClient } from '../../core/api/api-client';
+import { handledHere } from '../../core/api/error-interceptor';
 import { Page } from '../../shared/models/page';
 import {
   ArchivedTaskDto,
@@ -73,10 +74,12 @@ export class BoardApi {
   }
 
   /** Answers every column in its new order. */
+  /** Column.CrossesInProgress is the page's to say, in a dialog (docs/UI_UX_SPEC.md §7.4, group 23). */
   moveColumn(projectId: string, columnId: string, position: number): Observable<BoardColumnDto[]> {
     return this.api.patch<BoardColumnDto[]>(
       `/projects/${projectId}/board-columns/${columnId}/position`,
       { position },
+      { context: handledHere('Column.CrossesInProgress') },
     );
   }
 

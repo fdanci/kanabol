@@ -32,6 +32,22 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
         located.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    // SPEC section 4.4, group 23: a real member whose role has columns.manage; one without gets 403.
+    [Fact]
+    public async Task Post_ByAMemberWithColumnsManage_Returns201AndWithoutIt403OwnerRequired()
+    {
+        var (member, token) = await SignedIn(Permissions.ColumnsManage);
+        var (plain, plainToken) = await SignedIn(Permissions.TasksCreate);
+        var project = await CreateProject(builder => builder.WithMember(member).WithMember(plain));
+
+        (await Send(HttpMethod.Post, ColumnsOf(project.Id), token, new { name = "Review" })).StatusCode.Should().Be(HttpStatusCode.Created);
+        var refused = await Send(HttpMethod.Post, ColumnsOf(project.Id), plainToken, new { name = "QA" });
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var body = await JsonFrom(refused);
+        body.RootElement.GetProperty("code").GetString().Should().Be("Project.OwnerRequired");
+    }
+
     [Fact]
     public async Task Get_ForAMember_Returns200WithTheColumnsFromTheLeft()
     {
@@ -83,7 +99,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
     {
         var (owner, token) = await SignedIn();
         var project = await CreateProject(builder => builder.OwnedBy(owner));
-        var review = project.AddColumn("Review");
+        var review = project.AddColumn("Review", owner.Id);
         await using (var db = Api.Postgres.CreateContext())
         {
             db.BoardColumns.Add(review);
@@ -95,6 +111,26 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await CodeFrom(response)).Should().Be("Column.NotEmpty");
+    }
+
+    // SPEC section 4.4, group 23.
+    [Fact]
+    public async Task Patch_AColumnWithATaskAcrossInProgress_Returns409CrossesInProgress()
+    {
+        var (owner, token) = await SignedIn();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        var review = project.AddColumn("Review", owner.Id);
+        await using (var db = Api.Postgres.CreateContext())
+        {
+            db.BoardColumns.Add(review);
+            db.TaskItems.Add(new TaskItemBuilder().InProject(project).InColumn(review).WithPriority(TaskPriority.Low).Build());
+            await db.SaveChangesAsync();
+        }
+
+        var response = await Send(HttpMethod.Patch, $"{ColumnsOf(project.Id)}/{review.Id}/position", token, new { position = 1 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await CodeFrom(response)).Should().Be("Column.CrossesInProgress");
     }
 
     [Theory]

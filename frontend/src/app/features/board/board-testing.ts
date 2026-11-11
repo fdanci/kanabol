@@ -58,7 +58,9 @@ export function aBoard(extra: Partial<BoardDto> = {}): BoardDto {
     isArchived: false,
     canMove: true,
     canManage: true,
+    canManageColumns: true,
     canSeeArchived: false,
+    archivedCount: null,
     columns: COLUMNS.map((column) => ({ ...column })),
     tasks: [
       aCard('KAN-1', 'c1', 0, { title: 'A' }),

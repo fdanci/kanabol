@@ -1,9 +1,11 @@
 #!/bin/sh
 # Acceptance checks for the fixed columns, the estimate, the worked time and the general settings (group 22
 # in the project's Tasks.md; docs/SPEC.md §4.4, §5.1, §5.1.1, §13.3, §14.7; docs/UI_UX_SPEC.md §5, §7.4,
-# §7.5, §7.8, §7.9). The tests hold the rules, so these checks run them, and add what they can't see: the
-# migration over an old database on the local PostgreSQL, the real API process on it, its answers, and one task
-# through all of it, as boards hear it over the hub.
+# §7.5, §7.8, §7.9), and for group 23's columns.manage, the dragging of the columns and group 22's fixes (task
+# 7; docs/SPEC.md §4.4, §9, §13.3; docs/UI_UX_SPEC.md §7.4, §7.7, §7.8, §7.9, §11). The tests hold the rules,
+# so these checks run them, and add what they can't see: the migration over an old database on the local
+# PostgreSQL, the real API process on it, its answers, and one task through all of it, as boards hear it over
+# the hub.
 #
 # Usage: scripts/check-columns.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
@@ -94,6 +96,39 @@
 #      by Dan and by CAP, cycle-time from În lucru, between the time worked and the lead time. Last,
 #      backend/CLAUDE.md and frontend/CLAUDE.md say what the group changed, and nothing of what it took away.
 #      Docker, PostgreSQL, Node.
+#   7  group 23: the tests (PermissionsTests, ProjectColumnTests, ProjectAccessTests, the column handlers, the
+#      board's query and endpoint, BoardEventsHandlerTests, GetArchivedTasksQueryHandlerTests,
+#      WorkedTimeHandlerTests, ArchivedTasksEndpointTests, BoardRealtimeFlowTests); then the API built from this
+#      code, in Production. columns.manage: seeded and the Admin's; on PRM, the admin's, Mara (a member whose
+#      role has it) adds, renames, moves and deletes columns, Petru (a member without it) and Vera (outside, with
+#      it and projects.view_all) get 403 Project.OwnerRequired and change nothing, the board says canManage and
+#      canManageColumns as 'true|true' for the admin, 'false|true' for Mara, 'false|false' for the others, and
+#      once Mara's role loses it her token, which still lists it, changes nothing (read from the database).
+#      Column.CrossesInProgress on CRS: Analiză before În lucru and Review after it, each holding a task, can't
+#      cross it either way (409, nothing moved), a place before Backlog is 400 first, Review moves on its side;
+#      with its task archived Review still can't, and an empty column crosses both ways. Arhivate, ARHIVATE and
+#      " arhivate " are 400 on name to POST and PUT. ColumnsChanged: Mara's board and Petru's, connected over
+#      WebSockets as a browser is (Node's hub client), each hear her four changes from her connection, with
+#      projectId, byUserId and originConnectionId only, and nothing of Petru's 403. archivedCount: CRS's for the
+#      admin, null for Petru. compose.yaml has the refresh tokens' cleanup comment (group 19) word for word as
+#      docs/SPEC.md §13.3, between groups 17 and 22. REI-1, created with 30 minutes, goes into În lucru, on pause
+#      after two seconds and back into În lucru without an estimate: 200, the same 30 minutes, no history of
+#      them, its counter where the pause left it and then going on (every hour of every day worked, as in 3).
+#      Then the frontend: columns.manage on the roles screen, the column's menu and "+ Coloană" on
+#      canManageColumns, the board reading itself again on ColumnsChanged, Arhivate's band counting with
+#      archivedCount and its cards read only while open, a task with an estimate asked nothing back from În
+#      pauză (the board by the mouse and the keyboard, the panel's Stare), the columns of the project's own
+#      dragged by their head between Backlog and Gata with the cards' lists still connected, the dialog
+#      "Coloana «X» are task-uri" at a drop, a menu move and the API's 409, the settings' day names whole with
+#      the short ones aria-hidden and docs/ui-review.md's axe-core run, the report's work time in hours and
+#      minutes with its screenshot taken again since v1.1.0, and the specs of the board, the roles, the panel,
+#      the settings, the reports and the confirmation sheet. Last, backend/CLAUDE.md and frontend/CLAUDE.md say
+#      what the group changed. Its controls, run by hand: columns.manage without the membership let Vera in;
+#      the move's check without the archived tasks let Review cross; the board without ColumnsChanged's handler
+#      heard nothing; the column without Arhivate among the reserved names took it; the API asking an estimate
+#      every time answered 400; the board and the panel asking every time failed four specs; Arhivate reading
+#      while closed, the cards' group back on the board's list and a day duration left in the section each
+#      failed their check. Docker, PostgreSQL, Node and the packages.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1281,7 +1316,7 @@ the_fixed_columns_wear_their_kind() {
   done
   in_file 'box-shadow: inset 0 3px 0 var(--kb-kind);' "$board/board-column.ts" &&
     in_file 'class="material-symbols-outlined kind-icon" aria-hidden="true"' "$board/board-column.ts" &&
-    in_file "@if (canManage() && column().kind === 'Custom')" "$board/board-column.ts" &&
+    in_file "@if (canManageColumns() && column().kind === 'Custom')" "$board/board-column.ts" &&
     in_file "[canCreate]=\"store.canCreate() && column.kind === 'Backlog'\"" "$board/board-page.html" &&
     in_file '[cdkDropListEnterPredicate]="accepts"' "$board/board-column.ts" &&
     in_file 'Un task început nu se mai întoarce înainte de «În lucru».' "$board/board-page.ts"
@@ -1752,9 +1787,10 @@ the_flow_answers_as_the_spec_says() {
 the_boards_hear_every_step_in_order() {
   the_flow_ran || return 1
   expected="TaskCreated,TaskUpdated:Assignees,TaskUpdated:EstimatedMinutes,TaskMoved:$cap_InProgress,TaskMoved:$cap_Paused,TaskArchived,TaskRestored,TaskMoved:$cap_InProgress,TaskMoved:$cap_Done"
-  for board in ana dan; do
-    is "$expected" "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').map((h) => h.event + (h.payload.field ? ':' + h.payload.field : '') + (h.event === 'TaskMoved' ? ':' + h.payload.columnId : '')).join(',')" "$board")" || return 1
-    is true "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').every((h) => h.payload.taskId === r.kept.task.id && h.payload.projectId === '$cap' && h.payload.byUserId === '$admin_id' && h.payload.originConnectionId === r.connections.ana)" "$board")" || return 1
+  # Not "board", which names the board's folder for the frontend's checks after it.
+  for listener in ana dan; do
+    is "$expected" "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').map((h) => h.event + (h.payload.field ? ':' + h.payload.field : '') + (h.event === 'TaskMoved' ? ':' + h.payload.columnId : '')).join(',')" "$listener")" || return 1
+    is true "$(flow "r.heard[process.argv[3]].filter((h) => h.event !== 'NotificationCreated').every((h) => h.payload.taskId === r.kept.task.id && h.payload.projectId === '$cap' && h.payload.byUserId === '$admin_id' && h.payload.originConnectionId === r.connections.ana)" "$listener")" || return 1
   done
 }
 
@@ -1858,7 +1894,435 @@ task_6() {
   check "frontend/CLAUDE.md says the board's rules, the sheets, Arhivate, the settings and the first bundle" the_frontend_notes_are_up_to_date
 }
 
-tasks=${*:-1 2 3 4 5 6}
+# ---- Task 7: group 23, the columns' permission, dragging the columns and the fixes of group 22.
+
+group_23_tests_pass() {
+  classes_pass Kanabol.Domain.Tests 30 PermissionsTests ProjectColumnTests &&
+    classes_pass Kanabol.Application.Tests 95 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
+    classes_pass Kanabol.Api.Tests 20 BoardColumnsEndpointTests BoardEndpointTests BoardRealtimeFlowTests &&
+    classes_pass Kanabol.Application.Tests 31 BoardEventsHandlerTests GetArchivedTasksQueryHandlerTests WorkedTimeHandlerTests &&
+    classes_pass Kanabol.Api.Tests 5 ArchivedTasksEndpointTests
+}
+
+# Someone with a role of their own, signed in from an address of their own (5 logins a minute per address):
+# their token in person_token, their id in person_id and their role's in person_role.
+someone_signs_in() { # someone_signs_in <email> <name> <permissions as a JSON list> <last byte of the address>
+  the_admin_signs_in || return 1
+  status_is 201 "$(as "$admin_token" POST /api/roles "{\"name\":\"Rol $2\",\"permissions\":$3}")" || return 1
+  person_role=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"$1\",\"displayName\":\"$2\",\"roleId\":\"$person_role\",\"initialPassword\":\"$admin_password\"}")" || return 1
+  person_id=$(body_field id)
+  status_is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H "X-Forwarded-For: 10.78.23.$4" \
+    -d "{\"email\":\"$1\",\"password\":\"$admin_password\"}")" || return 1
+  status_is 200 "$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
+    -H 'Content-Type: application/json' -d "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"parola lui $1 pentru coloane\"}")" || return 1
+  person_token=$(body_field accessToken)
+}
+
+board_says() { # board_says <token> <project id>: canManage and canManageColumns of the board, as "true|false"
+  status_is 200 "$(as "$1" GET "/api/projects/$2/board")" >/dev/null || return 1
+  json "[b.canManage, b.canManageColumns].join('|')"
+}
+
+# PRM, the admin's, with Mara (columns.manage) and Petru (tasks.create) as plain members, and Vera
+# (columns.manage and projects.view_all) outside it. Once per run.
+a_project_whose_columns_a_member_manages() {
+  the_admin_signs_in || return 1
+  [ -n "${prm:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Permisiunea coloanelor","key":"PRM"}')" || return 1
+  prm_id=$(body_field id)
+  someone_signs_in "mara.coloane@example.com" "Mara Coloane" '["columns.manage"]' 11 || return 1
+  mara_token=$person_token
+  mara_role=$person_role
+  mara_id=$person_id
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
+  someone_signs_in "petru.coloane@example.com" "Petru Fără Coloane" '["tasks.create"]' 12 || return 1
+  petru_token=$person_token
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
+  someone_signs_in "vera.coloane@example.com" "Vera Din Afară" '["columns.manage","projects.view_all"]' 13 || return 1
+  vera_token=$person_token
+  prm=$prm_id
+}
+
+columns_manage_is_seeded_and_the_admins() {
+  the_admin_signs_in || return 1
+  is 'columns.manage|t' "$(in_db "SELECT p.name, bool_or(r.is_system) FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN roles r ON r.id = rp.role_id WHERE p.name = 'columns.manage' GROUP BY p.name" | sed 's/|True$/|t/')"
+}
+
+the_board_says_who_manages_the_columns() {
+  a_project_whose_columns_a_member_manages || return 1
+  is 'true|true' "$(board_says "$admin_token" "$prm")" || return 1
+  is 'false|true' "$(board_says "$mara_token" "$prm")" || return 1
+  is 'false|false' "$(board_says "$petru_token" "$prm")" || return 1
+  is 'false|false' "$(board_says "$vera_token" "$prm")"
+}
+
+a_member_with_columns_manage_changes_the_columns() {
+  a_project_whose_columns_a_member_manages || return 1
+  status_is 201 "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Review"}')" || return 1
+  review=$(body_field id)
+  status_is 201 "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"QA"}')" || return 1
+  qa=$(body_field id)
+  status_is 200 "$(as "$mara_token" PUT "/api/projects/$prm/board-columns/$review" '{"name":"În review"}')" || return 1
+  status_is 200 "$(as "$mara_token" PATCH "/api/projects/$prm/board-columns/$review/position" '{"position":4}')" || return 1
+  status_is 204 "$(as "$mara_token" DELETE "/api/projects/$prm/board-columns/$qa")" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,În review:Custom,Gata:Done' "$(columns_of "$prm")"
+}
+
+# A plain member and someone outside the project, columns.manage or not, get the owner's 403 and change nothing.
+the_others_change_no_column() {
+  a_project_whose_columns_a_member_manages || return 1
+  before=$(columns_of "$prm")
+  code_is 403 Project.OwnerRequired "$(as "$petru_token" POST "/api/projects/$prm/board-columns" '{"name":"Petru"}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$vera_token" POST "/api/projects/$prm/board-columns" '{"name":"Vera"}')" || return 1
+  is "$before" "$(columns_of "$prm")"
+}
+
+# Read from the database: Mara's token still says columns.manage once her role has lost it.
+columns_manage_is_read_from_the_database() {
+  a_project_whose_columns_a_member_manages || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":[]}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Târziu"}')" || return 1
+  is 'false|false' "$(board_says "$mara_token" "$prm")" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":["columns.manage"]}')"
+}
+
+crs_task() { # crs_task <title> <column id>: a task of CRS moved into that column, its id in crs_moved
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/tasks" "{\"title\":\"$1\",\"description\":\"\",\"priority\":\"Low\"}")" || return 1
+  crs_moved=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$crs_moved/position" "{\"columnId\":\"$2\"}")"
+}
+
+# CRS: Analiză before În lucru and Review after În pauză, each holding a task, and Gol, empty.
+a_column_with_tasks_stays_on_its_side_of_in_progress() {
+  the_admin_signs_in || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Peste În lucru","key":"CRS"}')" || return 1
+  crs=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/board-columns" '{"name":"Analiză"}')" || return 1
+  crs_analysis=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_analysis/position" '{"position":1}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/board-columns" '{"name":"Review"}')" || return 1
+  crs_review=$(body_field id)
+  crs_task 'De analizat' "$crs_analysis" || return 1
+  crs_task 'De verificat' "$crs_review" || return 1
+  crs_reviewed=$crs_moved
+  # Review back before În lucru, Analiză forward after it: 409, nothing moved; a place before Backlog is 400 first.
+  code_is 409 Column.CrossesInProgress "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":1}')" || return 1
+  code_is 409 Column.CrossesInProgress "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_analysis/position" '{"position":2}')" || return 1
+  status_is 400 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":0}')" || return 1
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,În pauză:Paused,Review:Custom,Gata:Done' "$(columns_of "$crs")" || return 1
+  # On its side of În lucru it moves: Review between În lucru and În pauză.
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":3}')" || return 1
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gata:Done' "$(columns_of "$crs")"
+}
+
+# Its task archived, Review still holds it: the 409 stays. Empty, Gol crosses În lucru both ways.
+an_archived_task_holds_it_and_an_empty_one_goes_anywhere() {
+  [ -n "${crs_reviewed:-}" ] || a_column_with_tasks_stays_on_its_side_of_in_progress || return 1
+  status_is 204 "$(as "$admin_token" DELETE "/api/tasks/$crs_reviewed")" || return 1
+  code_is 409 Column.CrossesInProgress "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_review/position" '{"position":1}')" || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$crs/board-columns" '{"name":"Gol"}')" || return 1
+  crs_empty=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_empty/position" '{"position":1}')" || return 1
+  is 'Backlog:Backlog,Gol:Custom,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gata:Done' "$(columns_of "$crs")" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/projects/$crs/board-columns/$crs_empty/position" '{"position":5}')" || return 1
+  is 'Backlog:Backlog,Analiză:Custom,În lucru:InProgress,Review:Custom,În pauză:Paused,Gol:Custom,Gata:Done' "$(columns_of "$crs")"
+}
+
+# Arhivate, the board's last column, is taken as the four fixed names are, in any case (400 on name).
+arhivate_is_a_reserved_name() {
+  a_project_whose_columns_a_member_manages || return 1
+  before=$(columns_of "$prm")
+  column=$(column_id "$prm" 'În review')
+  [ -n "$column" ] || return 1
+  for name in Arhivate ARHIVATE ' arhivate '; do
+    status_is 400 "$(as "$admin_token" POST "/api/projects/$prm/board-columns" "{\"name\":\"$name\"}")" || return 1
+    is true "$(json "'name' in b.errors")" || return 1
+    status_is 400 "$(as "$admin_token" PUT "/api/projects/$prm/board-columns/$column" "{\"name\":\"$name\"}")" || return 1
+    is true "$(json "'name' in b.errors")" || return 1
+  done
+  is "$before" "$(columns_of "$prm")"
+}
+
+heard() { # heard <JavaScript expression on r, the result of the hub's steps, in ASCII>: prints its value
+  node -e "const r = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(eval(process.argv[2]))"     "$(native "$scratch/columns-heard.json")" "$1" | tr -d '
+'
+}
+
+# Mara's board and Petru's, both of PRM, listen over WebSockets as a browser does; from her tab Mara adds,
+# moves, renames and deletes a column, and Petru's 403 comes in between. Petru's board hears ColumnsChanged
+# four times, by Mara from her connection, and nothing of the 403; hers hears the same, as her own.
+columns_changed_reaches_another_board() {
+  a_project_whose_columns_a_member_manages || return 1
+  from_mara="\"token\": \"$mara_token\", \"as\": \"mara\""
+  cat >"$scratch/columns-steps.json" <<JSON
+[
+  { "connect": "mara", "token": "$mara_token" },
+  { "connect": "petru", "token": "$petru_token" },
+  { "join": "mara", "project": "$prm" },
+  { "join": "petru", "project": "$prm" },
+  { "request": "/api/projects/$prm/board-columns", "method": "POST", $from_mara, "keep": "added", "body": { "name": "Auzită" } },
+  { "request": "/api/projects/$prm/board-columns/{added}/position", "method": "PATCH", $from_mara, "body": { "position": 3 } },
+  { "request": "/api/projects/$prm/board-columns", "method": "POST", "token": "$petru_token", "as": "petru", "body": { "name": "Petru" } },
+  { "request": "/api/projects/$prm/board-columns/{added}", "method": "PUT", $from_mara, "body": { "name": "Auzită de toți" } },
+  { "request": "/api/projects/$prm/board-columns/{added}", "method": "DELETE", $from_mara }
+]
+JSON
+  hub_client || return 1
+  node "$(native "$scratch/hub.mjs")" "$API_URL" "$(native "$scratch/columns-steps.json")" >"$scratch/columns-heard.json" 2>"$scratch/columns-error.log" || {
+    cat "$scratch/columns-error.log"
+    return 1
+  }
+  is 'connected|connected|joined|joined|201|200|403|200|204' "$(heard "r.steps.join('|')")" || return 1
+  for listener in mara petru; do
+    is 'ColumnsChanged,ColumnsChanged,ColumnsChanged,ColumnsChanged' "$(heard "r.heard.$listener.map((h) => h.event).join(',')")" || return 1
+    is true "$(heard "r.heard.$listener.every((h) => Object.keys(h.payload).join(',') === 'projectId,byUserId,originConnectionId' && h.payload.projectId === '$prm' && h.payload.byUserId === '$mara_id' && h.payload.originConnectionId === r.connections.mara)")" || return 1
+  done
+}
+
+# The board counts the archived tasks for tasks.archive only: CRS has one, archived by the CrossesInProgress
+# checks; Petru, without tasks.archive, gets null on PRM.
+the_board_counts_the_archived_for_tasks_archive() {
+  [ -n "${crs_reviewed:-}" ] || an_archived_task_holds_it_and_an_empty_one_goes_anywhere || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/projects/$crs/board")" || return 1
+  is 'true 1' "$(json "b.canSeeArchived + ' ' + b.archivedCount")" || return 1
+  is "$(in_db "SELECT count(*) FROM task_items WHERE project_id = '$crs' AND archived_at IS NOT NULL")" "$(json "b.archivedCount")" || return 1
+  a_project_whose_columns_a_member_manages || return 1
+  status_is 200 "$(as "$petru_token" GET "/api/projects/$prm/board")" || return 1
+  is 'false null' "$(json "b.canSeeArchived + ' ' + b.archivedCount")"
+}
+
+# Arhivate's band counts with the board's archivedCount; the column reads its cards only while open.
+the_archived_column_reads_when_it_opens() {
+  in_file '[total]="store.archivedCount()"' "$board/board-page.html" &&
+    in_file "readonly archivedCount = computed(() => this.board()?.archivedCount ?? 0);" "$board/board-store.ts" &&
+    in_file 'if (projectId === null || !this.open()) {' "$board/archived-store.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'reads no card while closed, whatever it hears, and its cards each time it opens' \
+      'counts on its band with the board, which reads it again when someone archives' \
+      'reads its cards again after a reconnection, while it is open'
+}
+
+# SPEC §4.4 (group 23, an explicit check): REI-1, created with 30 minutes, goes into În lucru, on pause after
+# two seconds, and back into În lucru without an estimate: 200, the same 30 minutes and no history of them, the
+# counter where the pause left it, then going on. Every hour of every day worked, as in task 3.
+a_task_with_an_estimate_goes_back_into_in_progress_unasked() {
+  the_admin_signs_in || return 1
+  every_hour_is_worked || return 1
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Reintră în lucru","key":"REI"}')" || return 1
+  rei=$(body_field id)
+  rei_in_progress=$(in_db "SELECT id FROM board_columns WHERE project_id = '$rei' AND kind = 'InProgress'")
+  rei_paused=$(in_db "SELECT id FROM board_columns WHERE project_id = '$rei' AND kind = 'Paused'")
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$rei/tasks" '{"title":"Reintră","description":"","priority":"Low","estimatedMinutes":30}')" || return 1
+  rei_task=$(body_field id)
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$rei_task/position" "{\"columnId\":\"$rei_in_progress\"}")" || return 1
+  sleep 2
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$rei_task/position" "{\"columnId\":\"$rei_paused\",\"pauseReason\":\"O pauză scurtă\"}")" || return 1
+  paused_at=$(json "b.workedSeconds")
+  at_least 1 "$paused_at" || return 1
+  status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$rei_task/position" "{\"columnId\":\"$rei_in_progress\"}")" || return 1
+  is "30 true $paused_at null" "$(json "[b.estimatedMinutes, b.isWorking, b.workedSeconds, String(b.pauseReason)].join(' ')")" || return 1
+  sleep 2
+  set -- $(worked_of "$rei_task")
+  is true "$1" || return 1
+  at_least $((paused_at + 1)) "$2" || return 1
+  is '' "$(entries_of "$rei_task" | tr ' ' '\n' | grep '^EstimatedMinutes:')"
+}
+
+# The refresh tokens' cleanup (group 19) in compose.yaml word for word as docs/SPEC.md §13.3 has it, after the
+# overdue check's (group 17) and before the time zone's (group 22), as there.
+compose_says_the_cleanup_as_the_spec_does() {
+  count=$(grep -cF '# The refresh token cleanup runs once a day by default' docs/SPEC.md)
+  [ "$count" -eq 1 ] || {
+    echo "docs/SPEC.md has the comment $count times"
+    return 1
+  }
+  line=$(grep -F '# The refresh token cleanup runs once a day by default' docs/SPEC.md)
+  [ "$(grep -cxF -- "$line" compose.yaml)" -eq 1 ] || {
+    echo "compose.yaml doesn't have, once and as it is, the line: $line"
+    return 1
+  }
+  is 'group 17|group 19|group 22' "$(grep -oE '[(]group (17|19|22)[)]$' compose.yaml | tr -d '()' | paste -sd'|' -)"
+}
+
+# Back from În pauză, a card or task with an estimate goes into În lucru without the sheet: the board by the mouse
+# and the keyboard, the panel's Stare select.
+the_estimate_is_asked_only_once() {
+  in_file "if (column.kind === 'InProgress' && task.estimatedMinutes === null) {" "$board/board-page.ts" &&
+    in_file "if (column.kind === 'InProgress' && task.estimatedMinutes === null) {" "$app/features/tasks/task-panel.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'moves a paused card with an estimate back into În lucru without asking, by the mouse' \
+      'moves a paused card with an estimate back into În lucru without asking, by the keyboard' &&
+    specs_named "$app/features/tasks/task-panel.spec.ts" \
+      'moves a paused task with an estimate back into În lucru from Stare without asking' &&
+    specs_pass "src/app/features/tasks/task-panel.spec.ts" 30
+}
+
+# Dragging the columns (UI §7.4 "Tragerea coloanelor"): the board is the columns' horizontal drop list, between
+# Backlog and Gata only; each column of the project's own drags by its head (grab), for canManageColumns; the
+# one in hand has shadow-drag and 0.9 opacity, its place a dashed border-300 outline of its width; it takes the
+# place at once, goes back when refused, and the screen reader hears where it went. A drop list gives the lists
+# inside it no group, so the cards' lists keep theirs on a box of no size under the board's: their specs say the
+# cards still go from column to column and the two kinds of lists stay apart.
+the_columns_drag_by_their_head() {
+  in_file 'cdkDropListOrientation="horizontal"' "$board/board-page.html" &&
+    in_file '[cdkDropListSortPredicate]="columnSlot"' "$board/board-page.html" &&
+    in_file '[cdkDropListDisabled]="!store.canManageColumns()"' "$board/board-page.html" &&
+    in_file '<div class="cards-group" cdkDropListGroup>' "$board/board-page.html" &&
+    in_file '[cdkDragDisabled]="!canDrag(column)"' "$board/board-page.html" &&
+    in_file '<div *cdkDragPlaceholder class="column-placeholder"></div>' "$board/board-page.html" &&
+    in_file 'display: contents;' "$board/board-page.scss" &&
+    in_file 'border: 1px dashed var(--kb-border-300);' "$board/board-page.scss" &&
+    in_file 'cdkDragHandle' "$board/board-column.ts" &&
+    in_file 'cursor: grab;' "$board/board-column.ts" &&
+    in_file 'opacity: 0.9;' "$board/board-column.ts" &&
+    in_file 'box-shadow: var(--kb-shadow-drag);' "$board/board-column.ts" &&
+    in_file 'index > 0 && index < this.store.columns().length - 1;' "$board/board-page.ts" &&
+    in_file '«${column.name}:column:» mutată pe poziția ${position + 1}:place: din ${count}:count:.' "$board/board-page.ts" &&
+    in_file 'Mută la stânga' "$board/board-column.ts" &&
+    in_file 'Mută la dreapta' "$board/board-column.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'drags the columns of its own by their head, the fixed ones never' \
+      'lets a column go only between Backlog and Gata' \
+      'takes the new place at once, keeps it once the API agrees, and says where it went' \
+      'goes back to its place when the API refuses, and the board reads itself again' \
+      'asks nothing when a column is let go where it was' \
+      'lets no one drag a column without canManageColumns' \
+      'keeps the lists of the cards connected to each other and to Arhivate, apart from the list of the columns' \
+      'keeps the cards and the columns apart: the board holds the columns, each column its cards' \
+      'keeps the board still while a column is dragged, and reads it once the column is let go' \
+      'says where the menu moved a column too' &&
+    specs_named "$board/board-store.spec.ts" 'moves a column at once, before the API answers, and puts it back when refused'
+}
+
+# The dialog "Coloana «X» are task-uri" (UI §7.4): a sheet of 440px with one button, at a drop of a column with
+# cards across În lucru and at the menu's moves that would cross it, before any request, and at the API's 409
+# Column.CrossesInProgress, which the error snackbar leaves to it.
+the_column_with_tasks_says_why() {
+  in_file 'Coloana «${column.name}:column:» are task-uri' "$board/board-page.ts" &&
+    in_file 'O coloană cu task-uri nu poate trece peste «În lucru», pentru că un task început nu se mai întoarce înaintea ei. Mută întâi task-urile în altă coloană.' "$board/board-page.ts" &&
+    in_file 'Am înțeles' "$board/board-page.ts" &&
+    in_file "{ context: handledHere('Column.CrossesInProgress') }," "$board/board-api.ts" &&
+    in_file '@if (!request.tellOnly) {' "$app/shared/ui/confirm-dialog.ts" &&
+    in_file 'export function crossesInProgress(' "$board/board-moves.ts" &&
+    specs_named "$board/board-page.spec.ts" \
+      'puts back a column with tasks let go across În lucru and says why, asking the API nothing' \
+      'says the same when the menu would move a column with tasks across În lucru' \
+      'says the same at a 409 Column.CrossesInProgress of the API, for tasks the board does not show' \
+      'moves a column with tasks on its side of În lucru, and an empty one across it, without a word' &&
+    specs_named "$board/board-store.spec.ts" \
+      'answers crossesInProgress at a Column.CrossesInProgress of the API, the column back in its place' &&
+    specs_named "$app/shared/ui/confirm-dialog.spec.ts" 'tells something with one button, which closes it' &&
+    specs_pass "src/app/shared/ui/confirm-dialog.spec.ts" 8
+}
+
+# The days of "Setări generale" (UI §7.9): the full name as visually hidden text, the short one aria-hidden, no
+# aria-label, so the name read holds what is seen; docs/ui-review.md has axe-core's run on /settings and on the
+# board, in both themes.
+the_days_are_named_whole() {
+  settings_web=$app/features/settings
+  in_file '<span aria-hidden="true">{{ day.short }}</span>' "$settings_web/settings-page.html" &&
+    in_file '<span class="kb-visually-hidden">{{ day.name }}</span>' "$settings_web/settings-page.html" &&
+    lacks 'aria-label\]="day.name"' "$settings_web/settings-page.html" &&
+    specs_pass "src/app/features/settings/settings-page.spec.ts" 6 &&
+    in_file '## Grupul 23: coloanele, tragerea lor și reparările grupului 22' docs/ui-review.md &&
+    in_file '| 7.9 Setări generale (`/settings`) | 0 încălcări' docs/ui-review.md &&
+    in_file 'pică `label-content-name-mismatch`' docs/ui-review.md
+}
+
+# "Estimare și timp lucrat" (UI §7.8): its durations in hours and minutes only, never days, the rest of the page
+# keeping its days; the screenshot 7.8-rapoarte-estimare taken again since v1.1.0, and ui-review.md says so.
+the_work_time_is_in_hours() {
+  reports_web=$app/features/reports
+  work_time=$(sed -n '/<section class="card report work-time"/,/<\/section>/p' "$reports_web/reports-page.html")
+  [ -n "$work_time" ] || {
+    echo "no section work-time in reports-page.html"
+    return 1
+  }
+  is 9 "$(printf '%s\n' "$work_time" | grep -o 'workDuration(' | wc -l | tr -d ' ')" || return 1
+  is 0 "$(printf '%s\n' "$work_time" | grep -oE '(^|[^k])duration\(' | wc -l | tr -d ' ')" || return 1
+  in_file '[formatValue]="formatWorkHours"' "$reports_web/reports-page.html" &&
+    in_file 'export function formatWorkDuration(' "$reports_web/durations.ts" &&
+    in_file "formatHoursMinutes(Math.round(seconds / 60))" "$reports_web/durations.ts" &&
+    specs_named "$reports_web/reports-page.spec.ts" \
+      'writes its durations in hours and minutes only, a day and more too, while the rest keeps its days' &&
+    specs_named "$reports_web/durations.spec.ts" 'writes hours and minutes, however many hours' &&
+    specs_pass "src/app/features/reports/*.spec.ts" 70 &&
+    for theme in light dark; do
+      [ -n "$(git diff --name-only v1.1.0 -- "docs/screens/7.8-rapoarte-estimare-$theme.png")" ] || {
+        echo "docs/screens/7.8-rapoarte-estimare-$theme.png is as it was at v1.1.0"
+        return 1
+      }
+    done &&
+    in_file 'Captura `7.8-rapoarte-estimare` (light și dark) e refăcută' docs/ui-review.md
+}
+
+the_columns_permission_reaches_the_ui() {
+  in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
+    in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
+    in_file '$localize`Administrează coloanele board-ului, în proiectele în care e membru`' "$app/features/roles/permission-groups.ts" &&
+    in_file '[canManageColumns]="store.canManageColumns()"' "$board/board-page.html" &&
+    in_file '@if (store.canManageColumns()) {' "$board/board-page.html" &&
+    in_file 'if (!board?.canManageColumns) {' "$board/board-store.ts" &&
+    specs_named "$app/features/roles/permission-groups.spec.ts" 'says what columns.manage lets someone do, among the projects' &&
+    specs_named "$board/board-page.spec.ts" 'gives a member with columns.manage the menu and a new column' \
+      'gives one who manages the project but not its columns neither the menu nor a new column' &&
+    specs_named "$board/board-store.spec.ts" 'changes the columns for a member with columns.manage' \
+      'changes nothing for one who manages the project but not its columns'
+}
+
+the_board_listens_to_columns_changed() {
+  in_file 'ColumnsChanged: ColumnsChangedMessage;' "$app/core/realtime/models.ts" &&
+    in_file "this.realtime.on('ColumnsChanged'" "$board/board-store.ts" &&
+    specs_named "$board/board-store.spec.ts" 'reads itself again quietly on ColumnsChanged from another tab, and not from its own'
+}
+
+the_notes_say_group_23() {
+  notes_say backend/CLAUDE.md '`columns.manage` (group 23' '`IProjectAccess.EnsureColumnManagerAsync`' \
+    '`Column.CrossesInProgress`' 'nor Arhivate' '`ColumnsChangedEvent`' '| `ColumnsChanged`' '`canManageColumns`' \
+    '`archivedCount`' '7 (group 23)' &&
+    notes_say frontend/CLAUDE.md '`scripts/check-columns.sh 7`' 'For `canManageColumns`' '"Tragerea coloanelor"' \
+    '`div.cards-group`' '`Confirmation.tell`' 'So does `ColumnsChanged`' '`BoardStore.archivedCount`' \
+    '`formatWorkDuration`' 'no `aria-label`, so the name read holds what is seen' 'after group 23' &&
+    lacks 'For `canManage` \(an owner|their full names in `aria-label`' frontend/CLAUDE.md
+}
+
+group_23_specs_pass() {
+  specs_pass "src/app/features/board/**/*.spec.ts" 120 &&
+    specs_pass "src/app/features/roles/**/*.spec.ts" 25
+}
+
+task_7() {
+  use_database "$api_db"
+  echo "23.7 the columns' permission, dragging the columns and the fixes of group 22"
+  check "Docker is running" docker_is_running
+  check "the tests pass: columns.manage, the board's canManageColumns and the column handlers" group_23_tests_pass
+  check "the API builds from this code, whatever the tests built" api_builds
+  check "the real API in Production seeds columns.manage, which the Admin has" columns_manage_is_seeded_and_the_admins
+  check "the board's canManageColumns: the owner and Mara (columns.manage) yes, Petru and Vera (outside) no" the_board_says_who_manages_the_columns
+  check "Mara, a member with columns.manage, adds, renames, moves and deletes columns" a_member_with_columns_manage_changes_the_columns
+  check "Petru without it and Vera outside the project get 403 Project.OwnerRequired, nothing changed" the_others_change_no_column
+  check "columns.manage is read from the database: Mara's token outlives her role's permission" columns_manage_is_read_from_the_database
+  check "a column holding tasks doesn't cross În lucru, either way (409 Column.CrossesInProgress), but moves on its side" a_column_with_tasks_stays_on_its_side_of_in_progress
+  check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere
+  check "Arhivate is a reserved name, in any case: 400 on name to POST and PUT, nothing changed" arhivate_is_a_reserved_name
+  check "ColumnsChanged: Petru's board hears each of Mara's four changes from her tab, nothing of his 403" columns_changed_reaches_another_board
+  check "the board's archivedCount: the archived tasks of CRS for tasks.archive, null for Petru" the_board_counts_the_archived_for_tasks_archive
+  check "compose.yaml has the refresh tokens' cleanup comment of §13.3 word for word, between groups 17 and 22" compose_says_the_cleanup_as_the_spec_does
+  check "a task with an estimate goes back from În pauză into În lucru unasked, its counter going on" a_task_with_an_estimate_goes_back_into_in_progress_unasked
+  check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
+  check "the board reads itself again on ColumnsChanged from another tab" the_board_listens_to_columns_changed
+  check "Arhivate's band counts with archivedCount, and its cards are read only when it opens" the_archived_column_reads_when_it_opens
+  check "back from În pauză a task with an estimate asks nothing: the board's mouse and keyboard, the panel's Stare" the_estimate_is_asked_only_once
+  check "the columns of the project's own drag by their head between Backlog and Gata, the cards still between columns" the_columns_drag_by_their_head
+  check "a column with tasks across În lucru: the dialog, by a drop, the menu and the API's 409" the_column_with_tasks_says_why
+  check "Setări generale names each day whole, the short name aria-hidden; ui-review.md has axe-core's run" the_days_are_named_whole
+  check "Estimare și timp lucrat writes hours and minutes, never days; its screenshot taken again" the_work_time_is_in_hours
+  check "the board's and the roles screen's specs pass" group_23_specs_pass
+  check "backend/CLAUDE.md and frontend/CLAUDE.md say what group 23 changed" the_notes_say_group_23
+}
+
+tasks=${*:-1 2 3 4 5 6 7}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
@@ -1867,6 +2331,7 @@ for task in $tasks; do
     4) task_4 ;;
     5) task_5 ;;
     6) task_6 ;;
+    7) task_7 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

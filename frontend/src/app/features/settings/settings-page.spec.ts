@@ -81,10 +81,12 @@ describe('SettingsPage', () => {
     expect(page().querySelector('.lead')?.textContent.replace(/\s+/g, ' ').trim()).toBe(
       'Timpul lucrat pe task-uri se numără doar în acest program. O schimbare se aplică de acum înainte; task-urile aflate în lucru se socotesc cu programul nou.',
     );
+    // docs/UI_UX_SPEC.md §7.9 (group 23): the full name as hidden text, the short one aria-hidden, no aria-label,
+    // so the name read holds the text seen.
     expect(
       chips().map(
         (chip) =>
-          `${chip.textContent.trim()} ${chip.getAttribute('aria-label') ?? ''} ${chip.getAttribute('aria-pressed') ?? ''}`,
+          `${chip.querySelector('[aria-hidden="true"]')?.textContent.trim() ?? ''} ${chip.querySelector('.kb-visually-hidden')?.textContent.trim() ?? ''} ${chip.getAttribute('aria-pressed') ?? ''}`,
       ),
     ).toEqual([
       'L Luni true',
@@ -95,6 +97,7 @@ describe('SettingsPage', () => {
       'S Sâmbătă false',
       'D Duminică false',
     ]);
+    expect(chips().filter((chip) => chip.hasAttribute('aria-label'))).toEqual([]);
     expect(page().querySelector<HTMLInputElement>('#kb-work-start')?.value).toBe('08:30');
     expect(page().querySelector<HTMLInputElement>('#kb-work-end')?.value).toBe('16:30');
     expect(page().querySelector<HTMLInputElement>('#kb-work-end')?.type).toBe('time');

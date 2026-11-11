@@ -332,7 +332,7 @@ describe('BoardStore', () => {
       api['moveColumn'].mockReturnValue(of(order));
       await opened();
 
-      expect(await store.moveColumn(store.columns()[2], 0)).toBe(true);
+      expect(await store.moveColumn(store.columns()[2], 0)).toBe('moved');
 
       expect(api['moveColumn']).toHaveBeenCalledWith('p1', 'c3', 0);
       expect(store.columns().map((column) => column.name)).toEqual([
@@ -340,6 +340,59 @@ describe('BoardStore', () => {
         'De făcut',
         'În lucru',
       ]);
+    });
+
+    // docs/UI_UX_SPEC.md §7.4 (group 23): a column moved takes its place at once, before the API answers.
+    it('moves a column at once, before the API answers, and puts it back when refused', async () => {
+      const answer = new Subject<BoardColumnDto[]>();
+      api['moveColumn'].mockReturnValue(answer);
+      await opened();
+      const before = store.columns().map((column) => column.name);
+
+      const moving = store.moveColumn(store.columns()[2], 1);
+      TestBed.tick();
+
+      expect(store.columns().map((column) => `${column.name}:${String(column.position)}`)).toEqual([
+        `${before[0]}:0`,
+        `${before[2]}:1`,
+        `${before[1]}:2`,
+      ]);
+      answer.error(new Error('refused'));
+      expect(await moving).toBe('refused');
+      expect(store.columns().map((column) => column.name)).toEqual(before);
+    });
+
+    // docs/UI_UX_SPEC.md §7.4 (group 23): the page says this one in a dialog of its own.
+    it('answers crossesInProgress at a Column.CrossesInProgress of the API, the column back in its place', async () => {
+      api['moveColumn'].mockReturnValue(refusedWith(409, 'Column.CrossesInProgress'));
+      await opened();
+      const before = store.columns().map((column) => column.name);
+
+      expect(await store.moveColumn(store.columns()[2], 1)).toBe('crossesInProgress');
+      expect(store.columns().map((column) => column.name)).toEqual(before);
+    });
+
+    // Review of group 23: what others change waits while a move of a column waits for the API, as for a card.
+    it('holds what others change while a column move waits for the API, and reads once after', async () => {
+      const answer = new Subject<BoardColumnDto[]>();
+      api['moveColumn'].mockReturnValue(answer);
+      await opened();
+
+      const moving = store.moveColumn(store.columns()[2], 1);
+      realtime.send('ColumnsChanged', {
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      TestBed.tick();
+      expect(api['board']).toHaveBeenCalledTimes(1);
+
+      answer.next(store.columns());
+      answer.complete();
+      await moving;
+      TestBed.tick();
+
+      expect(api['board']).toHaveBeenCalledTimes(2);
     });
 
     it('reads the board again after a column is added or deleted', async () => {
@@ -366,12 +419,34 @@ describe('BoardStore', () => {
 
     it('changes nothing for one who is not an owner', async () => {
       board.canManage = false;
+      board.canManageColumns = false;
       await opened();
 
       expect(await store.addColumn('Review')).toBe(false);
       expect(await store.renameColumn(store.columns()[0], 'X')).toBe(false);
       expect(api['addColumn']).not.toHaveBeenCalled();
       expect(api['updateColumn']).not.toHaveBeenCalled();
+    });
+  });
+
+  // docs/SPEC.md §4.4, group 23: canManageColumns decides the columns, whatever canManage says.
+  describe('columns.manage', () => {
+    it('changes the columns for a member with columns.manage', async () => {
+      board.canManage = false;
+      board.canManageColumns = true;
+      await opened();
+
+      expect(await store.addColumn('Review')).toBe(true);
+      expect(api['addColumn']).toHaveBeenCalled();
+    });
+
+    it('changes nothing for one who manages the project but not its columns', async () => {
+      board.canManage = true;
+      board.canManageColumns = false;
+      await opened();
+
+      expect(await store.addColumn('Review')).toBe(false);
+      expect(api['addColumn']).not.toHaveBeenCalled();
     });
   });
 
@@ -490,6 +565,33 @@ describe('BoardStore', () => {
 
       expect(reads()).toBe(2);
       expect(store.pulses().get(id('B'))).toBe(1);
+    });
+
+    // docs/SPEC.md §9, group 23: a change of the columns elsewhere reads the board again, quietly.
+    it('reads itself again quietly on ColumnsChanged from another tab, and not from its own', async () => {
+      await opened();
+
+      realtime.send('ColumnsChanged', {
+        projectId: 'p1',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      await settle();
+      expect(reads()).toBe(2);
+      expect(store.state()).toBe('ready');
+
+      realtime.send('ColumnsChanged', {
+        projectId: 'p9',
+        byUserId: 'u2',
+        originConnectionId: 'another-tab',
+      });
+      realtime.send('ColumnsChanged', {
+        projectId: 'p1',
+        byUserId: 'u1',
+        originConnectionId: 'my-tab',
+      });
+      await settle();
+      expect(reads()).toBe(2);
     });
 
     it('ignores the changes of other projects', async () => {

@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   DestroyRef,
   Injectable,
@@ -11,13 +12,17 @@ import {
 import { Observable, firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth-store';
 import { PERMISSIONS } from '../../core/auth/permissions';
-import { TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
+import { ProjectMessage, TaskMessage, TaskMovedMessage } from '../../core/realtime/models';
 import { Realtime } from '../../core/realtime/realtime';
+import { problemIn } from '../../shared/models/problem-details';
 import { BoardApi } from './board-api';
-import { cardsIn, moveCard } from './board-moves';
+import { cardsIn, moveCard, placeColumn } from './board-moves';
 import { BoardColumnDto, BoardDto, BoardMemberDto, BoardTaskDto, MoveAnswers } from './models';
 
 export type BoardState = 'loading' | 'ready' | 'error';
+
+/** How a move of a column ended: Column.CrossesInProgress is the page's to say (docs/UI_UX_SPEC.md §7.4). */
+export type ColumnMove = 'moved' | 'crossesInProgress' | 'refused';
 
 /**
  * The board of the project on screen (docs/SPEC.md §6.2, §6.3). The reads are resources of the
@@ -74,7 +79,10 @@ export class BoardStore {
     return new Map(this.columns().map((column) => [column.id, cardsIn(tasks, column.id)]));
   });
   readonly canMove = computed(() => this.board()?.canMove ?? false);
-  readonly canManage = computed(() => this.board()?.canManage ?? false);
+  /** An owner, projects.manage or a member with columns.manage changes the columns (docs/SPEC.md §4.4, group 23). */
+  readonly canManageColumns = computed(() => this.board()?.canManageColumns ?? false);
+  /** The project's archived tasks, which Arhivate's band shows (docs/UI_UX_SPEC.md §7.4, group 23). */
+  readonly archivedCount = computed(() => this.board()?.archivedCount ?? 0);
   /** tasks.archive in the token: the column Arhivate (docs/SPEC.md §4.4). */
   readonly canSeeArchived = computed(() => this.board()?.canSeeArchived ?? false);
   /** tasks.create from the token, and a real membership of an open project (docs/SPEC.md §4.4). */
@@ -104,6 +112,12 @@ export class BoardStore {
       }),
       this.realtime.on('CommentAdded', (message) => {
         this.heardChange(message, true);
+      }),
+      // A column added, renamed, moved or deleted elsewhere (docs/SPEC.md §9, group 23).
+      this.realtime.on('ColumnsChanged', (message) => {
+        if (this.concerns(message)) {
+          this.readAgain();
+        }
       }),
       // Whatever happened while the connection was away went unheard.
       this.realtime.onReconnected(() => {
@@ -256,14 +270,35 @@ export class BoardStore {
     );
   }
 
-  moveColumn(column: BoardColumnDto, position: number): Promise<boolean> {
-    return this.changeColumns(
-      (board) => this.api.moveColumn(board.projectId, column.id, position),
-      false,
-      (columns) => {
-        this.placeColumns(() => columns);
-      },
-    );
+  /**
+   * The column takes its new place at once (docs/UI_UX_SPEC.md §7.4, group 23), then the order the API
+   * answers; refused, it goes back and the board is read again, and Column.CrossesInProgress, which the
+   * page says in a dialog, answers crossesInProgress.
+   */
+  async moveColumn(column: BoardColumnDto, position: number): Promise<ColumnMove> {
+    const board = this.board();
+    if (!board?.canManageColumns) {
+      return 'refused';
+    }
+    const before = board.columns;
+    this.placeColumns((columns) => placeColumn(columns, column.id, position));
+    // What others change waits, as for a move of a card: a read from before the move would put it back.
+    this.moving++;
+    try {
+      const columns = await firstValueFrom(
+        this.api.moveColumn(board.projectId, column.id, position),
+      );
+      this.placeColumns(() => columns);
+      return 'moved';
+    } catch (error) {
+      this.placeColumns(() => before);
+      this.reload();
+      const problem = error instanceof HttpErrorResponse ? problemIn(error) : null;
+      return problem?.code === 'Column.CrossesInProgress' ? 'crossesInProgress' : 'refused';
+    } finally {
+      this.moving--;
+      this.settle();
+    }
   }
 
   deleteColumn(column: BoardColumnDto): Promise<boolean> {
@@ -276,7 +311,7 @@ export class BoardStore {
     apply?: (saved: T) => void,
   ): Promise<boolean> {
     const board = this.board();
-    if (!board?.canManage) {
+    if (!board?.canManageColumns) {
       return false;
     }
     try {
@@ -324,7 +359,7 @@ export class BoardStore {
    * which connection made it, so anyone could send this tab's id: only the signed-in user's own change
    * from this tab is ignored, byUserId coming from the API's token, not from a header.
    */
-  private concerns(message: TaskMessage): boolean {
+  private concerns(message: ProjectMessage): boolean {
     const fromThisTab =
       message.originConnectionId !== null &&
       message.originConnectionId === this.realtime.connectionId() &&

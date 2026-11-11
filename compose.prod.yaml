@@ -11,12 +11,12 @@ services:
 
   api:
     build: !reset null
-    image: kanabol-api:${KANABOL_VERSION:-v1.1.0}
+    image: kanabol-api:${KANABOL_VERSION:-v1.2.0}
     restart: unless-stopped
 
   web:
     build: !reset null
-    image: kanabol-web:${KANABOL_VERSION:-v1.1.0}
+    image: kanabol-web:${KANABOL_VERSION:-v1.2.0}
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     volumes:

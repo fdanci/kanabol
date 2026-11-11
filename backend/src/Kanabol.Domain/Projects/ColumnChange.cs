@@ -12,4 +12,7 @@ public enum ColumnChange
 
     /// <summary>A column of the project's own goes only between Backlog and Gata.</summary>
     OutOfRange,
+
+    /// <summary>A column holding tasks, archived ones too, stays on its side of În lucru (group 23).</summary>
+    CrossesInProgress,
 }

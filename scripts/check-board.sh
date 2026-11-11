@@ -695,10 +695,11 @@ the_columns_use_their_endpoints() {
   done
 }
 
+# From group 23 the board's canManageColumns decides it: an owner, projects.manage or a member with columns.manage.
 the_menu_is_for_owners_only() {
-  in_file "@if (canManage() && column().kind === 'Custom') {" "$board/board-column.ts" &&
-    in_file '[canManage]="store.canManage()"' "$board/board-page.html" &&
-    in_file '@if (store.canManage()) {' "$board/board-page.html"
+  in_file "@if (canManageColumns() && column().kind === 'Custom') {" "$board/board-column.ts" &&
+    in_file '[canManageColumns]="store.canManageColumns()"' "$board/board-page.html" &&
+    in_file '@if (store.canManageColumns()) {' "$board/board-page.html"
 }
 
 only_an_empty_column_is_offered_for_deletion() {

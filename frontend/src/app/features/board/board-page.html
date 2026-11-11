@@ -48,85 +48,103 @@
       renunță.
     </p>
 
+    <!-- The board is the columns' drop list (group 23); a drop list gives the ones inside it no group, so the
+    cards' lists join theirs on a box of no size of their own (display: contents) right under it. -->
     <div
       class="board"
-      cdkDropListGroup
+      cdkDropList
+      cdkDropListOrientation="horizontal"
+      cdkDropListLockAxis="x"
+      [cdkDropListData]="store.columns()"
+      [cdkDropListDisabled]="!store.canManageColumns()"
+      [cdkDropListSortPredicate]="columnSlot"
+      (cdkDropListDropped)="columnDropped($event)"
       role="group"
       [attr.aria-label]="boardLabel"
       (keydown)="keyed($event)"
     >
-      @for (column of store.columns(); track column.id) {
-        <kb-board-column
-          [column]="column"
-          [cards]="cardsOf(column)"
-          [pulses]="store.pulses()"
-          [canMove]="store.canMove()"
-          [canCreate]="store.canCreate() && column.kind === 'Backlog'"
-          [canManage]="store.canManage()"
-          [canDelete]="canDelete(column)"
-          [canMoveLeft]="canMoveLeft(column)"
-          [canMoveRight]="canMoveRight(column)"
-          [beforeInProgress]="beforeInProgress(column)"
-          [startedColumnIds]="startedColumnIds()"
-          (renamed)="renameColumn(column, $event)"
-          (moved)="moveColumn(column, $event)"
-          (deleted)="deleteColumn(column)"
-          [liftedId]="lifted()?.taskId ?? null"
-          [keysHelpId]="keysHelpId"
-          (opened)="open($event)"
-          (dropped)="dropped($event)"
-          (dragStarted)="store.hold()"
-          (dragEnded)="store.release()"
-          (created)="create($event)"
-        />
-      }
-      @if (store.canManage()) {
-        <div class="add-column-slot">
-          @if (addingColumn()) {
-            <input
-              #newColumn
-              class="kb-field new-column"
-              type="text"
-              maxlength="100"
-              i18n-placeholder
-              placeholder="Numele coloanei"
-              i18n-aria-label
-              aria-label="Numele coloanei noi"
-              (keydown.enter)="addColumn(newColumn)"
-              (keydown.escape)="addingColumn.set(false)"
-              (blur)="newColumn.value.trim() === '' && addingColumn.set(false)"
-            />
-          } @else {
-            <button
-              matButton="outlined"
-              class="kb-bezel kb-regular add-column"
-              type="button"
-              (click)="addingColumn.set(true)"
-            >
-              <mat-icon>add</mat-icon>
-              <ng-container i18n>Coloană</ng-container>
-            </button>
-          }
-        </div>
-      }
-      @if (store.canSeeArchived()) {
-        <kb-archived-column
-          [cards]="archived.cards()"
-          [total]="archived.total()"
-          [open]="archived.open()"
-          [state]="archived.state()"
-          [hasMore]="archived.hasMore()"
-          [loadingMore]="archived.loadingMore()"
-          [canArchive]="store.canMove()"
-          [canRestore]="!(store.board()?.isArchived ?? true)"
-          (toggled)="archived.toggle()"
-          (more)="archived.more()"
-          (retried)="archived.read()"
-          (opened)="open($event)"
-          (restored)="restore($event)"
-          (dropped)="dropped($event)"
-        />
-      }
+      <div class="cards-group" cdkDropListGroup>
+        @for (column of store.columns(); track column.id) {
+          <kb-board-column
+            cdkDrag
+            [cdkDragData]="column"
+            [cdkDragDisabled]="!canDrag(column)"
+            (cdkDragStarted)="store.hold()"
+            (cdkDragEnded)="store.release()"
+            [canDrag]="canDrag(column)"
+            [column]="column"
+            [cards]="cardsOf(column)"
+            [pulses]="store.pulses()"
+            [canMove]="store.canMove()"
+            [canCreate]="store.canCreate() && column.kind === 'Backlog'"
+            [canManageColumns]="store.canManageColumns()"
+            [canDelete]="canDelete(column)"
+            [canMoveLeft]="canMoveLeft(column)"
+            [canMoveRight]="canMoveRight(column)"
+            [beforeInProgress]="beforeInProgress(column)"
+            [startedColumnIds]="startedColumnIds()"
+            (renamed)="renameColumn(column, $event)"
+            (moved)="moveColumn(column, $event)"
+            (deleted)="deleteColumn(column)"
+            [liftedId]="lifted()?.taskId ?? null"
+            [keysHelpId]="keysHelpId"
+            (opened)="open($event)"
+            (dropped)="dropped($event)"
+            (dragStarted)="store.hold()"
+            (dragEnded)="store.release()"
+            (created)="create($event)"
+          >
+            <div *cdkDragPlaceholder class="column-placeholder"></div>
+          </kb-board-column>
+        }
+        @if (store.canManageColumns()) {
+          <div class="add-column-slot">
+            @if (addingColumn()) {
+              <input
+                #newColumn
+                class="kb-field new-column"
+                type="text"
+                maxlength="100"
+                i18n-placeholder
+                placeholder="Numele coloanei"
+                i18n-aria-label
+                aria-label="Numele coloanei noi"
+                (keydown.enter)="addColumn(newColumn)"
+                (keydown.escape)="addingColumn.set(false)"
+                (blur)="newColumn.value.trim() === '' && addingColumn.set(false)"
+              />
+            } @else {
+              <button
+                matButton="outlined"
+                class="kb-bezel kb-regular add-column"
+                type="button"
+                (click)="addingColumn.set(true)"
+              >
+                <mat-icon>add</mat-icon>
+                <ng-container i18n>Coloană</ng-container>
+              </button>
+            }
+          </div>
+        }
+        @if (store.canSeeArchived()) {
+          <kb-archived-column
+            [cards]="archived.cards()"
+            [total]="store.archivedCount()"
+            [open]="archived.open()"
+            [state]="archived.state()"
+            [hasMore]="archived.hasMore()"
+            [loadingMore]="archived.loadingMore()"
+            [canArchive]="store.canMove()"
+            [canRestore]="!(store.board()?.isArchived ?? true)"
+            (toggled)="archived.toggle()"
+            (more)="archived.more()"
+            (retried)="archived.read()"
+            (opened)="open($event)"
+            (restored)="restore($event)"
+            (dropped)="dropped($event)"
+          />
+        }
+      </div>
     </div>
   }
 }

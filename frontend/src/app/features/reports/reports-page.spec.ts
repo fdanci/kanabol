@@ -680,6 +680,61 @@ describe('ReportsPage', () => {
       ]);
     });
 
+    // docs/UI_UX_SPEC.md §7.8 (group 23): this section's durations are hours of the schedule, never days.
+    it('writes its durations in hours and minutes only, a day and more too, while the rest keeps its days', async () => {
+      api.workTime.mockReturnValue(
+        of(
+          aWorkTimeReport({
+            estimatedSeconds: 40 * 3600 + 30 * 60,
+            workedSeconds: 50 * 3600,
+            byUser: [
+              {
+                userId: 'u2',
+                name: 'Dan Ionescu',
+                count: 2,
+                estimatedSeconds: 26 * 3600,
+                workedSeconds: 50 * 3600,
+              },
+            ],
+            byProject: [
+              {
+                projectId: 'p1',
+                key: 'KAN',
+                name: 'Kanabol',
+                count: 2,
+                estimatedSeconds: 26 * 3600,
+                workedSeconds: 50 * 3600,
+              },
+            ],
+            over: [
+              {
+                taskId: 't1',
+                key: 'KAN-1',
+                title: 'Login SSO',
+                estimatedSeconds: 24 * 3600,
+                workedSeconds: 49 * 3600 + 15 * 60,
+              },
+            ],
+          }),
+        ),
+      );
+      const page = await open();
+
+      expect(tiles(workTime(page)).slice(0, 2)).toEqual([
+        'Estimat | 40 h 30 min | al task-urilor estimate și lucrate',
+        'Lucrat | 50 h | în programul de lucru',
+      ]);
+      const [people, projects] = [
+        ...workTime(page).querySelectorAll('table.people, table.projects'),
+      ];
+      expect(rows(people)[0]).toBe('Dan Ionescu | 2 | 26 h | 50 h | +92 %');
+      expect(rows(projects)[0]).toBe('Kanabol KAN | 2 | 26 h | 50 h | +92 %');
+      expect(rows(workTime(page).querySelector('table.over')!)).toEqual([
+        'KAN-1 Login SSO | 24 h | 49 h 15 min | +25 h 15 min',
+      ]);
+      expect(workTime(page).textContent).not.toMatch(/\d z\b/);
+    });
+
     it('draws estimated and worked by person, in hours, in the charts colors', async () => {
       const page = await open();
       await settle();

@@ -50,8 +50,15 @@ export interface BoardDto {
   isArchived: boolean;
   canMove: boolean;
   canManage: boolean;
+  /**
+   * An owner, projects.manage or a real member with columns.manage, of an open project: the column's menu,
+   * "+ Coloană" and dragging the columns (docs/SPEC.md §4.4, group 23).
+   */
+  canManageColumns: boolean;
   /** tasks.archive in the token: the board shows the column Arhivate (docs/SPEC.md §4.4). */
   canSeeArchived: boolean;
+  /** The project's archived tasks, for tasks.archive, null for anyone else: Arhivate's band (group 23). */
+  archivedCount: number | null;
   columns: BoardColumnDto[];
   tasks: BoardTaskDto[];
 }

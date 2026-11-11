@@ -26,6 +26,10 @@ function areas(): { title: string; permissions: [Permission, string][] }[] {
         [PERMISSIONS.projectsCreate, $localize`Creează proiecte`],
         [PERMISSIONS.projectsViewAll, $localize`Vede toate proiectele`],
         [PERMISSIONS.projectsManage, $localize`Administrează orice proiect`],
+        [
+          PERMISSIONS.columnsManage,
+          $localize`Administrează coloanele board-ului, în proiectele în care e membru`,
+        ],
       ],
     },
     {

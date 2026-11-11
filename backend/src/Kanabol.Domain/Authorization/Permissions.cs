@@ -14,6 +14,9 @@ public static class Permissions
     /// <summary>The general settings, the work schedule among them (group 22).</summary>
     public const string SettingsManage = "settings.manage";
 
+    /// <summary>Adding, renaming, moving and deleting a board's columns, for a real member of the project (group 23).</summary>
+    public const string ColumnsManage = "columns.manage";
+
     public static IReadOnlyList<string> All { get; } =
     [
         UsersManage,
@@ -25,5 +28,6 @@ public static class Permissions
         TasksArchive,
         ReportsView,
         SettingsManage,
+        ColumnsManage,
     ];
 }

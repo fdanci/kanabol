@@ -345,6 +345,92 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
         (await Access.EnsureMemberAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
     }
 
+    // SPEC section 4.4, group 23: the columns are changed by an owner, projects.manage, or a real member whose
+    // role has columns.manage, read from the database.
+    [Fact]
+    public async Task EnsureColumnManagerAsync_ForAnOwner_Succeeds()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(user));
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureColumnManagerAsync_WithManage_SucceedsWithoutBeingAMember()
+    {
+        var user = await CreateUser(permissions: [Permissions.ProjectsManage]);
+        var project = await CreateProject();
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureColumnManagerAsync_ForAMemberWithColumnsManage_Succeeds()
+    {
+        var user = await CreateUser(permissions: [Permissions.ColumnsManage]);
+        var project = await CreateProject(builder => builder.WithMember(user));
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).IsSuccess.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(Permissions.TasksCreate)]
+    [InlineData(Permissions.ProjectsViewAll)]
+    public async Task EnsureColumnManagerAsync_ForAMemberWithoutColumnsManage_ReturnsOwnerRequired(string permission)
+    {
+        var user = await CreateUser(permissions: [permission]);
+        var project = await CreateProject(builder => builder.WithMember(user));
+
+        var result = await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None);
+
+        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+        result.Error.Type.Should().Be(ErrorType.Forbidden);
+    }
+
+    // A real membership: columns.manage alone opens no project, nor does it with projects.view_all.
+    [Fact]
+    public async Task EnsureColumnManagerAsync_WithColumnsManageOutsideTheProject_ReturnsOwnerRequired()
+    {
+        var user = await CreateUser(permissions: [Permissions.ColumnsManage, Permissions.ProjectsViewAll]);
+        await CreateProject(builder => builder.WithMember(user));
+        var project = await CreateProject();
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
+    public async Task EnsureColumnManagerAsync_ForADeactivatedMemberWithColumnsManage_ReturnsOwnerRequired()
+    {
+        var user = await CreateUser(permissions: [Permissions.ColumnsManage]);
+        var project = await CreateProject(builder => builder.WithMember(user));
+        await Deactivate(user);
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    // The database decides: a token can still show columns.manage after the role lost it.
+    [Fact]
+    public async Task EnsureColumnManagerAsync_WhenOnlyAnOldTokenStillHasColumnsManage_ReturnsOwnerRequired()
+    {
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.WithMember(user));
+        SignIn(user, Permissions.ColumnsManage);
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
+    [Fact]
+    public async Task EnsureColumnManagerAsync_WhenTheCallerHasColumnsManage_DoesNotCountForTheUserAskedAbout()
+    {
+        var caller = await CreateUser("caller@example.com", permissions: [Permissions.ColumnsManage]);
+        var user = await CreateUser();
+        var project = await CreateProject(builder => builder.WithMember(caller).WithMember(user));
+        SignIn(caller, Permissions.ColumnsManage);
+
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
     private async Task<Project> CreateProject(Func<ProjectBuilder, ProjectBuilder>? configure = null)
     {
         var project = (configure ?? (builder => builder))(new ProjectBuilder()).Build();

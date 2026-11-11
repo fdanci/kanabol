@@ -74,3 +74,41 @@ export function placeAmong(
   const after = column.findIndex((task) => task.id === last.id);
   return after < 0 ? column.length : after + 1;
 }
+
+/**
+ * The columns with one of them at a new place from 0, the others closing up around it, numbered 0, 1, 2...
+ * as the API numbers them (docs/SPEC.md §4.4).
+ */
+export function placeColumn(
+  columns: readonly BoardColumnDto[],
+  columnId: string,
+  position: number,
+): BoardColumnDto[] {
+  const ordered = [...columns].sort((a, b) => a.position - b.position);
+  const moving = ordered.find((column) => column.id === columnId);
+  if (!moving) {
+    return [...columns];
+  }
+  const others = ordered.filter((column) => column.id !== columnId);
+  others.splice(Math.max(0, Math.min(position, others.length)), 0, moving);
+  return others.map((column, index) => ({ ...column, position: index }));
+}
+
+/**
+ * Whether a column moved to a place from 0 lands on the other side of În lucru (docs/SPEC.md §4.4, group 23):
+ * one that holds tasks doesn't.
+ */
+export function crossesInProgress(
+  columns: readonly BoardColumnDto[],
+  columnId: string,
+  position: number,
+): boolean {
+  const side = (placed: readonly BoardColumnDto[]) => {
+    const column = placed.find((found) => found.id === columnId);
+    const inProgress = placed.find((found) => found.kind === 'InProgress');
+    return (
+      column !== undefined && inProgress !== undefined && column.position < inProgress.position
+    );
+  };
+  return side(columns) !== side(placeColumn(columns, columnId, position));
+}
