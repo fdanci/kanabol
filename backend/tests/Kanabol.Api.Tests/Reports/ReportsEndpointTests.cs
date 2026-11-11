@@ -24,6 +24,9 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     private const string Completed = "/api/reports/completed";
     private const string CycleTime = "/api/reports/cycle-time";
     private const string Deadlines = "/api/reports/deadlines";
+    private const string WorkTime = "/api/reports/work-time";
+
+    private static readonly string[] _workTimeCounts = ["count", "estimatedCount", "estimatedSeconds", "workedSeconds", "overCount"];
 
     // Four weeks of October 2026, from Monday the 5th.
     private const string October = "from=2026-10-05T00:00:00Z&to=2026-11-02T00:00:00Z";
@@ -197,6 +200,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     [InlineData(Completed)]
     [InlineData(CycleTime)]
     [InlineData(Deadlines)]
+    [InlineData(WorkTime)]
     public async Task Report_OfTheOwnersProjectWithoutReportsView_Returns200(string report)
     {
         var (ana, _, kan, _) = await OctobersWork();
@@ -208,6 +212,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     [InlineData(Completed)]
     [InlineData(CycleTime)]
     [InlineData(Deadlines)]
+    [InlineData(WorkTime)]
     public async Task Report_WithoutReportsViewOrAProject_Returns400OnProjectId(string report)
     {
         var (ana, _, _, _) = await OctobersWork();
@@ -219,6 +224,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     [InlineData(Completed)]
     [InlineData(CycleTime)]
     [InlineData(Deadlines)]
+    [InlineData(WorkTime)]
     public async Task Report_ForAPlainMember_Returns403OwnerRequired(string report)
     {
         var (_, dan, kan, _) = await OctobersWork();
@@ -259,7 +265,8 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
     private static string Seconds(JsonElement seconds) =>
         seconds.ValueKind == JsonValueKind.Null ? "-" : seconds.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    // KAN-1 7 d, its cycle from 6 October 2 d; KAN-2, created in În lucru, 12 d both; WEB-1 5 d, its cycle 0.
+    // KAN-1 7 d, its cycle from 6 October, when it entered În lucru, 2 d; KAN-2, created in În lucru, 12 d both;
+    // WEB-1, never in În lucru, 5 d both, from its creation.
     [Fact]
     public async Task CycleTime_Returns200WithTheCountLeadAndCycleTimeInSeconds()
     {
@@ -272,7 +279,7 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         var report = json.RootElement;
         report.GetProperty("count").GetInt32().Should().Be(3);
         Duration(report.GetProperty("leadTime")).Should().Be("691200/604800");
-        Duration(report.GetProperty("cycleTime")).Should().Be("403200/172800");
+        Duration(report.GetProperty("cycleTime")).Should().Be("547200/432000");
         report.GetProperty("perColumn").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
@@ -311,6 +318,46 @@ public sealed class ReportsEndpointTests(ApiFixture api) : ProjectApiTest(api)
         await OctobersWork();
 
         (await FieldErrorsFrom(await Send(HttpMethod.Get, $"{CycleTime}?{query}", await ReportsToken()))).Should().Equal(field);
+    }
+
+    // KAN-1, 10 h estimated, worked from Tuesday 6 October 10:00 to Thursday 8 at 10:00, 16 h of the schedule in
+    // UTC; KAN-2 and WEB-1 without an estimate.
+    [Fact]
+    public async Task WorkTime_Returns200WithTheSumsByUserByProjectAndTheOverruns()
+    {
+        var (ana, dan, kan, web) = await OctobersWork();
+        await using (var db = Api.Postgres.CreateContext())
+        {
+            await db.TaskItems.Where(task => task.Title == "Login SSO").ExecuteUpdateAsync(set => set.SetProperty(task => task.EstimatedMinutes, 600));
+        }
+
+        var response = await Send(HttpMethod.Get, $"{WorkTime}?{October}", await ReportsToken());
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = await JsonFrom(response);
+        var report = json.RootElement;
+        string.Join(" ", _workTimeCounts.Select(name => report.GetProperty(name).GetInt64()))
+            .Should().Be("3 1 36000 57600 1");
+        report.GetProperty("deviation").GetDouble().Should().BeApproximately(0.6, 1e-9);
+        string.Join("; ", report.GetProperty("byUser").EnumerateArray().Select(row => $"{row.GetProperty("userId").GetGuid()} {row.GetProperty("name").GetString()} {row.GetProperty("count").GetInt32()} {row.GetProperty("estimatedSeconds").GetInt64()} {row.GetProperty("workedSeconds").GetInt64()}"))
+            .Should().Be($"{dan.Id} Dan Ionescu 2 36000 57600; {ana.Id} Ana Pop 1 36000 57600");
+        string.Join("; ", report.GetProperty("byProject").EnumerateArray().Select(row => $"{row.GetProperty("projectId").GetGuid()} {row.GetProperty("key").GetString()} {row.GetProperty("count").GetInt32()}"))
+            .Should().Be($"{kan.Id} KAN 2; {web.Id} WEB 1");
+        var over = report.GetProperty("over").EnumerateArray().Single();
+        $"{over.GetProperty("key").GetString()} {over.GetProperty("title").GetString()} {over.GetProperty("estimatedSeconds").GetInt64()} {over.GetProperty("workedSeconds").GetInt64()}"
+            .Should().Be("KAN-1 Login SSO 36000 57600");
+        over.GetProperty("taskId").GetGuid().Should().NotBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("to=2026-11-02T00:00:00Z", "from")]
+    [InlineData("from=2026-11-02T00:00:00Z&to=2026-10-05T00:00:00Z", "to")]
+    [InlineData($"{October}&userId=dan", "userId")]
+    public async Task WorkTime_WithAWrongParameter_Returns400OnIt(string query, string field)
+    {
+        await OctobersWork();
+
+        (await FieldErrorsFrom(await Send(HttpMethod.Get, $"{WorkTime}?{query}", await ReportsToken()))).Should().Equal(field);
     }
 
     // KAN-1 finished on 8 October, due the 10th; KAN-2 on the 14th, due the 13th; KAN-3 open, due 1 October.

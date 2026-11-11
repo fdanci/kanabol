@@ -50,6 +50,13 @@
 #      kept; Schedule__TimeZone unknown stops the start, naming it; the API image built from backend/ carries
 #      the zone data, starts past the options with Europe/Vienna and stops on an unknown zone; compose.yaml's
 #      comment names Schedule__TimeZone. Docker, PostgreSQL, Node.
+#   4  the work-time report and the cycle time from În lucru: the tests (GET /api/reports/work-time, the cycle
+#      time, who reads them, their endpoints); then the real API in Production: RAP with four tasks moved
+#      through the API, their moments put a day ago in the database and their worked time set there: the
+#      cycle time from the first entry into În lucru (a task through a column of its own first, one straight
+#      from Backlog to Gata from its creation), work-time's sums over the estimated tasks that were worked,
+#      the deviation, the overruns, by person and by project; a plain member of RAP gets 403
+#      Project.OwnerRequired, a missing from 400. Docker, PostgreSQL.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1030,12 +1037,110 @@ task_3() {
   check "compose.yaml's comment names Schedule__TimeZone" compose_names_the_zone
 }
 
-tasks=${*:-1 2 3}
+# ---- Task 4: the work-time report and the cycle time from În lucru.
+
+work_time_tests_pass() {
+  classes_pass Kanabol.Application.Tests 60 GetWorkTimeReportQueryHandlerTests GetCycleTimeReportQueryHandlerTests ReportAccessTests &&
+    classes_pass Kanabol.Api.Tests 45 ReportsEndpointTests
+}
+
+# RAP, the admin's: Backlog, În lucru, În pauză, Analiză (the project's own), Gata. Four tasks, each moved
+# through the API, then their moments put a day ago in the database, from B, on the hour:
+#   RAP-1 15 min estimated, 10 min worked: created B, În lucru B+1h, Gata B+2h (lead 2 h, cycle 1 h)
+#   RAP-2 15 min estimated, 1 h worked: created B, În lucru B+1h, Gata B+4h (lead 4 h, cycle 3 h)
+#   RAP-3 no estimate, 20 min worked: created B, straight to Gata B+1h (lead 1 h, cycle 1 h, from its creation)
+#   RAP-4 15 min estimated, 15 min worked: created B, Analiză B+1h, În lucru B+3h, Gata B+5h (lead 5 h, cycle 2 h)
+# The admin is assigned to RAP-1, 2 and 4.
+a_project_with_work_done() {
+  the_admin_signs_in || return 1
+  [ -n "${rap:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Rapoarte de timp","key":"RAP"}')" || return 1
+  rap=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$rap/board-columns" '{"name":"Analiză"}')" || return 1
+  rap_analysis=$(body_field id)
+  for kind in Backlog InProgress Done; do
+    eval "rap_$kind=\$(in_db \"SELECT id FROM board_columns WHERE project_id = '\$rap' AND kind = '\$kind'\")"
+  done
+  admin_id=$(in_db "SELECT id FROM users WHERE email = '$admin_email'")
+  base=$(in_db "SELECT to_char(date_trunc('hour', now() - interval '1 day') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')")
+  for spec in "1|15|600|$rap_InProgress,$rap_Done|1,2" "2|15|3600|$rap_InProgress,$rap_Done|1,4" "3||1200|$rap_Done|1" "4|15|900|$rap_analysis,$rap_InProgress,$rap_Done|1,3,5"; do
+    number=${spec%%|*}
+    rest=${spec#*|}
+    estimate=${rest%%|*}
+    rest=${rest#*|}
+    worked=${rest%%|*}
+    rest=${rest#*|}
+    columns=${rest%%|*}
+    hours=${rest#*|}
+    fields="\"assigneeIds\":[\"$admin_id\"]"
+    [ "$number" = 3 ] && fields='"assigneeIds":[]'
+    [ -n "$estimate" ] && fields="$fields,\"estimatedMinutes\":$estimate"
+    status_is 201 "$(as "$admin_token" POST "/api/projects/$rap/tasks" "{\"title\":\"Timp $number\",\"priority\":\"Low\",$fields}")" || return 1
+    task=$(body_field id)
+    for column in $(echo "$columns" | tr ',' ' '); do
+      status_is 200 "$(as "$admin_token" PATCH "/api/tasks/$task/position" "{\"columnId\":\"$column\"}")" || return 1
+    done
+    # The moves' entries, from the first, get B plus their hours; the task its creation, completion and worked time.
+    sql_hours=$(echo "$hours" | tr ',' ' ')
+    index=0
+    for entry in $(in_db "SELECT id FROM task_history_entries WHERE task_id = '$task' AND field = 'ColumnId' ORDER BY changed_at, id"); do
+      index=$((index + 1))
+      hour=$(echo "$sql_hours" | cut -d' ' -f"$index")
+      in_db "UPDATE task_history_entries SET changed_at = timestamptz '$base' + interval '$hour hours' WHERE id = '$entry'" >/dev/null
+    done
+    last=$(echo "$sql_hours" | tr ' ' '\n' | tail -n 1)
+    in_db "UPDATE task_items SET created_at = timestamptz '$base', completed_at = timestamptz '$base' + interval '$last hours', worked_seconds = $worked, work_started_at = NULL WHERE id = '$task'" >/dev/null
+    eval "rap_task_$number=\$task"
+  done
+  is 'RAP-1 RAP-2 RAP-3 RAP-4' "$(in_db "SELECT string_agg('RAP-' || number, ' ' ORDER BY number) FROM task_items WHERE project_id = '$rap' AND completed_at IS NOT NULL")"
+}
+
+around_now() { # the interval of the reports: two days back to a day ahead, in UTC
+  echo "from=$(in_db "SELECT to_char((now() - interval '2 days') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')")&to=$(in_db "SELECT to_char((now() + interval '1 day') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')")"
+}
+
+the_cycle_time_starts_in_in_progress() {
+  a_project_with_work_done || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/reports/cycle-time?$(around_now)&projectId=$rap")" || return 1
+  is '4 10800/10800 6300/5400' "$(json "b.count + ' ' + [b.leadTime, b.cycleTime].map((d) => d.averageSeconds + '/' + d.medianSeconds).join(' ')")"
+}
+
+the_work_time_report_sums_the_estimated_ones() {
+  a_project_with_work_done || return 1
+  status_is 200 "$(as "$admin_token" GET "/api/reports/work-time?$(around_now)&projectId=$rap")" || return 1
+  is '4 3 2700 5100 0.8889 1' "$(json "[b.count, b.estimatedCount, b.estimatedSeconds, b.workedSeconds, b.deviation.toFixed(4), b.overCount].join(' ')")" || return 1
+  is "$rap_task_2 RAP-2 Timp 2 900 3600" "$(json "b.over.map((t) => [t.taskId, t.key, t.title, t.estimatedSeconds, t.workedSeconds].join(' ')).join(';')")" || return 1
+  is "$admin_id 3 2700 5100" "$(json "b.byUser.map((u) => [u.userId, u.count, u.estimatedSeconds, u.workedSeconds].join(' ')).join(';')")" || return 1
+  is "RAP 4 2700 5100" "$(json "b.byProject.map((p) => [p.key, p.count, p.estimatedSeconds, p.workedSeconds].join(' ')).join(';')")"
+}
+
+the_work_time_report_is_read_as_the_others() {
+  a_project_with_work_done || return 1
+  person_signs_in "toma@example.com" "Toma Fără Rapoarte" '["tasks.create"]' || return 1
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$rap/members" "{\"userId\":\"$(in_db "SELECT id FROM users WHERE email = 'toma@example.com'")\",\"role\":\"Member\"}")" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$person_token" GET "/api/reports/work-time?$(around_now)&projectId=$rap")" || return 1
+  status_is 400 "$(as "$admin_token" GET "/api/reports/work-time?to=2026-11-02T00:00:00Z")" || return 1
+  is from "$(json "Object.keys(b.errors).join(',')")"
+}
+
+task_4() {
+  use_database "$api_db"
+  echo "22.4 the work-time report and the cycle time from În lucru"
+  check "Docker is running" docker_is_running
+  check "the tests pass: work-time, the cycle time, who reads them and their endpoints" work_time_tests_pass
+  check "the real API in Production makes RAP, with four tasks moved and their moments a day ago" a_project_with_work_done
+  check "the cycle time starts at the first entry into În lucru, or at the creation without one" the_cycle_time_starts_in_in_progress
+  check "work-time sums the estimated tasks that were worked, by person and project, and the overruns" the_work_time_report_sums_the_estimated_ones
+  check "work-time is read as the other reports: an owner, 403 Project.OwnerRequired for a member, 400 on from" the_work_time_report_is_read_as_the_others
+}
+
+tasks=${*:-1 2 3 4}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
     2) task_2 ;;
     3) task_3 ;;
+    4) task_4 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))
