@@ -1,7 +1,8 @@
 #!/bin/sh
 # Fills a running Kanabol with demonstration data, through its API (docs/SPEC.md section 13.5): three users,
-# two projects with their columns, 15 tasks with deadlines (some overdue, some finished on time and some
-# late), comments, a file, and the notifications those make for the admin. For screenshots and demos, not
+# two projects with their columns, PORT with "În review" of its own, 15 tasks with deadlines (some overdue,
+# some finished on time and some late), 11 with an estimate, one on pause with its reason, comments, a file,
+# and the notifications those make for the admin. For screenshots and demos, not
 # for a server with real work: the projects' keys are PORT and TER, and the users are @kanabol.local.
 #
 # Usage: KANABOL_ADMIN_PASSWORD=... KANABOL_DEMO_PASSWORD=... scripts/demo-data.sh [url]
@@ -296,7 +297,9 @@ deadline() { # deadline <days from today>: the end of that day, in this machine'
 }
 
 # task <key> <creator: admin|ana> <project id> <column position> <priority> <days to the deadline, or -> <done: yes|no>
-#      <assignee ids, separated by commas> <title> <description>
+#      <assignee ids, separated by commas> <title> <description> <estimate in minutes, or -> [<pause reason>]
+# A task with an estimate in Backlog gets it at creation; one that goes further gets it entering În lucru
+# (group 22), through which it passes to a column after it, În pauză with its reason.
 task() {
   key=$1
   creator=$2
@@ -309,6 +312,8 @@ task() {
   title=$9
   shift 9
   description=$1
+  estimate=${2:--}
+  reason=${3:-}
   status=$(as "$admin" GET "/api/tasks/by-key/$key?includeArchived=true")
   if [ "$status" = 200 ]; then
     task_id=$(field id)
@@ -323,14 +328,23 @@ task() {
     due=null
     [ "$days" = - ] || due="\"$(deadline "$days")\""
     ids=$(printf '%s' "$assignees" | sed -e 's/\([^,][^,]*\)/"\1"/g')
+    at_creation=
+    [ "$position" -eq 0 ] && [ "$estimate" != - ] && at_creation=",\"estimatedMinutes\":$estimate"
     status=$(as "$creator_token" POST "/api/projects/$project/tasks" \
-      "{\"title\":$(json_text "$title"),\"description\":$(json_text "$description"),\"priority\":\"$priority\",\"assigneeIds\":[$ids],\"dueDate\":$due}")
+      "{\"title\":$(json_text "$title"),\"description\":$(json_text "$description"),\"priority\":\"$priority\",\"assigneeIds\":[$ids],\"dueDate\":$due$at_creation}")
     expect 201 -- "the task $key"
     task_id=$(field id)
     made "task $(field key) $title"
-    # A task starts in Backlog (group 22), then goes to its column, forward.
+    # A task starts in Backlog (group 22), then goes forward: into În lucru with its estimate, and on to its column.
     if [ "$position" -gt 0 ]; then
-      status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(column_at "$project" "$position")\",\"position\":null,\"estimatedMinutes\":240}")
+      [ "$estimate" = - ] && estimate=240
+      status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(column_at "$project" 1)\",\"position\":null,\"estimatedMinutes\":$estimate}")
+      expect 200 -- "$key into În lucru"
+    fi
+    if [ "$position" -gt 1 ]; then
+      paused=
+      [ -z "$reason" ] || paused=",\"pauseReason\":$(json_text "$reason")"
+      status=$(as "$admin" PATCH "/api/tasks/$task_id/position" "{\"columnId\":\"$(column_at "$project" "$position")\",\"position\":null$paused}")
       expect 200 -- "$key into its column"
     fi
   fi
@@ -366,26 +380,27 @@ task PORT-1 ana "$portal" 1 High 5 no "$me,$dan_id" "Autentificare cu SSO pentru
 
 - OIDC cu furnizorul fiecărui client
 - maparea rolurilor la primul login
-- **fără** parole locale pentru ei"
+- **fără** parole locale pentru ei" 600
 sso=$task_id
-task PORT-2 ana "$portal" 0 Medium 12 no "$dan_id" "Pagina de facturi: filtre după lună" "Filtre după lună și an, cu totalul perioadei sub tabel."
-task PORT-3 ana "$portal" 3 High -2 no "$ioana_id" "Export PDF al facturii" "PDF-ul pleacă pe email și se descarcă din pagină."
+task PORT-2 ana "$portal" 0 Medium 12 no "$dan_id" "Pagina de facturi: filtre după lună" "Filtre după lună și an, cu totalul perioadei sub tabel." 240
+task PORT-3 ana "$portal" 2 High -2 no "$ioana_id" "Export PDF al facturii" "PDF-ul pleacă pe email și se descarcă din pagină." 360 \
+  "Aștept logo-ul clientului în format vectorial."
 pdf=$task_id
-task PORT-4 admin "$portal" 0 Low - no "" "Notificări pe email pentru comenzile noi" "Un email scurt, cu link spre comandă."
+task PORT-4 admin "$portal" 0 Low - no "" "Notificări pe email pentru comenzile noi" "Un email scurt, cu link spre comandă." -
 email=$task_id
-task PORT-5 ana "$portal" 0 Low -6 yes "$ioana_id" "Corectură pe textele paginii de start" "Diacriticele și titlurile secțiunilor."
-task PORT-6 ana "$portal" 1 Critical -1 no "$me" "Migrare la noul server de baze de date" "Fereastra de mentenanță e sâmbătă, între 22:00 și 02:00."
+task PORT-5 ana "$portal" 0 Low -6 yes "$ioana_id" "Corectură pe textele paginii de start" "Diacriticele și titlurile secțiunilor." -
+task PORT-6 ana "$portal" 1 Critical -1 no "$me" "Migrare la noul server de baze de date" "Fereastra de mentenanță e sâmbătă, între 22:00 și 02:00." 480
 migration=$task_id
-task PORT-7 ana "$portal" 1 Medium 3 yes "$me,$dan_id" "Formular de contact cu protecție anti-spam" "Fără captcha vizibil: un câmp ascuns și o limită pe adresă."
-task PORT-8 admin "$portal" 0 Medium 20 no "$dan_id,$ioana_id" "Istoricul comenzilor: paginare" "Câte 25 pe pagină, cu căutare după număr."
-task PORT-9 ana "$portal" 0 High 8 no "$me" "Audit de accesibilitate" "Contrast, ordinea focusului și etichetele formularelor."
-task TER-1 ana "$field_app" 1 Critical 4 no "$dan_id" "Sincronizare offline a intervențiilor" "Datele se păstrează pe telefon și pleacă la prima conexiune."
-task TER-2 ana "$field_app" 0 High -3 no "$me,$dan_id" "Fotografii atașate la raport" "Până la 10 fotografii pe raport, micșorate pe telefon."
+task PORT-7 ana "$portal" 1 Medium 3 yes "$me,$dan_id" "Formular de contact cu protecție anti-spam" "Fără captcha vizibil: un câmp ascuns și o limită pe adresă." 180
+task PORT-8 admin "$portal" 0 Medium 20 no "$dan_id,$ioana_id" "Istoricul comenzilor: paginare" "Câte 25 pe pagină, cu căutare după număr." 120
+task PORT-9 ana "$portal" 3 High 8 no "$me" "Audit de accesibilitate" "Contrast, ordinea focusului și etichetele formularelor." 300
+task TER-1 ana "$field_app" 1 Critical 4 no "$dan_id" "Sincronizare offline a intervențiilor" "Datele se păstrează pe telefon și pleacă la prima conexiune." 960
+task TER-2 ana "$field_app" 0 High -3 no "$me,$dan_id" "Fotografii atașate la raport" "Până la 10 fotografii pe raport, micșorate pe telefon." -
 photos=$task_id
-task TER-3 ana "$field_app" 0 Medium 10 yes "$ana_id" "Semnătura clientului pe ecran" "Semnătura intră în PDF-ul raportului."
-task TER-4 ana "$field_app" 0 Medium 15 no "$ioana_id" "Hartă cu intervențiile zilei" "Pinii în ordinea programării, cu adresa la atingere."
-task TER-5 ana "$field_app" 1 Low -4 yes "$dan_id" "Testare pe Android 12" "Telefoanele echipelor din Cluj și Iași."
-task TER-6 ana "$field_app" 1 High 2 no "$me" "Login cu PIN" "PIN de 6 cifre după primul login cu parola."
+task TER-3 ana "$field_app" 0 Medium 10 yes "$ana_id" "Semnătura clientului pe ecran" "Semnătura intră în PDF-ul raportului." -
+task TER-4 ana "$field_app" 0 Medium 15 no "$ioana_id" "Hartă cu intervențiile zilei" "Pinii în ordinea programării, cu adresa la atingere." 300
+task TER-5 ana "$field_app" 1 Low -4 yes "$dan_id" "Testare pe Android 12" "Telefoanele echipelor din Cluj și Iași." 240
+task TER-6 ana "$field_app" 1 High 2 no "$me" "Login cu PIN" "PIN de 6 cifre după primul login cu parola." 120
 
 say "Comments"
 comments "$sso" dan "Am configurat clientul OIDC pe mediul de test. Mai rămâne maparea rolurilor." \

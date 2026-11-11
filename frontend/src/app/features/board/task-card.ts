@@ -169,6 +169,18 @@ export type CardTask = Omit<BoardTaskDto, 'position'>;
       min-height: 22px;
     }
 
+    /* With a deadline, the worked time and the counts, the people go on to a second line rather than out. */
+    .bottom {
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    /* The people stay on the right, on whichever line they land. */
+    .bottom > kb-avatar-stack,
+    .bottom > .unassigned {
+      margin-left: auto;
+    }
+
     .top {
       justify-content: space-between;
     }

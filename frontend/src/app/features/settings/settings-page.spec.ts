@@ -98,7 +98,11 @@ describe('SettingsPage', () => {
     expect(page().querySelector<HTMLInputElement>('#kb-work-start')?.value).toBe('08:30');
     expect(page().querySelector<HTMLInputElement>('#kb-work-end')?.value).toBe('16:30');
     expect(page().querySelector<HTMLInputElement>('#kb-work-end')?.type).toBe('time');
-    expect(page().querySelector('.zone')?.textContent.trim()).toBe('Fus orar: Europe/Bucharest');
+    const zone = page().querySelector('.zone')!;
+    expect(zone.textContent.trim()).toBe('Europe/Bucharest');
+    expect(zone.closest('.kb-form-row')?.querySelector('.kb-form-label')?.textContent.trim()).toBe(
+      'Fus orar',
+    );
     expect(page().querySelector('.zone + .kb-form-help')?.textContent.trim()).toBe(
       'Se schimbă din configurația serverului.',
     );
