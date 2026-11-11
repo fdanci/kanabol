@@ -737,6 +737,26 @@ describe('BoardPage', () => {
 
     it('gives a member neither the menu nor a new column', async () => {
       board.canManage = false;
+      board.canManageColumns = false;
+      await visit();
+
+      expect(menuOf('Analiză')).toBeNull();
+      expect(page().querySelector('.add-column')).toBeNull();
+    });
+
+    // docs/UI_UX_SPEC.md §7.4, group 23: the columns follow canManageColumns, not canManage.
+    it('gives a member with columns.manage the menu and a new column', async () => {
+      board.canManage = false;
+      board.canManageColumns = true;
+      await visit();
+
+      expect(menuOf('Analiză')).not.toBeNull();
+      expect(page().querySelector('.add-column')).not.toBeNull();
+    });
+
+    it('gives one who manages the project but not its columns neither the menu nor a new column', async () => {
+      board.canManage = true;
+      board.canManageColumns = false;
       await visit();
 
       expect(menuOf('Analiză')).toBeNull();

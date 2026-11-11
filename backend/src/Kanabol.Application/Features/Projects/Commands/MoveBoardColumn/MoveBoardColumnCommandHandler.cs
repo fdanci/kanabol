@@ -12,7 +12,7 @@ public sealed class MoveBoardColumnCommandHandler(ProjectChanges changes) : ICom
 {
     public async Task<Result<BoardColumnDto[]>> Handle(MoveBoardColumnCommand command, CancellationToken ct)
     {
-        var loaded = await changes.LoadOpen(command.ProjectId, ct);
+        var loaded = await changes.LoadOpenForColumns(command.ProjectId, ct);
         if (loaded.IsFailure)
         {
             return loaded.Error;

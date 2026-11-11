@@ -58,6 +58,7 @@ export function aBoard(extra: Partial<BoardDto> = {}): BoardDto {
     isArchived: false,
     canMove: true,
     canManage: true,
+    canManageColumns: true,
     canSeeArchived: false,
     columns: COLUMNS.map((column) => ({ ...column })),
     tasks: [

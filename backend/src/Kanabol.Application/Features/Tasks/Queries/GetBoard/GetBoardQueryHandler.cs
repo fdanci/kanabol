@@ -40,6 +40,7 @@ public sealed class GetBoardQueryHandler(
         var open = project.ArchivedAt is null;
         var canMove = open && (await projectAccess.EnsureRealMemberAsync(query.ProjectId, currentUser.Id, ct)).IsSuccess;
         var canManage = open && (await projectAccess.EnsureOwnerAsync(query.ProjectId, currentUser.Id, ct)).IsSuccess;
+        var canManageColumns = open && (await projectAccess.EnsureColumnManagerAsync(query.ProjectId, currentUser.Id, ct)).IsSuccess;
 
         var columns = await db.ColumnsOf(query.ProjectId).ToArrayAsync(ct);
         var rows = await db.TaskItems
@@ -88,6 +89,7 @@ public sealed class GetBoardQueryHandler(
             !open,
             canMove,
             canManage,
+            canManageColumns,
             currentUser.HasPermission(Permissions.TasksArchive),
             columns,
             [.. rows.Select(row => new BoardTaskDto(

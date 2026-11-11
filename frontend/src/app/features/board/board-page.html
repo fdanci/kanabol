@@ -62,7 +62,7 @@
           [pulses]="store.pulses()"
           [canMove]="store.canMove()"
           [canCreate]="store.canCreate() && column.kind === 'Backlog'"
-          [canManage]="store.canManage()"
+          [canManage]="store.canManageColumns()"
           [canDelete]="canDelete(column)"
           [canMoveLeft]="canMoveLeft(column)"
           [canMoveRight]="canMoveRight(column)"
@@ -80,7 +80,7 @@
           (created)="create($event)"
         />
       }
-      @if (store.canManage()) {
+      @if (store.canManageColumns()) {
         <div class="add-column-slot">
           @if (addingColumn()) {
             <input

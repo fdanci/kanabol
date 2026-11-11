@@ -74,7 +74,8 @@ export class BoardStore {
     return new Map(this.columns().map((column) => [column.id, cardsIn(tasks, column.id)]));
   });
   readonly canMove = computed(() => this.board()?.canMove ?? false);
-  readonly canManage = computed(() => this.board()?.canManage ?? false);
+  /** An owner, projects.manage or a member with columns.manage changes the columns (docs/SPEC.md §4.4, group 23). */
+  readonly canManageColumns = computed(() => this.board()?.canManageColumns ?? false);
   /** tasks.archive in the token: the column Arhivate (docs/SPEC.md §4.4). */
   readonly canSeeArchived = computed(() => this.board()?.canSeeArchived ?? false);
   /** tasks.create from the token, and a real membership of an open project (docs/SPEC.md §4.4). */
@@ -276,7 +277,7 @@ export class BoardStore {
     apply?: (saved: T) => void,
   ): Promise<boolean> {
     const board = this.board();
-    if (!board?.canManage) {
+    if (!board?.canManageColumns) {
       return false;
     }
     try {

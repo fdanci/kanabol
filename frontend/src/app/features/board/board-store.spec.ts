@@ -366,12 +366,34 @@ describe('BoardStore', () => {
 
     it('changes nothing for one who is not an owner', async () => {
       board.canManage = false;
+      board.canManageColumns = false;
       await opened();
 
       expect(await store.addColumn('Review')).toBe(false);
       expect(await store.renameColumn(store.columns()[0], 'X')).toBe(false);
       expect(api['addColumn']).not.toHaveBeenCalled();
       expect(api['updateColumn']).not.toHaveBeenCalled();
+    });
+  });
+
+  // docs/SPEC.md §4.4, group 23: canManageColumns decides the columns, whatever canManage says.
+  describe('columns.manage', () => {
+    it('changes the columns for a member with columns.manage', async () => {
+      board.canManage = false;
+      board.canManageColumns = true;
+      await opened();
+
+      expect(await store.addColumn('Review')).toBe(true);
+      expect(api['addColumn']).toHaveBeenCalled();
+    });
+
+    it('changes nothing for one who manages the project but not its columns', async () => {
+      board.canManage = true;
+      board.canManageColumns = false;
+      await opened();
+
+      expect(await store.addColumn('Review')).toBe(false);
+      expect(api['addColumn']).not.toHaveBeenCalled();
     });
   });
 

@@ -118,6 +118,49 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
     }
 
+    // SPEC section 4.4, group 23: a real member whose role has columns.manage adds, renames, moves and deletes.
+    [Fact]
+    public async Task Changes_ByAMemberWithColumnsManage_AddRenameMoveAndDelete()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com", permissions: Permissions.ColumnsManage);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        SignIn(member);
+
+        var review = (await Add(project, "Review")).Value;
+        await Add(project, "QA");
+        (await Update(project, review.Id, "În review")).IsSuccess.Should().BeTrue();
+        (await MoveColumn(project, review.Id, 4)).IsSuccess.Should().BeTrue();
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | QA | În review | Gata*");
+        (await Delete(project, review.Id)).IsSuccess.Should().BeTrue();
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | QA | Gata*");
+    }
+
+    [Fact]
+    public async Task Changes_WithColumnsManageOutsideTheProject_ReturnOwnerRequiredAndChangeNothing()
+    {
+        var owner = await CreateUser();
+        var outsider = await CreateUser("dan@example.com", permissions: [Permissions.ColumnsManage, Permissions.ProjectsViewAll]);
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        SignIn(outsider);
+
+        (await Add(project, "Review")).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
+    }
+
+    // Read from the database: a token still holding columns.manage after the role lost it changes nothing.
+    [Fact]
+    public async Task Changes_WhenOnlyTheTokenHasColumnsManage_ReturnOwnerRequired()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com");
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        SignIn(member);
+        CurrentUser.HasPermission(Permissions.ColumnsManage).Returns(true);
+
+        (await Add(project, "Review")).Error.Should().Be(ProjectErrors.OwnerRequired);
+    }
+
     [Fact]
     public async Task Changes_InAnArchivedProject_ReturnArchived()
     {

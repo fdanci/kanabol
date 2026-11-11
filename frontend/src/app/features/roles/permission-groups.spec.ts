@@ -16,11 +16,20 @@ describe('permissionGroups', () => {
     ]);
     expect(groups.map((group) => group.permissions.map((permission) => permission.name))).toEqual([
       ['users.manage', 'roles.manage'],
-      ['projects.create', 'projects.view_all', 'projects.manage'],
+      ['projects.create', 'projects.view_all', 'projects.manage', 'columns.manage'],
       ['tasks.create', 'tasks.archive'],
       ['reports.view'],
       ['settings.manage'],
     ]);
+  });
+
+  // docs/UI_UX_SPEC.md §7.7, group 23.
+  it('says what columns.manage lets someone do, among the projects', () => {
+    const projects = permissionGroups(all).find((group) => group.title === 'Proiecte')!;
+
+    expect(
+      projects.permissions.find((permission) => permission.name === 'columns.manage')?.label,
+    ).toBe('Administrează coloanele board-ului, în proiectele în care e membru');
   });
 
   it('names every permission in Romanian', () => {

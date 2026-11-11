@@ -19,7 +19,7 @@ public sealed class DeleteBoardColumnCommandHandler(
 {
     public async Task<Result<Unit>> Handle(DeleteBoardColumnCommand command, CancellationToken ct)
     {
-        var loaded = await changes.LoadOpen(command.ProjectId, ct);
+        var loaded = await changes.LoadOpenForColumns(command.ProjectId, ct);
         if (loaded.IsFailure)
         {
             return loaded.Error;

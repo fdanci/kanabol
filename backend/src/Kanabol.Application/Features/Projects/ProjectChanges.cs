@@ -13,9 +13,15 @@ namespace Kanabol.Application.Features.Projects;
 /// </summary>
 public sealed class ProjectChanges(IAppDbContext db, IProjectAccess projectAccess, ICurrentUser currentUser)
 {
-    public Task<Result<Project>> LoadOpen(Guid projectId, CancellationToken ct) => Load(projectId, openOnly: true, ct);
+    public Task<Result<Project>> LoadOpen(Guid projectId, CancellationToken ct) => Load(projectId, openOnly: true, columnsOnly: false, ct);
 
-    public Task<Result<Project>> LoadOpenOrArchived(Guid projectId, CancellationToken ct) => Load(projectId, openOnly: false, ct);
+    public Task<Result<Project>> LoadOpenOrArchived(Guid projectId, CancellationToken ct) => Load(projectId, openOnly: false, columnsOnly: false, ct);
+
+    /// <summary>
+    /// For a change to the columns, which a real member with columns.manage may also make (SPEC section 4.4,
+    /// group 23), besides an owner or projects.manage.
+    /// </summary>
+    public Task<Result<Project>> LoadOpenForColumns(Guid projectId, CancellationToken ct) => Load(projectId, openOnly: true, columnsOnly: true, ct);
 
     public async Task<Result> Save(CancellationToken ct)
     {
@@ -34,7 +40,7 @@ public sealed class ProjectChanges(IAppDbContext db, IProjectAccess projectAcces
         }
     }
 
-    private async Task<Result<Project>> Load(Guid projectId, bool openOnly, CancellationToken ct)
+    private async Task<Result<Project>> Load(Guid projectId, bool openOnly, bool columnsOnly, CancellationToken ct)
     {
         var project = await db.Projects
             .IgnoreQueryFilters()
@@ -48,7 +54,9 @@ public sealed class ProjectChanges(IAppDbContext db, IProjectAccess projectAcces
         // Tracked, so they land in project.Columns.
         await db.BoardColumns.Where(column => column.ProjectId == projectId).LoadAsync(ct);
 
-        var access = await projectAccess.EnsureOwnerAsync(projectId, currentUser.Id, ct);
+        var access = columnsOnly
+            ? await projectAccess.EnsureColumnManagerAsync(projectId, currentUser.Id, ct)
+            : await projectAccess.EnsureOwnerAsync(projectId, currentUser.Id, ct);
         if (access.IsFailure)
         {
             return access.Error;

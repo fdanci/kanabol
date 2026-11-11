@@ -32,6 +32,22 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
         located.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    // SPEC section 4.4, group 23: a real member whose role has columns.manage; one without gets 403.
+    [Fact]
+    public async Task Post_ByAMemberWithColumnsManage_Returns201AndWithoutIt403OwnerRequired()
+    {
+        var (member, token) = await SignedIn(Permissions.ColumnsManage);
+        var (plain, plainToken) = await SignedIn(Permissions.TasksCreate);
+        var project = await CreateProject(builder => builder.WithMember(member).WithMember(plain));
+
+        (await Send(HttpMethod.Post, ColumnsOf(project.Id), token, new { name = "Review" })).StatusCode.Should().Be(HttpStatusCode.Created);
+        var refused = await Send(HttpMethod.Post, ColumnsOf(project.Id), plainToken, new { name = "QA" });
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var body = await JsonFrom(refused);
+        body.RootElement.GetProperty("code").GetString().Should().Be("Project.OwnerRequired");
+    }
+
     [Fact]
     public async Task Get_ForAMember_Returns200WithTheColumnsFromTheLeft()
     {

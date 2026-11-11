@@ -1858,7 +1858,131 @@ task_6() {
   check "frontend/CLAUDE.md says the board's rules, the sheets, Arhivate, the settings and the first bundle" the_frontend_notes_are_up_to_date
 }
 
-tasks=${*:-1 2 3 4 5 6}
+# ---- Task 7: group 23, the columns' permission, dragging the columns and the fixes of group 22.
+
+group_23_tests_pass() {
+  classes_pass Kanabol.Domain.Tests 2 PermissionsTests &&
+    classes_pass Kanabol.Application.Tests 90 ProjectAccessTests BoardColumnCommandHandlerTests GetBoardQueryHandlerTests &&
+    classes_pass Kanabol.Api.Tests 15 BoardColumnsEndpointTests BoardEndpointTests
+}
+
+# Someone with a role of their own, signed in from an address of their own (5 logins a minute per address):
+# their token in person_token, their id in person_id and their role's in person_role.
+someone_signs_in() { # someone_signs_in <email> <name> <permissions as a JSON list> <last byte of the address>
+  the_admin_signs_in || return 1
+  status_is 201 "$(as "$admin_token" POST /api/roles "{\"name\":\"Rol $2\",\"permissions\":$3}")" || return 1
+  person_role=$(body_field id)
+  status_is 201 "$(as "$admin_token" POST /api/users "{\"email\":\"$1\",\"displayName\":\"$2\",\"roleId\":\"$person_role\",\"initialPassword\":\"$admin_password\"}")" || return 1
+  person_id=$(body_field id)
+  status_is 200 "$(send POST /api/auth/login -H 'Content-Type: application/json' -H "X-Forwarded-For: 10.78.23.$4" \
+    -d "{\"email\":\"$1\",\"password\":\"$admin_password\"}")" || return 1
+  status_is 200 "$(send POST /api/auth/change-password -H "Authorization: Bearer $(body_field accessToken)" \
+    -H 'Content-Type: application/json' -d "{\"currentPassword\":\"$admin_password\",\"newPassword\":\"parola lui $1 pentru coloane\"}")" || return 1
+  person_token=$(body_field accessToken)
+}
+
+board_says() { # board_says <token> <project id>: canManage and canManageColumns of the board, as "true|false"
+  status_is 200 "$(as "$1" GET "/api/projects/$2/board")" >/dev/null || return 1
+  json "[b.canManage, b.canManageColumns].join('|')"
+}
+
+# PRM, the admin's, with Mara (columns.manage) and Petru (tasks.create) as plain members, and Vera
+# (columns.manage and projects.view_all) outside it. Once per run.
+a_project_whose_columns_a_member_manages() {
+  the_admin_signs_in || return 1
+  [ -n "${prm:-}" ] && return 0
+  status_is 201 "$(as "$admin_token" POST /api/projects '{"name":"Permisiunea coloanelor","key":"PRM"}')" || return 1
+  prm_id=$(body_field id)
+  someone_signs_in "mara@example.com" "Mara Coloane" '["columns.manage"]' 11 || return 1
+  mara_token=$person_token
+  mara_role=$person_role
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
+  someone_signs_in "petru@example.com" "Petru Fără Coloane" '["tasks.create"]' 12 || return 1
+  petru_token=$person_token
+  status_is 201 "$(as "$admin_token" POST "/api/projects/$prm_id/members" "{\"userId\":\"$person_id\",\"role\":\"Member\"}")" || return 1
+  someone_signs_in "vera@example.com" "Vera Din Afară" '["columns.manage","projects.view_all"]' 13 || return 1
+  vera_token=$person_token
+  prm=$prm_id
+}
+
+columns_manage_is_seeded_and_the_admins() {
+  the_admin_signs_in || return 1
+  is 'columns.manage|t' "$(in_db "SELECT p.name, bool_or(r.is_system) FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN roles r ON r.id = rp.role_id WHERE p.name = 'columns.manage' GROUP BY p.name" | sed 's/|True$/|t/')"
+}
+
+the_board_says_who_manages_the_columns() {
+  a_project_whose_columns_a_member_manages || return 1
+  is 'true|true' "$(board_says "$admin_token" "$prm")" || return 1
+  is 'false|true' "$(board_says "$mara_token" "$prm")" || return 1
+  is 'false|false' "$(board_says "$petru_token" "$prm")" || return 1
+  is 'false|false' "$(board_says "$vera_token" "$prm")"
+}
+
+a_member_with_columns_manage_changes_the_columns() {
+  a_project_whose_columns_a_member_manages || return 1
+  status_is 201 "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Review"}')" || return 1
+  review=$(body_field id)
+  status_is 201 "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"QA"}')" || return 1
+  qa=$(body_field id)
+  status_is 200 "$(as "$mara_token" PUT "/api/projects/$prm/board-columns/$review" '{"name":"În review"}')" || return 1
+  status_is 200 "$(as "$mara_token" PATCH "/api/projects/$prm/board-columns/$review/position" '{"position":4}')" || return 1
+  status_is 204 "$(as "$mara_token" DELETE "/api/projects/$prm/board-columns/$qa")" || return 1
+  is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,În review:Custom,Gata:Done' "$(columns_of "$prm")"
+}
+
+# A plain member and someone outside the project, columns.manage or not, get the owner's 403 and change nothing.
+the_others_change_no_column() {
+  a_project_whose_columns_a_member_manages || return 1
+  before=$(columns_of "$prm")
+  code_is 403 Project.OwnerRequired "$(as "$petru_token" POST "/api/projects/$prm/board-columns" '{"name":"Petru"}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$vera_token" POST "/api/projects/$prm/board-columns" '{"name":"Vera"}')" || return 1
+  is "$before" "$(columns_of "$prm")"
+}
+
+# Read from the database: Mara's token still says columns.manage once her role has lost it.
+columns_manage_is_read_from_the_database() {
+  a_project_whose_columns_a_member_manages || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":[]}')" || return 1
+  code_is 403 Project.OwnerRequired "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Târziu"}')" || return 1
+  is 'false|false' "$(board_says "$mara_token" "$prm")" || return 1
+  status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":["columns.manage"]}')"
+}
+
+the_columns_permission_reaches_the_ui() {
+  in_file "columnsManage: 'columns.manage'," "$app/core/auth/permissions.ts" &&
+    in_file 'PERMISSIONS.columnsManage,' "$app/features/roles/permission-groups.ts" &&
+    in_file '$localize`Administrează coloanele board-ului, în proiectele în care e membru`' "$app/features/roles/permission-groups.ts" &&
+    in_file '[canManage]="store.canManageColumns()"' "$board/board-page.html" &&
+    in_file '@if (store.canManageColumns()) {' "$board/board-page.html" &&
+    in_file 'if (!board?.canManageColumns) {' "$board/board-store.ts" &&
+    specs_named "$app/features/roles/permission-groups.spec.ts" 'says what columns.manage lets someone do, among the projects' &&
+    specs_named "$board/board-page.spec.ts" 'gives a member with columns.manage the menu and a new column' \
+      'gives one who manages the project but not its columns neither the menu nor a new column' &&
+    specs_named "$board/board-store.spec.ts" 'changes the columns for a member with columns.manage' \
+      'changes nothing for one who manages the project but not its columns'
+}
+
+group_23_specs_pass() {
+  specs_pass "src/app/features/board/**/*.spec.ts" 120 &&
+    specs_pass "src/app/features/roles/**/*.spec.ts" 25
+}
+
+task_7() {
+  use_database "$api_db"
+  echo "23.7 the columns' permission, dragging the columns and the fixes of group 22"
+  check "Docker is running" docker_is_running
+  check "the tests pass: columns.manage, the board's canManageColumns and the column handlers" group_23_tests_pass
+  check "the API builds from this code, whatever the tests built" api_builds
+  check "the real API in Production seeds columns.manage, which the Admin has" columns_manage_is_seeded_and_the_admins
+  check "the board's canManageColumns: the owner and Mara (columns.manage) yes, Petru and Vera (outside) no" the_board_says_who_manages_the_columns
+  check "Mara, a member with columns.manage, adds, renames, moves and deletes columns" a_member_with_columns_manage_changes_the_columns
+  check "Petru without it and Vera outside the project get 403 Project.OwnerRequired, nothing changed" the_others_change_no_column
+  check "columns.manage is read from the database: Mara's token outlives her role's permission" columns_manage_is_read_from_the_database
+  check "the UI: columns.manage on the roles screen, the column's menu and + Coloană on canManageColumns" the_columns_permission_reaches_the_ui
+  check "the board's and the roles screen's specs pass" group_23_specs_pass
+}
+
+tasks=${*:-1 2 3 4 5 6 7}
 for task in $tasks; do
   case "$task" in
     1) task_1 ;;
@@ -1867,6 +1991,7 @@ for task in $tasks; do
     4) task_4 ;;
     5) task_5 ;;
     6) task_6 ;;
+    7) task_7 ;;
     *)
       echo "No task $task."
       failures=$((failures + 1))

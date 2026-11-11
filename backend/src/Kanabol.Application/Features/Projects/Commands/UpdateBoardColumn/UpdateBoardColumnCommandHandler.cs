@@ -12,7 +12,7 @@ public sealed class UpdateBoardColumnCommandHandler(ProjectChanges changes) : IC
 {
     public async Task<Result<BoardColumnDto>> Handle(UpdateBoardColumnCommand command, CancellationToken ct)
     {
-        var loaded = await changes.LoadOpen(command.ProjectId, ct);
+        var loaded = await changes.LoadOpenForColumns(command.ProjectId, ct);
         if (loaded.IsFailure)
         {
             return loaded.Error;

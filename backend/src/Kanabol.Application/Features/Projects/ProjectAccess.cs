@@ -50,6 +50,28 @@ public sealed class ProjectAccess(IAppDbContext db) : IProjectAccess
             ? Result.Success()
             : ProjectErrors.MemberRequired;
 
+    /// <summary>
+    /// The board's columns (SPEC section 4.4, group 23): an owner, projects.manage, or a real member whose role
+    /// has columns.manage, all read here. A refusal is the owner's, as before the permission came.
+    /// </summary>
+    public async Task<Result> EnsureColumnManagerAsync(Guid projectId, Guid userId, CancellationToken ct)
+    {
+        var membership = db.ProjectMembers.Where(member => member.ProjectId == projectId && member.UserId == userId);
+
+        return await db.Users.AnyAsync(
+            user => user.Id == userId
+                && user.IsActive
+                && (membership.Any(member => member.Role == ProjectRole.Owner)
+                    || user.Role.RolePermissions.Any(
+                        granted => db.Permissions.Any(
+                            permission => permission.Id == granted.PermissionId
+                                && (permission.Name == Permissions.ProjectsManage
+                                    || (permission.Name == Permissions.ColumnsManage && membership.Any()))))),
+            ct)
+            ? Result.Success()
+            : ProjectErrors.OwnerRequired;
+    }
+
     private Task<bool> HasAccess(Guid userId, IQueryable<ProjectMember> membership, string[] overridingPermissions, CancellationToken ct) =>
         db.Users.AnyAsync(
             user => user.Id == userId

@@ -109,7 +109,56 @@ public sealed class GetBoardQueryHandlerTests(PostgresFixture postgres) : TaskHa
         await Archive(project, owner);
         SignIn(owner);
 
-        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { IsArchived = true, CanMove = false, CanManage = false });
+        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { IsArchived = true, CanMove = false, CanManage = false, CanManageColumns = false });
+    }
+
+    // SPEC section 4.4, group 23: canManageColumns for an owner, projects.manage or a real member with
+    // columns.manage, read from the database; canManage stays the owner's and projects.manage's.
+    [Fact]
+    public async Task Board_ForAnOwner_CanManageTheColumns()
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        SignIn(owner);
+
+        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { CanManage = true, CanManageColumns = true });
+    }
+
+    [Theory]
+    [InlineData(Permissions.ColumnsManage, true)]
+    [InlineData(Permissions.TasksCreate, false)]
+    public async Task Board_ForAMember_CanManageTheColumnsOnlyWithColumnsManage(string permission, bool canManageColumns)
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com", permissions: permission);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        SignIn(member);
+
+        (await Board(project.Id)).Value.Should().BeEquivalentTo(new { CanMove = true, CanManage = false, CanManageColumns = canManageColumns });
+    }
+
+    [Theory]
+    [InlineData(new[] { Permissions.ProjectsManage }, true)]
+    [InlineData(new[] { Permissions.ProjectsViewAll, Permissions.ColumnsManage }, false)]
+    public async Task Board_ForOneWhoSeesItThroughAPermission_CanManageTheColumnsOnlyWithProjectsManage(string[] permissions, bool canManageColumns)
+    {
+        var owner = await CreateUser();
+        var project = await CreateProject(builder => builder.OwnedBy(owner));
+        await SignInWith(permissions);
+
+        (await Board(project.Id)).Value.CanManageColumns.Should().Be(canManageColumns);
+    }
+
+    [Fact]
+    public async Task Board_OfAnArchivedProject_LetsNoMemberWithColumnsManageChangeTheColumns()
+    {
+        var owner = await CreateUser();
+        var member = await CreateUser("dan@example.com", permissions: Permissions.ColumnsManage);
+        var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
+        await Archive(project, owner);
+        SignIn(member);
+
+        (await Board(project.Id)).Value.CanManageColumns.Should().BeFalse();
     }
 
     [Fact]
