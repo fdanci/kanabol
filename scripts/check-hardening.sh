@@ -57,6 +57,8 @@
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
+# In the full gate, the build, tests and lint scripts/gate-prepare.sh did once (docs/SPEC.md §14.7).
+[ -n "${KANABOL_GATE_CACHE:-}" ] && . scripts/gate-reuse.sh
 
 # Shells opened before Docker Desktop was installed don't have it on the PATH.
 command -v docker >/dev/null 2>&1 || PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"

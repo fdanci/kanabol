@@ -31,6 +31,8 @@
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
+# In the full gate, the build, tests and lint scripts/gate-prepare.sh did once (docs/SPEC.md §14.7).
+[ -n "${KANABOL_GATE_CACHE:-}" ] && . scripts/gate-reuse.sh
 
 failures=0
 scratch=$(mktemp -d)

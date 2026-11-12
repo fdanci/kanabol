@@ -5,6 +5,8 @@
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
+# In the full gate, the build, tests and lint scripts/gate-prepare.sh did once (docs/SPEC.md §14.7).
+[ -n "${KANABOL_GATE_CACHE:-}" ] && . scripts/gate-reuse.sh
 
 failures=0
 scratch=$(mktemp -d)
@@ -387,8 +389,15 @@ test_all_is_executable() {
   git ls-files -s scripts/test-all.sh | grep -q '^100755'
 }
 
+# In the full gate, scripts/gate-prepare.sh ran it once on this same tree, as it is, and its run is reused.
 test_all_passes() {
-  scripts/test-all.sh >"$scratch/test-all.log" 2>&1 || {
+  if [ -n "${KANABOL_GATE_CACHE:-}" ]; then
+    node scripts/gate-reuse.mjs test-all >"$scratch/test-all.log" 2>&1
+    reused=$?
+  else
+    reused=99
+  fi
+  [ "$reused" -ne 99 ] || scripts/test-all.sh >"$scratch/test-all.log" 2>&1 || {
     tail -n 25 "$scratch/test-all.log"
     return 1
   }
