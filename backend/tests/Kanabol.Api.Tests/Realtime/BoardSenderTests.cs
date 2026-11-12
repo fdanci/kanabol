@@ -69,6 +69,15 @@ public sealed class BoardSenderTests : IAsyncLifetime, IDisposable
 
     private void CloseTheGate() => _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    // StartAsync only schedules ExecuteAsync, and a stop that comes before it runs ends at once, with nothing
+    // to wait for. A message through the open gate shows the loop is reading, as it is in a running API.
+    private async Task SenderIsReading()
+    {
+        await _notifier.NotifyProjectAsync(Guid.CreateVersion7(), "TaskCreated", "reading", CancellationToken.None);
+        await SentCount(1);
+        _sent.Clear();
+    }
+
     private async Task SentCount(int count)
     {
         var watch = Stopwatch.StartNew();
@@ -149,6 +158,7 @@ public sealed class BoardSenderTests : IAsyncLifetime, IDisposable
     public async Task Stop_SendsWhatIsLeft_BeforeItReturns()
     {
         var project = Guid.CreateVersion7();
+        await SenderIsReading();
         CloseTheGate();
         foreach (var marker in new[] { "one", "two", "three" })
         {
@@ -169,6 +179,7 @@ public sealed class BoardSenderTests : IAsyncLifetime, IDisposable
     public async Task Stop_WhileTheHubHangs_GivesUpAfterFiveSeconds_AndSaysHowManyWereLeft()
     {
         var project = Guid.CreateVersion7();
+        await SenderIsReading();
         CloseTheGate();
         foreach (var marker in new[] { "one", "two" })
         {
