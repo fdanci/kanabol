@@ -13,7 +13,7 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 
 ## Spec
 
-`docs/SPEC.md` is the technical spec: architecture, patterns, conventions, logging, tests, lint, Docker and the commit pipeline. Before starting a task, read the section it points to. `docs/adr/` holds numbered copies of the vault's decision notes.
+`docs/SPEC.md` is the technical spec: architecture, patterns, conventions, logging, tests, lint, Docker and the commit pipeline. It holds rules only: how a thing was built is in the code, its tests and the head of its `scripts/check-*.sh`. Before starting a task, read the section it points to. `docs/adr/` holds numbered copies of the vault's decision notes.
 
 `docs/UI_UX_SPEC.md` is the visual spec: theme, components, screens and text. It wins over `docs/SPEC.md` on anything visual, so read the section a frontend task points to. It's a copy of the vault's `Atasamente/UI_UX_SPEC.md`.
 
@@ -21,7 +21,9 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 
 - Check the task off and move it to **Done** in `Tasks.md`.
 - Update `_Architecture.md` or `Decisions/` if the feature changed or settled something they cover.
-- Only Florin and the supervisor edit `docs/SPEC.md`, `docs/UI_UX_SPEC.md`, `_Overview.md`, `_Architecture.md`, `Decisions/` and its copies in `docs/adr/`. When implementing, write what differs from them under **Blocked** in `Tasks.md`, with a proposal.
+- Decide a small gap in the specs yourself and say what you chose in the commit message, without adding it to the spec. When the code changes a rule of `docs/SPEC.md`, change the rule in the same commit.
+- Ask Florin only for product decisions, what a user sees or can do. Write under **Blocked** in `Tasks.md` only what really stops the work, not what is already implemented and waits for a yes.
+- Only Florin and the supervisor edit `docs/UI_UX_SPEC.md`, `_Overview.md`, `_Architecture.md`, `Decisions/` and its copies in `docs/adr/`.
 
 ## Naming
 
