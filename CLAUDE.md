@@ -13,7 +13,7 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 
 ## Spec
 
-`docs/SPEC.md` is the technical spec: architecture, patterns, conventions, logging, tests, lint, Docker and the commit pipeline. Before starting a task, read the section it points to. `docs/adr/` holds numbered copies of the vault's decision notes.
+`docs/SPEC.md` is the technical spec: architecture, patterns, conventions, logging, tests, lint, Docker and the commit pipeline. It holds rules only: how a thing was built is in the code, its tests and the head of its `scripts/check-*.sh`. Before starting a task, read the section it points to. `docs/adr/` holds numbered copies of the vault's decision notes.
 
 `docs/UI_UX_SPEC.md` is the visual spec: theme, components, screens and text. It wins over `docs/SPEC.md` on anything visual, so read the section a frontend task points to. It's a copy of the vault's `Atasamente/UI_UX_SPEC.md`.
 
@@ -21,7 +21,9 @@ Follow the vault's own `CLAUDE.md` when editing notes.
 
 - Check the task off and move it to **Done** in `Tasks.md`.
 - Update `_Architecture.md` or `Decisions/` if the feature changed or settled something they cover.
-- Only Florin and the supervisor edit `docs/SPEC.md`, `docs/UI_UX_SPEC.md`, `_Overview.md`, `_Architecture.md`, `Decisions/` and its copies in `docs/adr/`. When implementing, write what differs from them under **Blocked** in `Tasks.md`, with a proposal.
+- Decide a small gap in the specs yourself and say what you chose in the commit message, without adding it to the spec. When the code changes a rule of `docs/SPEC.md`, change the rule in the same commit.
+- Ask Florin only for product decisions, what a user sees or can do. Write under **Blocked** in `Tasks.md` only what really stops the work, not what is already implemented and waits for a yes.
+- Only Florin and the supervisor edit `docs/UI_UX_SPEC.md`, `_Overview.md`, `_Architecture.md`, `Decisions/` and its copies in `docs/adr/`.
 
 ## Naming
 
@@ -64,9 +66,13 @@ A summary of `docs/SPEC.md` §7, which has the full tables and examples.
 
 Never mention Claude in commit messages or PRs, and never add a `Co-Authored-By` line or any other AI attribution.
 
-After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the full test suite on `main`, which needs Docker Desktop running, and only fast checks on other branches (`docs/SPEC.md` §14).
+After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the same fast checks on every branch, `main` included, and need no Docker (`docs/SPEC.md` §14). The full suite runs in the GitHub workflow (`docs/ci.md`), or by hand with `scripts/test-all.sh`, which needs Docker Desktop running.
 
-Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`: run them all on a fresh clone before calling a group done (`docs/SPEC.md` §14.7).
+Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`, and they run on GitHub, not on your machine (`docs/SPEC.md` §14.7). A group is done when the short tier is green on its branch: `check-tests.sh`, `check-lint.sh` and each `check-*.sh` the push changed. The full gate, every `check-*.sh` through `scripts/gate.sh`, which does their shared build, tests and lint once, runs only on a push to `main`, when `dev` is merged, and a tag goes only on a green `main`.
+
+## CI
+
+`.github/workflows/ci.yml` runs on GitHub's `ubuntu-latest` machines: on a push to `dev`, `feature/*`, `fix/*` or `chore/*`, `check-tests.sh`, `check-lint.sh` and the `check-*.sh` the push changed; on a push to `main` and when started by hand, the full gate (`docs/ci.md`, `docs/SPEC.md` §14.8). A new `check-*.sh` goes into one of the shards in `scripts/ci-plan.sh`.
 
 ## The server
 

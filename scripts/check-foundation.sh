@@ -5,6 +5,8 @@
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
+# In the full gate, the build, tests and lint scripts/gate-prepare.sh did once (docs/SPEC.md §14.7).
+[ -n "${KANABOL_GATE_CACHE:-}" ] && . scripts/gate-reuse.sh
 
 failures=0
 
@@ -101,7 +103,7 @@ record_count_is() {
 task_3() {
   echo "0.3 the decision notes from SPEC section 17, and the ones added later"
   TMPDIR_CHECK=$(mktemp -d)
-  check "docs/adr holds 19 records" record_count_is 19
+  check "docs/adr holds 20 records" record_count_is 20
   while IFS='|' read -r number slug name; do
     record="docs/adr/$number-$slug.md"
     check "$number is tracked" tracked "$record"
@@ -130,6 +132,7 @@ task_3() {
 0017|fluentassertions-7-2-2|FluentAssertions 7.2.2
 0018|coloane-fixe-pe-board|Coloane fixe pe board
 0019|timp-lucrat-in-programul-de-lucru|Timp lucrat în programul de lucru
+0020|suita-intreaga-si-gate-ul-in-github-actions|Suita întreagă și gate-ul în GitHub Actions
 EOF
   if has_vault; then
     check "_Architecture.md's links resolve" links_resolve "$VAULT/_Architecture.md"

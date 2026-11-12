@@ -1,0 +1,133 @@
+# The full suite and the acceptance checks on GitHub's standard Linux machines (docs/ci.md, docs/SPEC.md §14).
+#   push to dev, feature/*, fix/*, chore/*: the short tier, check-tests, check-lint and each check-*.sh the push
+#     changed
+#   push to main, or started by hand on any branch: the full gate, every check-*.sh, in parallel jobs
+# A job "prepare" does once what the scripts share (scripts/gate-prepare.sh: the build, the formatting, the
+# lint, the production build and scripts/test-all.sh) and hands it to the check jobs through the cache of
+# this run; each check job runs its scripts through scripts/gate.sh. Only ubuntu-latest, official actions
+# pinned to a commit, read access to the repo, and no secret: the scripts' values are test values.
+name: CI
+
+on:
+  push:
+    branches: [main, dev, "feature/**", "fix/**", "chore/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NG_CLI_ANALYTICS: "false"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.plan.outputs.tier }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: plan
+        name: what runs
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: sh scripts/ci-plan.sh "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$BEFORE"
+
+  prepare:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: scripts/gate-prepare.sh
+        run: sh scripts/gate-prepare.sh "$HOME/gate-cache"
+      # The preparation keeps going when a step fails, so its failures are annotated whatever the job's outcome.
+      - if: always()
+        name: annotations
+        run: sh scripts/ci-annotate.sh "$HOME/gate-cache"
+      - if: always()
+        name: summary
+        run: sh scripts/ci-annotate.sh --summary prepare "$HOME/gate-cache"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/gate-cache
+            backend/src/*/bin
+            backend/src/*/obj
+            backend/tests/*/bin
+            backend/tests/*/obj
+          key: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prepare-logs
+          path: ~/gate-cache/*.log
+          retention-days: 14
+
+  check:
+    needs: [plan, prepare]
+    # Without the preparation the scripts still run, each doing its own work, as they do alone.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    name: check (${{ matrix.shard.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/gate-cache
+            backend/src/*/bin
+            backend/src/*/obj
+            backend/tests/*/bin
+            backend/tests/*/obj
+          key: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      # check-hardening.sh 3 proves the hub's writes to a board that stopped reading block, by the server
+      # closing it. Linux grows a loopback connection's buffers to megabytes, which 40 seconds of moves never
+      # fill; capped as small as Windows keeps them, they fill, and the check sees what it does there.
+      - if: contains(matrix.shard.scripts, 'check-hardening')
+        name: small TCP buffers, for check-hardening.sh 3
+        run: sudo sysctl -q -w net.ipv4.tcp_rmem='4096 65536 131072' net.ipv4.tcp_wmem='4096 65536 131072'
+      - name: scripts/gate.sh ${{ matrix.shard.scripts }}
+        env:
+          SCRIPTS: ${{ matrix.shard.scripts }}
+        run: |
+          export KANABOL_GATE_CACHE="$HOME/gate-cache"
+          # shellcheck disable=SC2086 # one script per word
+          sh scripts/gate.sh "$RUNNER_TEMP/gate-logs" $SCRIPTS
+      - if: failure()
+        name: annotations
+        run: sh scripts/ci-annotate.sh "$RUNNER_TEMP/gate-logs"
+      - if: always()
+        name: summary
+        env:
+          SHARD: ${{ matrix.shard.name }}
+        run: |
+          sh scripts/ci-annotate.sh --summary "$SHARD" "$RUNNER_TEMP/gate-logs"
+          [ -f "$RUNNER_TEMP/gate-logs/summary.txt" ] || exit 0
+          { echo '```'; cat "$RUNNER_TEMP/gate-logs/summary.txt"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: logs-${{ matrix.shard.name }}
+          path: ${{ runner.temp }}/gate-logs
+          retention-days: 14

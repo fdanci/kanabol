@@ -1,7 +1,9 @@
 #!/bin/sh
 # Acceptance checks for the commit pipeline (group 5 in the project's Tasks.md).
 # Usage: scripts/check-pipeline.sh [task-number...]    (no arguments: every task)
-# Exits non-zero if any check fails. Needs the packages scripts/setup.sh installs, and task 6 needs Docker.
+# Exits non-zero if any check fails. Needs the packages scripts/setup.sh installs, and no Docker.
+# Since docs/SPEC.md v1.33 the hooks run the same fast checks on main as on any other branch, and the full
+# suite runs in the GitHub workflow (docs/ci.md): tasks 3 to 6 check that main gets only the fast checks.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -10,7 +12,7 @@ failures=0
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
-# Only task 6 needs the real Docker, so the others get one that always answers, or never does.
+# A docker that always answers, or one that never does: the hooks need none, on main either.
 stubs="$scratch/stubs"
 no_docker="$scratch/no-docker"
 mkdir -p "$stubs" "$no_docker"
@@ -38,6 +40,10 @@ tracked() {
 
 not_in_file() { # not_in_file <text> <file>
   ! grep -qF -- "$1" "$2"
+}
+
+code_lacks() { # code_lacks <text> <script>: not in its code, its comments aside
+  ! grep -v '^[[:space:]]*#' "$2" | grep -qF -- "$1"
 }
 
 json_is() { # json_is <file> <dotted.path> <expected>
@@ -277,15 +283,22 @@ verify_refuses() {
   fi
 }
 
-verify_runs_the_full_suite_on_main() {
+verify_keeps_main_to_the_fast_checks() {
   fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '- a\n' || return 1
-  verify commit
-  status=$?
-  [ "$status" -eq 7 ] || {
-    echo "verify.sh exited with $status, not the suite's 7"
-    return 1
-  }
-  verify_log_has 'the full suite ran'
+  verify_passes && verify_log_has 'main: fast checks' && verify_log_lacks 'the full suite ran'
+}
+
+verify_builds_backend_changes_on_main() {
+  fresh_sandbox && stub_full_suite || return 1
+  stage_in_sandbox backend/src/Kanabol.Domain/Probe.cs 'namespace Kanabol.Domain;\n\npublic   class Probe\n{\n}\n' || return 1
+  verify_passes && staged_has backend/src/Kanabol.Domain/Probe.cs 'public class Probe' &&
+    verify_log_has '^Passed!.*Kanabol.Domain.Tests' && verify_log_lacks 'the full suite ran'
+}
+
+verify_stops_on_a_failing_domain_test_on_main() {
+  fresh_sandbox || return 1
+  stage_in_sandbox backend/tests/Kanabol.Domain.Tests/FailingTests.cs 'namespace Kanabol.Domain.Tests;\n\npublic sealed class FailingTests\n{\n    [Fact]\n    public void Always_WhenRun_Fails() => 1.Should().Be(2);\n}\n' || return 1
+  verify_refuses && verify_log_has 'Always_WhenRun_Fails'
 }
 
 verify_keeps_docs_fast_on_a_branch() {
@@ -346,13 +359,13 @@ verify_without_docker() {
   (cd "$repo" && PATH="$no_docker:$real_path" scripts/verify.sh commit) >"$verify_log" 2>&1
 }
 
-verify_says_docker_is_down_on_main() {
+verify_needs_no_docker_on_main() {
   fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '- a\n' || return 1
-  if verify_without_docker; then
-    echo "verify.sh passed"
+  verify_without_docker || {
+    tail -n 12 "$verify_log"
     return 1
-  fi
-  verify_log_has "Docker isn't running" && verify_log_lacks 'the full suite ran' && verify_log_lacks 'lint-staged'
+  }
+  verify_log_lacks "Docker isn't running" && verify_log_lacks 'the full suite ran'
 }
 
 verify_needs_no_docker_on_a_branch() {
@@ -368,26 +381,46 @@ task_4() {
   check "it's tracked" tracked scripts/verify.sh
   check "it's executable" executable scripts/verify.sh
   check "it's valid sh" sh -n scripts/verify.sh
-  check "the full suite is tied to main" grep -qF '= "main"' scripts/verify.sh
+  check "it never runs the full suite" code_lacks 'test-all.sh' scripts/verify.sh
+  check "main has no case of its own in it" code_lacks '"main"' scripts/verify.sh
   check "master is gone" not_in_file master scripts/verify.sh
   check "lint-staged gets relative paths, the only ones dotnet format's --include accepts" grep -qF 'lint-staged --relative' scripts/verify.sh
-  check "main runs the full suite and returns its result" verify_runs_the_full_suite_on_main
+  check "main runs the fast checks, not the full suite" verify_keeps_main_to_the_fast_checks
+  check "on main backend changes are formatted and built, and the domain tests run" verify_builds_backend_changes_on_main
+  check "on main a failing domain test stops it" verify_stops_on_a_failing_domain_test_on_main
   check "a branch with only docs runs neither the suite nor the builds" verify_keeps_docs_fast_on_a_branch
   check "a branch with backend changes formats and builds them" verify_formats_and_builds_backend_changes
   check "a build error stops it" verify_stops_on_a_build_error
   check "a failing domain test stops it" verify_stops_on_a_failing_domain_test
   check "a branch with frontend changes runs the specs" verify_runs_frontend_specs
   check "a failing spec stops it" verify_stops_on_a_failing_spec
-  check "a lint error stops it before the suite" verify_stops_on_lint_before_the_suite
+  check "on main a lint error stops it" verify_stops_on_lint_before_the_suite
   check "the Docker check is tracked" tracked scripts/require-docker.sh
   check "the Docker check is executable" executable scripts/require-docker.sh
   check "the Docker check is valid sh" sh -n scripts/require-docker.sh
-  check "on main, Docker being down gets a clear message before anything runs" verify_says_docker_is_down_on_main
+  check "on main, Docker isn't needed either" verify_needs_no_docker_on_main
   check "on a branch, Docker isn't needed" verify_needs_no_docker_on_a_branch
 }
 
 hook_is() { # hook_is <hook> <text>
   grep -qF -- "$2" ".husky/$1"
+}
+
+# docs/SPEC.md §14 (v1.33): the full suite left the hooks for the workflow, which runs scripts/test-all.sh
+# (through scripts/gate-prepare.sh) and every check script on a push to main and when started by hand.
+workflow_runs_the_full_gate_on_main() {
+  workflow=.github/workflows/ci.yml
+  tracked "$workflow" &&
+    grep -qE "^    branches: \[main," "$workflow" &&
+    grep -qx '  workflow_dispatch:' "$workflow" &&
+    grep -qF 'sh scripts/gate-prepare.sh' "$workflow" &&
+    grep -qF 'sh scripts/gate.sh' "$workflow" &&
+    grep -qF 'scripts/test-all.sh' scripts/gate-prepare.sh &&
+    [ "$(sh scripts/ci-plan.sh push refs/heads/main '' | sed -n 's/^tier=//p')" = full ] &&
+    [ "$(sh scripts/ci-plan.sh workflow_dispatch refs/heads/dev '' | sed -n 's/^tier=//p')" = full ] || {
+    echo "the workflow doesn't run the full gate on main and by hand"
+    return 1
+  }
 }
 
 commit_in_sandbox() { # commit_in_sandbox <message>
@@ -427,14 +460,15 @@ commit_goes_through_verify() {
   git -C "$repo" show HEAD:docs/probe.md | grep -qx -- '- a'
 }
 
-commit_on_main_needs_the_suite() {
-  fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '- a\n' || return 1
-  before=$(head_of HEAD)
-  if commit_in_sandbox 'docs: add a probe'; then
-    echo "the commit went through"
+# The suite stands in as one that fails, so a hook that ran it would refuse.
+commit_on_main_skips_the_suite() {
+  fresh_sandbox && stub_full_suite && stage_in_sandbox docs/probe.md '* a\n' || return 1
+  commit_in_sandbox 'docs: add a probe' || {
+    tail -n 12 "$commit_log"
     return 1
-  fi
-  grep -q 'the full suite ran' "$commit_log" && [ "$(head_of HEAD)" = "$before" ]
+  }
+  grep -q 'main: fast checks' "$commit_log" && ! grep -q 'the full suite ran' "$commit_log" &&
+    git -C "$repo" show HEAD:docs/probe.md | grep -qx -- '- a'
 }
 
 feature_with_a_commit() {
@@ -447,24 +481,29 @@ merge_into_main() {
   git -C "$repo" merge --no-ff --no-edit feature/probe >"$merge_log" 2>&1
 }
 
-merge_stops_on_a_failing_suite() {
+merge_skips_the_suite() {
   feature_with_a_commit && stub_full_suite || return 1
+  merge_into_main || {
+    tail -n 12 "$merge_log"
+    return 1
+  }
+  grep -q 'merge: lint-staged' "$merge_log" && grep -q 'main: fast checks' "$merge_log" &&
+    ! grep -q 'the full suite ran' "$merge_log" &&
+    [ "$(git -C "$repo" rev-list --parents -n 1 main | wc -w)" -eq 3 ]
+}
+
+# A domain test that fails, committed past the hook on a branch: the merge's fast checks stop it.
+merge_stops_on_a_failing_domain_test() {
+  fresh_sandbox && on_a_feature_branch || return 1
+  stage_in_sandbox backend/tests/Kanabol.Domain.Tests/FailingTests.cs 'namespace Kanabol.Domain.Tests;\n\npublic sealed class FailingTests\n{\n    [Fact]\n    public void Always_WhenRun_Fails() => 1.Should().Be(2);\n}\n' &&
+    git -C "$repo" commit -q --no-verify -m 'test(api): add a test that fails' &&
+    git -C "$repo" checkout -q main || return 1
   before=$(head_of main)
   if merge_into_main; then
     echo "the merge went through"
     return 1
   fi
-  grep -q 'the full suite ran' "$merge_log" && [ "$(head_of main)" = "$before" ]
-}
-
-merge_goes_through_on_a_passing_suite() {
-  feature_with_a_commit || return 1
-  printf '#!/bin/sh\necho "the full suite ran"\n' >"$repo/scripts/test-all.sh"
-  merge_into_main || {
-    tail -n 12 "$merge_log"
-    return 1
-  }
-  grep -q 'the full suite ran' "$merge_log" && [ "$(git -C "$repo" rev-list --parents -n 1 main | wc -w)" -eq 3 ]
+  grep -q 'Always_WhenRun_Fails' "$merge_log" && [ "$(head_of main)" = "$before" ]
 }
 
 remote_for_sandbox() {
@@ -474,15 +513,15 @@ remote_for_sandbox() {
   git -C "$repo" remote add origin "$scratch/remote.git"
 }
 
-push_to_main_needs_the_suite() {
+push_to_main_skips_the_suite() {
   fresh_sandbox && stub_full_suite && remote_for_sandbox || return 1
   push_log="$scratch/push.log"
-  if git -C "$repo" push origin main >"$push_log" 2>&1; then
-    echo "the push went through"
+  git -C "$repo" push origin main >"$push_log" 2>&1 || {
+    tail -n 12 "$push_log"
     return 1
-  fi
-  grep -q 'the full suite ran' "$push_log" &&
-    ! git -C "$scratch/remote.git" rev-parse -q --verify refs/heads/main >/dev/null
+  }
+  ! grep -q 'the full suite ran' "$push_log" &&
+    [ "$(git -C "$scratch/remote.git" rev-parse refs/heads/main)" = "$(head_of main)" ]
 }
 
 push_to_a_branch_skips_the_suite() {
@@ -495,34 +534,30 @@ push_to_a_branch_skips_the_suite() {
   ! grep -q 'the full suite ran' "$push_log"
 }
 
-merge_says_docker_is_down() {
+merge_needs_no_docker() {
   feature_with_a_commit && stub_full_suite || return 1
-  before=$(head_of main)
   merge_log="$scratch/merge.log"
-  if PATH="$no_docker:$real_path" git -C "$repo" merge --no-ff --no-edit feature/probe >"$merge_log" 2>&1; then
-    echo "the merge went through"
+  PATH="$no_docker:$real_path" git -C "$repo" merge --no-ff --no-edit feature/probe >"$merge_log" 2>&1 || {
+    tail -n 12 "$merge_log"
     return 1
-  fi
-  grep -q "Docker isn't running" "$merge_log" &&
-    ! grep -q 'the full suite ran' "$merge_log" &&
-    [ "$(head_of main)" = "$before" ]
+  }
+  ! grep -q "Docker isn't running" "$merge_log" && ! grep -q 'the full suite ran' "$merge_log"
 }
 
-push_says_docker_is_down() {
+push_needs_no_docker() {
   fresh_sandbox && stub_full_suite && remote_for_sandbox || return 1
   push_log="$scratch/push.log"
-  if PATH="$no_docker:$real_path" git -C "$repo" push origin main >"$push_log" 2>&1; then
-    echo "the push went through"
+  PATH="$no_docker:$real_path" git -C "$repo" push origin main >"$push_log" 2>&1 || {
+    tail -n 12 "$push_log"
     return 1
-  fi
-  grep -q "Docker isn't running" "$push_log" &&
-    ! grep -q 'the full suite ran' "$push_log" &&
-    ! git -C "$scratch/remote.git" rev-parse -q --verify refs/heads/main >/dev/null
+  }
+  ! grep -q "Docker isn't running" "$push_log" &&
+    [ "$(git -C "$scratch/remote.git" rev-parse refs/heads/main)" = "$(head_of main)" ]
 }
 
 task_3() {
   echo "Task 3: the hooks"
-  for hook in pre-commit pre-merge-commit commit-msg pre-push; do
+  for hook in pre-commit pre-merge-commit commit-msg; do
     check "$hook is tracked" tracked ".husky/$hook"
     check "$hook is executable" executable ".husky/$hook"
     check "$hook is valid sh" sh -n ".husky/$hook"
@@ -532,18 +567,18 @@ task_3() {
   check "pre-commit runs verify.sh" hook_is pre-commit 'exec scripts/verify.sh commit'
   check "pre-merge-commit runs verify.sh" hook_is pre-merge-commit 'exec scripts/verify.sh merge'
   check "commit-msg runs commitlint" hook_is commit-msg 'npx --no -- commitlint --edit "$1"'
-  check "pre-push guards main" hook_is pre-push 'refs/heads/main)'
-  check "pre-push runs the full suite" hook_is pre-push 'exec scripts/test-all.sh'
+  check "there's no pre-push hook: the workflow runs the suite on a push to main" test ! -e .husky/pre-push
+  check "the workflow runs the full suite and the full gate on a push to main, and by hand" workflow_runs_the_full_gate_on_main
   check "npm installs the hooks" hooks_are_installed_by_npm
   check "a bad message is refused and nothing is committed" bad_message_is_refused
   check "a commit goes through verify.sh, and what it formats gets committed" commit_goes_through_verify
-  check "a commit on main needs the suite" commit_on_main_needs_the_suite
-  check "a merge into main stops on a failing suite" merge_stops_on_a_failing_suite
-  check "a merge into main goes through on a passing suite, as a merge commit" merge_goes_through_on_a_passing_suite
-  check "a push to main needs the suite" push_to_main_needs_the_suite
-  check "a push to a branch doesn't" push_to_a_branch_skips_the_suite
-  check "a merge into main says so when Docker is down" merge_says_docker_is_down
-  check "a push to main says so when Docker is down" push_says_docker_is_down
+  check "a commit on main runs the fast checks, not the suite" commit_on_main_skips_the_suite
+  check "a merge into main runs the fast checks, not the suite, as a merge commit" merge_skips_the_suite
+  check "a merge into main stops on a failing domain test" merge_stops_on_a_failing_domain_test
+  check "a push to main runs no suite" push_to_main_skips_the_suite
+  check "a push to a branch runs none either" push_to_a_branch_skips_the_suite
+  check "a merge into main needs no Docker" merge_needs_no_docker
+  check "a push to main needs no Docker" push_needs_no_docker
 }
 
 # A repo as a fresh clone has it, with no packages installed.
@@ -616,14 +651,13 @@ setup_makes_merges_into_main_create_a_commit() {
     git -C "$setup_copy" add probe.md &&
     git -C "$setup_copy" commit -q -m 'docs: add a probe' &&
     git -C "$setup_copy" checkout -q main || return 1
-  printf '#!/bin/sh\necho "the full suite ran"\n' >"$setup_copy/scripts/test-all.sh"
-  # No --no-ff here: this branch could fast-forward, and the setting has to prevent it.
+  # No --no-ff here: this branch could fast-forward, and the setting has to prevent it, so the merge
+  # commit goes through the hook.
   git -C "$setup_copy" merge --no-edit feature/probe >"$scratch/setup-merge.log" 2>&1 || {
     tail -n 12 "$scratch/setup-merge.log"
     return 1
   }
-  git -C "$setup_copy" checkout -q -- scripts/test-all.sh
-  grep -q 'the full suite ran' "$scratch/setup-merge.log" &&
+  grep -q 'merge: lint-staged' "$scratch/setup-merge.log" &&
     [ "$(git -C "$setup_copy" rev-list --parents -n 1 main | wc -w)" -eq 3 ]
 }
 
@@ -640,7 +674,7 @@ task_5() {
   check "git looks for hooks where husky 9 keeps them" setup_config_is core.hooksPath .husky/_
   check "it leaves the tree clean" setup_leaves_the_tree_clean
   check "the hooks work after it" setup_turns_on_the_hooks
-  check "a plain merge into main creates a commit and runs the suite" setup_makes_merges_into_main_create_a_commit
+  check "a plain merge into main creates a commit, which goes through the hook" setup_makes_merges_into_main_create_a_commit
   check "it can run again" setup_can_run_again
   check "the root notes say to run it" grep -qF 'scripts/setup.sh' CLAUDE.md
 }
@@ -719,18 +753,23 @@ real_bad_message_is_refused() {
   [ "$(git -C "$real" rev-parse HEAD)" = "$before" ]
 }
 
-real_suite_ran() { # real_suite_ran <log>
+# The hooks' fast checks ran, and nothing of the full suite: one test project (the domain's) and the specs,
+# no "all green" of scripts/test-all.sh.
+real_fast_checks_ran() { # real_fast_checks_ran <log>
   sed -e 's/\x1b\[[0-9;]*m//g' "$1" >"$1.plain"
-  grep -q 'all green' "$1.plain" &&
-    [ "$(grep -c '^Passed!' "$1.plain")" -eq 3 ] &&
-    grep -qE 'Tests +[0-9]+ passed' "$1.plain" || {
+  grep -q 'main: fast checks' "$1.plain" &&
+    [ "$(grep -c '^Passed!' "$1.plain")" -eq 1 ] &&
+    grep -q '^Passed!.*Kanabol.Domain.Tests' "$1.plain" &&
+    grep -qE 'Tests +[0-9]+ passed' "$1.plain" &&
+    ! grep -q 'all green' "$1.plain" || {
     tail -n 12 "$1.plain"
     return 1
   }
 }
 
-# docs/SPEC.md §14.6: the merge into main, with the full suite, takes under 210 s.
-real_merge_runs_the_suite() {
+# docs/SPEC.md §14.3 and §14.6 (v1.33): the merge into main runs the same fast checks as any commit, and
+# the full suite is left to the GitHub workflow. The branch brings backend and frontend changes.
+real_merge_runs_the_fast_checks() {
   real_copy_ready && git -C "$real" checkout -q main || return 1
   started=$(date +%s)
   git -C "$real" merge --no-ff --no-edit feature/probe >"$scratch/real-merge.log" 2>&1 || {
@@ -738,35 +777,43 @@ real_merge_runs_the_suite() {
     return 1
   }
   took=$(($(date +%s) - started))
-  real_suite_ran "$scratch/real-merge.log" || return 1
+  real_fast_checks_ran "$scratch/real-merge.log" || return 1
   [ "$(git -C "$real" rev-list --parents -n 1 main | wc -w)" -eq 3 ] || {
     echo "main doesn't end in a merge commit"
-    return 1
-  }
-  [ "$took" -lt 210 ] || {
-    echo "it took $took s"
     return 1
   }
 }
 
 failing_application_test='namespace Kanabol.Application.Tests;\n\npublic sealed class FailingTests\n{\n    [Fact]\n    public void Always_WhenRun_Fails() => 1.Should().Be(2);\n}\n'
+failing_domain_test='namespace Kanabol.Domain.Tests;\n\npublic sealed class FailingDomainTests\n{\n    [Fact]\n    public void Always_WhenRun_FailsInTheDomain() => 1.Should().Be(2);\n}\n'
 
-real_branch_lets_a_failing_application_test_through() {
+# A failing application test gets past every hook, on main too: only the workflow's suite finds it.
+real_hooks_leave_application_tests_to_the_workflow() {
   real_copy_ready || return 1
   git -C "$real" checkout -q -b feature/failing main &&
     real_stage backend/tests/Kanabol.Application.Tests/FailingTests.cs "$failing_application_test" &&
     real_commit 300 'test(api): add a test that fails' &&
-    git -C "$real" checkout -q main
+    git -C "$real" checkout -q main || return 1
+  git -C "$real" merge --no-ff --no-edit feature/failing >"$scratch/real-merge-failing.log" 2>&1 || {
+    tail -n 12 "$scratch/real-merge-failing.log"
+    return 1
+  }
+  ! grep -q 'Always_WhenRun_Fails' "$scratch/real-merge-failing.log"
 }
 
-real_merge_refuses_a_failing_test() {
+# A failing domain test committed with --no-verify: the merge's fast checks stop it, and main stays.
+real_merge_refuses_a_failing_domain_test() {
   real_copy_ready || return 1
+  git -C "$real" checkout -q -b feature/failing-domain main &&
+    real_stage backend/tests/Kanabol.Domain.Tests/FailingDomainTests.cs "$failing_domain_test" &&
+    git -C "$real" commit -q --no-verify -m 'test(api): add a domain test that fails' &&
+    git -C "$real" checkout -q main || return 1
   before=$(git -C "$real" rev-parse main)
-  if git -C "$real" merge --no-ff --no-edit feature/failing >"$scratch/real-merge.log" 2>&1; then
+  if git -C "$real" merge --no-ff --no-edit feature/failing-domain >"$scratch/real-merge.log" 2>&1; then
     echo "the merge went through"
     return 1
   fi
-  grep -q 'Always_WhenRun_Fails' "$scratch/real-merge.log" || {
+  grep -q 'Always_WhenRun_FailsInTheDomain' "$scratch/real-merge.log" || {
     tail -n 12 "$scratch/real-merge.log"
     return 1
   }
@@ -774,27 +821,14 @@ real_merge_refuses_a_failing_test() {
   [ "$(git -C "$real" rev-parse main)" = "$before" ]
 }
 
-real_push_runs_the_suite() {
+real_push_runs_no_suite() {
   real_copy_ready || return 1
   git -C "$real" push origin main >"$scratch/real-push.log" 2>&1 || {
     tail -n 12 "$scratch/real-push.log"
     return 1
   }
-  real_suite_ran "$scratch/real-push.log" &&
+  ! grep -qE '^Passed!|all green|Tests +[0-9]+ passed' "$scratch/real-push.log" &&
     [ "$(git -C "$real_remote" rev-parse refs/heads/main)" = "$(git -C "$real" rev-parse main)" ]
-}
-
-real_push_catches_a_skipped_hook() {
-  real_copy_ready || return 1
-  before=$(git -C "$real_remote" rev-parse refs/heads/main) || return 1
-  real_stage backend/tests/Kanabol.Application.Tests/FailingTests.cs "$failing_application_test" &&
-    git -C "$real" commit -q --no-verify -m 'test(api): add a test that fails' || return 1
-  if git -C "$real" push origin main >"$scratch/real-push.log" 2>&1; then
-    echo "the push went through"
-    return 1
-  fi
-  grep -q 'Always_WhenRun_Fails' "$scratch/real-push.log" &&
-    [ "$(git -C "$real_remote" rev-parse refs/heads/main)" = "$before" ]
 }
 
 show_time() {
@@ -802,11 +836,8 @@ show_time() {
 }
 
 task_6() {
-  echo "Task 6: the real hooks and the real suite, in a throwaway repo"
+  echo "Task 6: the real hooks, in a throwaway repo: main gets the fast checks, the workflow the suite"
   PATH=$real_path
-  command -v docker >/dev/null 2>&1 || PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
-  # Docker Desktop can stop itself when idle, which the tasks before this one may have allowed.
-  docker desktop start --timeout 170 >/dev/null 2>&1
   check "a commit with only docs takes under 40 s" real_docs_commit
   show_time
   check "a commit in the backend takes under 40 s" real_backend_commit
@@ -818,12 +849,12 @@ task_6() {
   check "a commit on both sides takes under 40 s" real_commit_on_both_sides
   show_time
   check "a bad message is refused by commitlint" real_bad_message_is_refused
-  check "a --no-ff merge into main runs the full suite, in under 210 s" real_merge_runs_the_suite
+  check "a --no-ff merge into main runs the fast checks and not the full suite" real_merge_runs_the_fast_checks
   show_time
-  check "a branch's fast checks don't run the application tests" real_branch_lets_a_failing_application_test_through
-  check "a merge into main refuses what they let through" real_merge_refuses_a_failing_test
-  check "a push to main runs the full suite and reaches the remote" real_push_runs_the_suite
-  check "a push to main catches a commit made with --no-verify" real_push_catches_a_skipped_hook
+  check "a failing application test gets past the hooks, main's too: the workflow's suite is the one to find it" \
+    real_hooks_leave_application_tests_to_the_workflow
+  check "a merge into main refuses a failing domain test committed with --no-verify" real_merge_refuses_a_failing_domain_test
+  check "a push to main runs no suite and reaches the remote" real_push_runs_no_suite
 }
 
 if [ "$#" -eq 0 ]; then
