@@ -32,7 +32,7 @@ scripts/gate.sh --fresh dev ../kanabol-gate ../kanabol-gate-logs
 | push pe `main`                                 | gate-ul întreg | toate `scripts/check-*.sh`, în 10 joburi paralele                                                 |
 | pornit de mână, pe orice branch                | gate-ul întreg | la fel                                                                                            |
 
-Scriptul grupului nu se poate ghici în CI, deci treapta scurtă nu-l rulează decât dacă push-ul îl schimbă; la un grup, treapta grupului (`docs/SPEC.md` §14.7) rămâne de rulat local. Pentru un branch nou, „ce a schimbat push-ul” înseamnă ce n-are `dev`.
+Scriptul grupului nu se poate ghici în CI, deci treapta scurtă nu-l rulează decât dacă push-ul îl schimbă; un script atins de grup, dar neschimbat, rulează abia la gate-ul întreg de pe `main` (`docs/SPEC.md` §14.7). Pentru un branch nou, „ce a schimbat push-ul” înseamnă ce n-are `dev`.
 
 Fiecare rulare are trei feluri de joburi:
 
