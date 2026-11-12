@@ -101,6 +101,12 @@ jobs:
             backend/tests/*/bin
             backend/tests/*/obj
           key: gate-${{ github.run_id }}-${{ github.run_attempt }}
+      # check-hardening.sh 3 proves the hub's writes to a board that stopped reading block, by the server
+      # closing it. Linux grows a loopback connection's buffers to megabytes, which 40 seconds of moves never
+      # fill; capped as small as Windows keeps them, they fill, and the check sees what it does there.
+      - if: contains(matrix.shard.scripts, 'check-hardening')
+        name: small TCP buffers, for check-hardening.sh 3
+        run: sudo sysctl -q -w net.ipv4.tcp_rmem='4096 65536 131072' net.ipv4.tcp_wmem='4096 65536 131072'
       - name: scripts/gate.sh ${{ matrix.shard.scripts }}
         env:
           SCRIPTS: ${{ matrix.shard.scripts }}

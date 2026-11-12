@@ -53,7 +53,7 @@ Un push nou pe același branch anulează rularea veche. Toate joburile rulează 
 - un PostgreSQL 17 al jobului, pe portul 5433, în locale-ul C, cu o parolă făcută în job și ascunsă în log, doar pe 127.0.0.1. `KANABOL_CHECK_DB`, `KANABOL_PGDATA` și `KANABOL_PGBIN` îl arată scripturilor, iar `check-collation.sh` 2 îl poate opri și porni cu `pg_ctl`. Portul 5432 rămâne liber pentru `check-docker.sh` 5;
 - `scripts/setup.sh`.
 
-Docker e deja pe mașină. Notele din vault nu sunt, iar `check-foundation` și `check-ui` sar peste verificările lor, cum scriu. Pe Windows totul rulează exact ca înainte.
+Jobul care rulează `check-hardening.sh` își micșorează bufferele TCP (`sysctl`) cât sunt pe Windows: pe Linux, bufferele unei conexiuni locale cresc până la câțiva MB, iar board-ul care nu mai citește din `check-hardening.sh` 3 nu și-ar umple niciodată socket-ul, deci serverul nu l-ar închide. Docker e deja pe mașină. Notele din vault nu sunt, iar `check-foundation` și `check-ui` sar peste verificările lor, cum scriu. Pe Windows totul rulează exact ca înainte.
 
 ## Gate-ul întreg, pornit de mână
 
