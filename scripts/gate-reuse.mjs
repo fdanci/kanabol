@@ -453,6 +453,9 @@ if (/gate-reuse\.mjs$/.test(process.argv[1] ?? '')) {
     if (tool === 'environment') {
       process.stdout.write(environment());
       code = 0;
+    } else if (tool === 'trx-count') {
+      console.log(trxResults(args[1], native(args[0])).length);
+      code = 0;
     } else if (!cache || !has('ready')) code = tool === 'ran' ? 0 : REAL;
     else {
       root = read('root').trim();

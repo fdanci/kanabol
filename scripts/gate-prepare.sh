@@ -59,14 +59,21 @@ step test-all env PATH="$cache/shim:$PATH" VSTestLogger='trx%3BLogFilePrefix=sui
 ls backend/tests | while read -r project; do
   [ -f "backend/tests/$project/$project.csproj" ] && echo "$project"
 done >"$cache/test-projects"
+# Each project's results have to be all of them: as many as dotnet test reported in its Total.
+ls -l "$cache/trx" | sed 's/^/  /' | tee -a "$cache/prepare.txt"
 missing=
 while read -r project; do
-  grep -lq "$project.dll" "$cache"/trx/*.trx 2>/dev/null || missing="$missing $project"
+  reported=$(sed 's/\x1b\[[0-9;]*m//g' "$cache/test-all.log" |
+    sed -n "s/.*Total: *\([0-9]*\),.* - $project\.dll .*/\1/p" | tail -n 1)
+  parsed=$(node scripts/gate-reuse.mjs trx-count "$(native "$cache/trx")" "$project")
+  printf '  %-26s %s results in TRX, %s reported\n' "$project" "${parsed:-none}" "${reported:-none}" |
+    tee -a "$cache/prepare.txt"
+  [ -n "$reported" ] && [ "$parsed" = "$reported" ] || missing="$missing $project"
 done <"$cache/test-projects"
 if [ -z "$missing" ]; then
   touch "$cache/trx-ok"
 else
-  echo "  no TRX results for:$missing; their tests will run for real"
+  echo "  the TRX results don't hold every test of:$missing; every test runs for real" | tee -a "$cache/prepare.txt"
 fi
 [ -s "$cache/specs.json" ] || {
   rm -f "$cache/specs.json"
