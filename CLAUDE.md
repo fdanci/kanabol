@@ -68,6 +68,10 @@ After cloning, run `scripts/setup.sh`. It installs the packages, turns on the ho
 
 Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`, run on a fresh clone in two tiers (`docs/SPEC.md` §14.7). Before calling a group done: the group's script, the scripts the group touches, `check-tests.sh` and `check-lint.sh`. The full gate, every `check-*.sh` through `scripts/gate.sh`, which does their shared build, tests and lint once, runs on GitHub: `dev` goes into `main` only after a green full gate there, started by hand on the `dev` commit, the push to `main` runs it again, and a tag goes only on a green `main`. Until the first green full gate on GitHub, `dev` goes into `main` only after a green `scripts/test-all.sh` run by hand.
 
+## CI
+
+`.github/workflows/ci.yml` runs on GitHub's `ubuntu-latest` machines: on a push to `dev`, `feature/*`, `fix/*` or `chore/*`, `check-tests.sh`, `check-lint.sh` and the `check-*.sh` the push changed; on a push to `main` and when started by hand, the full gate (`docs/ci.md`, `docs/SPEC.md` §14.8). A new `check-*.sh` goes into one of the shards in `scripts/ci-plan.sh`.
+
 ## The server
 
 `docs/deploy.md` installs Kanabol on the server and updates it: the clone, `.env`, `scripts/make-certs.sh`, `scripts/release.sh vX.Y.Z` (the images, built on the server, with no registry), `compose up` with `compose.prod.yaml`. `docs/backup.md` has the nightly `scripts/backup.sh` and `scripts/restore.sh`. `scripts/demo-data.sh` fills a running Kanabol with demonstration data through its API. None of them prints a password, and only `restore.sh` asks anything. `scripts/check-release.sh` checks them all (`docs/SPEC.md` §14.7).

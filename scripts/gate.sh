@@ -8,7 +8,7 @@
 #       then the clone's own scripts/gate.sh on every script
 #   scripts/gate.sh <log folder> [script...]
 #       in this checkout, which has to be clean: the preparation, then the scripts named (check-tests, or
-#       check-docker:5 for some of a script's tasks), or every one: each check-*.sh but check-docker, then
+#       check-docker:1,2,3 for some of a script's tasks), or every one: each check-*.sh but check-docker, then
 #       check-docker 1 2 3 4 6, then check-docker 5 with the local PostgreSQL stopped, since it needs port 5432
 #
 # <log folder> gets a log per script, the preparation's in cache/, and summary.txt: ok or FAIL for each, its
@@ -126,7 +126,7 @@ run() { # run <script>[:<tasks>]
   tasks=
   label=$name
   case "$1" in *:*)
-    tasks=${1#*:}
+    tasks=$(printf '%s' "${1#*:}" | tr ',' ' ')
     label="$name-$(printf '%s' "$tasks" | tr -d ' ')"
     ;;
   esac
@@ -147,7 +147,7 @@ if [ "$#" -eq 0 ]; then
     name=$(basename "$script" .sh)
     [ "$name" = check-docker ] || set -- "$@" "$name"
   done
-  set -- "$@" 'check-docker:1 2 3 4 6' check-docker:5
+  set -- "$@" check-docker:1,2,3,4,6 check-docker:5
 fi
 
 for wanted in "$@"; do

@@ -406,6 +406,23 @@ hook_is() { # hook_is <hook> <text>
   grep -qF -- "$2" ".husky/$1"
 }
 
+# docs/SPEC.md §14 (v1.33): the full suite left the hooks for the workflow, which runs scripts/test-all.sh
+# (through scripts/gate-prepare.sh) and every check script on a push to main and when started by hand.
+workflow_runs_the_full_gate_on_main() {
+  workflow=.github/workflows/ci.yml
+  tracked "$workflow" &&
+    grep -qE "^    branches: \[main," "$workflow" &&
+    grep -qx '  workflow_dispatch:' "$workflow" &&
+    grep -qF 'sh scripts/gate-prepare.sh' "$workflow" &&
+    grep -qF 'sh scripts/gate.sh' "$workflow" &&
+    grep -qF 'scripts/test-all.sh' scripts/gate-prepare.sh &&
+    [ "$(sh scripts/ci-plan.sh push refs/heads/main '' | sed -n 's/^tier=//p')" = full ] &&
+    [ "$(sh scripts/ci-plan.sh workflow_dispatch refs/heads/dev '' | sed -n 's/^tier=//p')" = full ] || {
+    echo "the workflow doesn't run the full gate on main and by hand"
+    return 1
+  }
+}
+
 commit_in_sandbox() { # commit_in_sandbox <message>
   commit_log="$scratch/commit.log"
   git -C "$repo" commit -m "$1" >"$commit_log" 2>&1
@@ -551,6 +568,7 @@ task_3() {
   check "pre-merge-commit runs verify.sh" hook_is pre-merge-commit 'exec scripts/verify.sh merge'
   check "commit-msg runs commitlint" hook_is commit-msg 'npx --no -- commitlint --edit "$1"'
   check "there's no pre-push hook: the workflow runs the suite on a push to main" test ! -e .husky/pre-push
+  check "the workflow runs the full suite and the full gate on a push to main, and by hand" workflow_runs_the_full_gate_on_main
   check "npm installs the hooks" hooks_are_installed_by_npm
   check "a bad message is refused and nothing is committed" bad_message_is_refused
   check "a commit goes through verify.sh, and what it formats gets committed" commit_goes_through_verify
