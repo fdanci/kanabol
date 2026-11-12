@@ -4,6 +4,8 @@
 # Exits non-zero if any check fails. Needs the packages scripts/setup.sh installs, and no Docker.
 # Since docs/SPEC.md v1.33 the hooks run the same fast checks on main as on any other branch, and the full
 # suite runs in the GitHub workflow (docs/ci.md): tasks 3 to 6 check that main gets only the fast checks.
+# Task 3's control, run by hand (group 24): with workflow_dispatch in ci.yml and [full gate] in ci-plan.sh, as
+# before, both workflow checks failed.
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -407,20 +409,49 @@ hook_is() { # hook_is <hook> <text>
 }
 
 # docs/SPEC.md §14 (v1.33): the full suite left the hooks for the workflow, which runs scripts/test-all.sh
-# (through scripts/gate-prepare.sh) and every check script on a push to main and when started by hand.
+# (through scripts/gate-prepare.sh) and every check script on a push to main, and only then (§14.7, §14.8,
+# group 24): no workflow_dispatch, and no [full gate] in a commit's subject.
 workflow_runs_the_full_gate_on_main() {
   workflow=.github/workflows/ci.yml
   tracked "$workflow" &&
     grep -qE "^    branches: \[main," "$workflow" &&
-    grep -qx '  workflow_dispatch:' "$workflow" &&
     grep -qF 'sh scripts/gate-prepare.sh' "$workflow" &&
     grep -qF 'sh scripts/gate.sh' "$workflow" &&
     grep -qF 'scripts/test-all.sh' scripts/gate-prepare.sh &&
-    [ "$(sh scripts/ci-plan.sh push refs/heads/main '' | sed -n 's/^tier=//p')" = full ] &&
-    [ "$(sh scripts/ci-plan.sh workflow_dispatch refs/heads/dev '' | sed -n 's/^tier=//p')" = full ] || {
-    echo "the workflow doesn't run the full gate on main and by hand"
+    [ "$(sh scripts/ci-plan.sh push refs/heads/main '' | sed -n 's/^tier=//p')" = full ] || {
+    echo "the workflow doesn't run the full gate on a push to main"
     return 1
   }
+  ! grep -qF 'workflow_dispatch' "$workflow" || {
+    echo "the workflow can still be started by hand"
+    return 1
+  }
+}
+
+tier_of_a_push() { # tier_of_a_push <ref> <subject of the last commit>: what scripts/ci-plan.sh gives, in a repo of its own
+  plan="$scratch/plan-$$"
+  rm -rf "$plan" && mkdir -p "$plan/scripts" &&
+    cp scripts/ci-plan.sh scripts/check-*.sh "$plan/scripts/" &&
+    git -C "$plan" init -q -b dev &&
+    git -C "$plan" -c core.autocrlf=false add -A &&
+    git -C "$plan" -c user.name=check -c user.email=check@kanabol.test commit -q --no-verify -m "$2" &&
+    (cd "$plan" && sh scripts/ci-plan.sh push "$1" '') | sed -n 's/^tier=//p'
+}
+
+# [full gate] in the subject starts nothing on dev any more; the same push on main is full, so the repo of its
+# own plans as the real one does. workflow_dispatch, which ci.yml no longer has, plans as any other branch.
+tier_is() { # tier_is <tier expected> <tier given> <what was planned>
+  [ "$1" = "$2" ] || {
+    echo "$3: tier '$2', expected $1"
+    return 1
+  }
+}
+
+the_full_gate_runs_only_on_main() {
+  tier_is short "$(tier_of_a_push refs/heads/dev 'chore(ci): run the full gate [full gate]')" 'a push to dev with [full gate]' &&
+    tier_is short "$(tier_of_a_push refs/heads/feature/probe 'chore(ci): run the full gate [full gate]')" 'a push to feature/probe with [full gate]' &&
+    tier_is full "$(tier_of_a_push refs/heads/main 'chore(ci): a merge')" 'a push to main' &&
+    tier_is short "$(sh scripts/ci-plan.sh workflow_dispatch refs/heads/dev '' | sed -n 's/^tier=//p')" 'workflow_dispatch on dev'
 }
 
 commit_in_sandbox() { # commit_in_sandbox <message>
@@ -568,7 +599,8 @@ task_3() {
   check "pre-merge-commit runs verify.sh" hook_is pre-merge-commit 'exec scripts/verify.sh merge'
   check "commit-msg runs commitlint" hook_is commit-msg 'npx --no -- commitlint --edit "$1"'
   check "there's no pre-push hook: the workflow runs the suite on a push to main" test ! -e .husky/pre-push
-  check "the workflow runs the full suite and the full gate on a push to main, and by hand" workflow_runs_the_full_gate_on_main
+  check "the workflow runs the full suite and the full gate on a push to main, and can't be started by hand" workflow_runs_the_full_gate_on_main
+  check "the full gate runs only on main: a push to dev with [full gate] in its subject gets the short tier" the_full_gate_runs_only_on_main
   check "npm installs the hooks" hooks_are_installed_by_npm
   check "a bad message is refused and nothing is committed" bad_message_is_refused
   check "a commit goes through verify.sh, and what it formats gets committed" commit_goes_through_verify
