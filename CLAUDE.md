@@ -66,7 +66,7 @@ Never mention Claude in commit messages or PRs, and never add a `Co-Authored-By`
 
 After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the full test suite on `main`, which needs Docker Desktop running, and only fast checks on other branches (`docs/SPEC.md` §14).
 
-Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`: run them all on a fresh clone before calling a group done (`docs/SPEC.md` §14.7).
+Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`, run on a fresh clone in two tiers (`docs/SPEC.md` §14.7). Before calling a group done: the group's script, the scripts the group touches, `check-tests.sh` and `check-lint.sh`. The full gate, every `check-*.sh`, runs only before a version tag.
 
 ## The server
 
