@@ -18,6 +18,7 @@
 #   KANABOL_GATE_CACHE    a cache scripts/gate-prepare.sh already made for this tree (CI does it in a job of its
 #                         own): no preparation here
 #   KANABOL_GATE_NO_REUSE=1  the scripts run as they do on their own, without the cache: the old gate
+#   KANABOL_GATE_SH       the shell the scripts run with, sh by default (CI: bash, which Git for Windows' sh is)
 #   KANABOL_PGBIN, KANABOL_PGDATA  a local PostgreSQL the gate may start and stop with pg_ctl; on Windows,
 #                         without them, the portable one in %LOCALAPPDATA%\Kanabol (pgsql\bin, pgdata) if it's there
 #
@@ -134,7 +135,7 @@ run() { # run <script>[:<tasks>]
   pg_up || note WARN "PostgreSQL did not start before $label"
   from=$(date +%s)
   # shellcheck disable=SC2086 # the tasks are separate words
-  if KANABOL_GATE_SCRIPT=$label sh "scripts/$name.sh" $tasks >"$logs/$label.log" 2>&1; then
+  if KANABOL_GATE_SCRIPT=$label "${KANABOL_GATE_SH:-sh}" "scripts/$name.sh" $tasks >"$logs/$label.log" 2>&1; then
     note ok "$label ($(($(date +%s) - from)) s, $(reused "$label") reused)"
   else
     note FAIL "$label ($(($(date +%s) - from)) s, $(reused "$label") reused)"

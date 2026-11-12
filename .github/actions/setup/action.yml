@@ -9,8 +9,11 @@ runs:
   using: composite
   steps:
     # The SDK of the machine the code is written on: a newer one brings analyzer rules (CA2027, CA1860) that
-    # -warnaserror turns into errors in code that passes there.
+    # -warnaserror turns into errors in code that passes there. It goes in a folder of its own, since dotnet
+    # takes the newest SDK it finds, and some runner images already have .NET 11 where it would otherwise go.
     - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      env:
+        DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       with:
         dotnet-version: 10.0.403
 
@@ -28,15 +31,13 @@ runs:
         key: nuget-${{ runner.os }}-${{ hashFiles('backend/Directory.Packages.props', 'backend/**/*.csproj', 'dotnet-tools.json') }}
         restore-keys: nuget-${{ runner.os }}-
 
-    # On Windows the scripts run under Git for Windows' sh, which is bash; dash would read them differently. Only
-    # the sh found on the PATH becomes bash: /bin/sh stays dash for npm exec (npx), which runs its command
-    # through it, and bash would split an --include glob's {a,b} into words.
-    - name: sh is bash
+    # On Windows the scripts run under Git for Windows' sh, which is bash, so scripts/gate.sh runs them with bash
+    # here too (KANABOL_GATE_SH). sh itself stays dash: npm exec (npx) runs its command through sh, and bash
+    # would split an --include glob's {a,b} into words.
+    - name: the scripts' shell, and the toolchain
       shell: bash
       run: |
-        mkdir -p "$RUNNER_TEMP/sh-is-bash"
-        ln -sf "$(command -v bash)" "$RUNNER_TEMP/sh-is-bash/sh"
-        echo "$RUNNER_TEMP/sh-is-bash" >>"$GITHUB_PATH"
+        echo "KANABOL_GATE_SH=bash" >>"$GITHUB_ENV"
         echo "::notice title=toolchain::dotnet $(dotnet --version), node $(node --version), npm $(npm --version)"
 
     # PostgreSQL 17 from its own apt repository, without the cluster Debian would start on 5432: check-docker.sh 5
