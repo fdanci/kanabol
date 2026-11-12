@@ -1,16 +1,18 @@
 # What every job of .github/workflows/ci.yml needs before a check script runs (docs/ci.md): .NET, Node (the
 # version the lock files are written with, so npm install leaves them as they are) with
 # npm's cache, NuGet's cache, sh as bash (as Git for Windows has it), a PostgreSQL 17 of the job's own that the
-# scripts may stop and start with pg_ctl, and scripts/setup.sh. Nothing here is a secret: the database trusts
-# local connections and lives only as long as the job.
+# scripts may stop and start with pg_ctl, and scripts/setup.sh. Nothing here is a secret: the database's
+# password is made in the job, masked in its log, and lives only as long as the job.
 name: Kanabol setup
 description: .NET, Node, a restartable PostgreSQL 17 on port 5433 and scripts/setup.sh
 runs:
   using: composite
   steps:
+    # The SDK of the machine the code is written on: a newer one brings analyzer rules (CA2027, CA1860) that
+    # -warnaserror turns into errors in code that passes there.
     - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
       with:
-        dotnet-version: 10.0.x
+        dotnet-version: 10.0.403
 
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
@@ -34,7 +36,8 @@ runs:
         sh -c 'echo "sh is bash $BASH_VERSION"'
 
     # PostgreSQL 17 from its own apt repository, without the cluster Debian would start on 5432: check-docker.sh 5
-    # needs that port free. The job's cluster is on 5433, in the C locale, as the scripts' databases expect.
+    # needs that port free. The job's cluster is on 5433, in the C locale, as the scripts' databases expect, with
+    # a password made in the job and masked in the log (check-backend.sh looks for it in the API's logs).
     - name: PostgreSQL 17
       shell: bash
       run: |
@@ -48,14 +51,19 @@ runs:
         pg_bin=/usr/lib/postgresql/17/bin
         pg_home="$RUNNER_TEMP/postgres"
         mkdir -p "$pg_home"
-        "$pg_bin/initdb" -D "$pg_home/pgdata" -U postgres --auth=trust -E UTF8 --no-locale >/dev/null
+        password=$(openssl rand -hex 16)
+        echo "::add-mask::$password"
+        echo "$password" >"$pg_home/password"
+        "$pg_bin/initdb" -D "$pg_home/pgdata" -U postgres --pwfile="$pg_home/password" \
+          --auth-local=trust --auth-host=scram-sha-256 -E UTF8 --no-locale >/dev/null
+        rm "$pg_home/password"
         printf "port = 5433\nlisten_addresses = '127.0.0.1'\nunix_socket_directories = '%s'\n" "$pg_home" \
           >>"$pg_home/pgdata/postgresql.conf"
         "$pg_bin/pg_ctl" -D "$pg_home/pgdata" -l "$pg_home/postgres.log" -w start
         {
           echo "KANABOL_PGBIN=$pg_bin"
           echo "KANABOL_PGDATA=$pg_home/pgdata"
-          echo "KANABOL_CHECK_DB=Host=127.0.0.1;Port=5433;Username=postgres;Database=postgres"
+          echo "KANABOL_CHECK_DB=Host=127.0.0.1;Port=5433;Username=postgres;Password=$password;Database=postgres"
         } >>"$GITHUB_ENV"
 
     - name: git identity for the scripts' throwaway commits

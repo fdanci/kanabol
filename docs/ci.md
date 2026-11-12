@@ -48,9 +48,9 @@ Un push nou pe același branch anulează rularea veche. Toate joburile rulează 
 
 `.github/actions/setup/action.yml` pregătește fiecare job:
 
-- .NET 10 și Node 26 (cel cu care sunt scrise lock-urile npm, ca `npm install` să le lase neschimbate), cu cache-ul pachetelor NuGet și npm;
+- .NET 10, SDK-ul 10.0.403 al mașinii de lucru (unul mai nou aduce reguli de analiză pe care `-warnaserror` le face erori), și Node 26 (cel cu care sunt scrise lock-urile npm, ca `npm install` să le lase neschimbate), cu cache-ul pachetelor NuGet și npm;
 - `sh` devine bash, cum e și sub Git for Windows, ca scripturile să ruleze sub același interpretor ca local;
-- un PostgreSQL 17 al jobului, pe portul 5433, în locale-ul C, cu acces `trust` doar de pe 127.0.0.1. `KANABOL_CHECK_DB`, `KANABOL_PGDATA` și `KANABOL_PGBIN` îl arată scripturilor, iar `check-collation.sh` 2 îl poate opri și porni cu `pg_ctl`. Portul 5432 rămâne liber pentru `check-docker.sh` 5;
+- un PostgreSQL 17 al jobului, pe portul 5433, în locale-ul C, cu o parolă făcută în job și ascunsă în log, doar pe 127.0.0.1. `KANABOL_CHECK_DB`, `KANABOL_PGDATA` și `KANABOL_PGBIN` îl arată scripturilor, iar `check-collation.sh` 2 îl poate opri și porni cu `pg_ctl`. Portul 5432 rămâne liber pentru `check-docker.sh` 5;
 - `scripts/setup.sh`.
 
 Docker e deja pe mașină. Notele din vault nu sunt, iar `check-foundation` și `check-ui` sar peste verificările lor, cum scriu. Pe Windows totul rulează exact ca înainte.

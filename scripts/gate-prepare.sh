@@ -29,7 +29,8 @@ step() { # step <name> <command...>: its output in <name>.log, its exit code in 
   started=$(date +%s)
   "$@" >"$cache/$name.log" 2>&1
   echo "$?" >"$cache/$name.status"
-  printf '  %-9s exit %s, %s s\n' "$name" "$(cat "$cache/$name.status")" "$(($(date +%s) - started))"
+  printf '  %-9s exit %s, %s s\n' "$name" "$(cat "$cache/$name.status")" "$(($(date +%s) - started))" |
+    tee -a "$cache/prepare.txt"
 }
 
 echo "Preparing the gate's cache in $cache"

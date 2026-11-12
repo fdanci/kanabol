@@ -56,6 +56,9 @@ jobs:
       - if: failure()
         name: annotations
         run: sh scripts/ci-annotate.sh "$HOME/gate-cache"
+      - if: always()
+        name: summary
+        run: sh scripts/ci-annotate.sh --summary prepare "$HOME/gate-cache"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -109,7 +112,10 @@ jobs:
         run: sh scripts/ci-annotate.sh "$RUNNER_TEMP/gate-logs"
       - if: always()
         name: summary
+        env:
+          SHARD: ${{ matrix.shard.name }}
         run: |
+          sh scripts/ci-annotate.sh --summary "$SHARD" "$RUNNER_TEMP/gate-logs"
           [ -f "$RUNNER_TEMP/gate-logs/summary.txt" ] || exit 0
           { echo '```'; cat "$RUNNER_TEMP/gate-logs/summary.txt"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
       - if: failure()
