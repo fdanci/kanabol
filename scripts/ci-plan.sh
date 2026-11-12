@@ -4,7 +4,7 @@
 #
 #   full   on a push to main and when started by hand: every scripts/check-*.sh, in the shards below. By hand
 #          means workflow_dispatch, which GitHub offers only once ci.yml is on the default branch, or a push
-#          whose last commit says [full gate] in its message, which works on any branch before that too
+#          whose last commit has [full gate] in its subject, which works on any branch before that too
 #   short  on any other push: check-tests, check-lint and each check-*.sh the push changed, a job each
 #
 # Usage: scripts/ci-plan.sh <event name> <ref> <commit before the push, or nothing>
@@ -40,7 +40,7 @@ json() { # json <name=scripts lines>: the shards as JSON
 }
 
 if [ "$event" = workflow_dispatch ] || [ "$ref" = refs/heads/main ] ||
-  { [ "$event" = push ] && git log -1 --format=%B HEAD | grep -qF '[full gate]'; }; then
+  { [ "$event" = push ] && git log -1 --format=%s HEAD | grep -qF '[full gate]'; }; then
   tier=full
   missing=
   for script in scripts/check-*.sh; do

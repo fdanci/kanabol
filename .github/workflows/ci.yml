@@ -53,6 +53,9 @@ jobs:
       - uses: ./.github/actions/setup
       - name: scripts/gate-prepare.sh
         run: sh scripts/gate-prepare.sh "$HOME/gate-cache"
+      - if: failure()
+        name: annotations
+        run: sh scripts/ci-annotate.sh "$HOME/gate-cache"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -101,6 +104,9 @@ jobs:
           export KANABOL_GATE_CACHE="$HOME/gate-cache"
           # shellcheck disable=SC2086 # one script per word
           sh scripts/gate.sh "$RUNNER_TEMP/gate-logs" $SCRIPTS
+      - if: failure()
+        name: annotations
+        run: sh scripts/ci-annotate.sh "$RUNNER_TEMP/gate-logs"
       - if: always()
         name: summary
         run: |
