@@ -446,8 +446,11 @@ function ran() {
   return 0;
 }
 
-// Run as a program, not imported (scripts/gate-reuse.test.mjs imports the parsers).
+// Run as a program, not imported. It ends by itself rather than with process.exit(): on Linux, writes to a
+// pipe are asynchronous, and exit() would cut a long answer (a list of tests) before its reader has it. A
+// reader that stops early (grep -q) closes the pipe, which is no error of the answer's.
 if (/gate-reuse\.mjs$/.test(process.argv[1] ?? '')) {
+  process.stdout.on('error', () => {});
   let code;
   try {
     if (tool === 'environment') {
@@ -469,5 +472,5 @@ if (/gate-reuse\.mjs$/.test(process.argv[1] ?? '')) {
       code = REAL;
     }
   }
-  process.exit(code);
+  process.exitCode = code;
 }
