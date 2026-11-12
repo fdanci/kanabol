@@ -71,7 +71,7 @@ Gate-ul e verde când toate joburile `check (…)` sunt verzi. Commit-ul verific
 2. Pasul `scripts/gate.sh …` arată același rezumat la final. Logurile întregi sunt în artefactul `logs-<bucată>` al rulării: `<script>.log` are fiecare verificare cu `ok` sau `FAIL` și, sub o verificare picată, ultimele rânduri ale ei.
 3. Rulează scriptul picat local, singur, ca să vezi dacă pică și acolo: `sh scripts/check-<nume>.sh <task>`. Un script care pică doar în gate, cu cache-ul, și trece singur e o problemă a refolosirii: rulează gate-ul cu `KANABOL_GATE_NO_REUSE=1` și spune-o.
 4. Dacă pică jobul `prepare`, artefactul `prepare-logs` are logul fiecărui pas (`build.log`, `test-all.log` și celelalte). Scripturile au rulat oricum, fără cache.
-5. O limită de timp care nu ține pe mașinile GitHub (de exemplu un commit sub 40 s în `check-pipeline.sh` 6) nu se slăbește: notează timpul măsurat și propune o regulă în Blocked, în `Tasks.md`.
+5. O limită de timp care nu ține pe mașinile GitHub (de exemplu un commit sub 60 s în `check-pipeline.sh` 6) nu se slăbește: notează timpul măsurat și propune o regulă în Blocked, în `Tasks.md`.
 
 ## Ce rulează hook-urile
 
