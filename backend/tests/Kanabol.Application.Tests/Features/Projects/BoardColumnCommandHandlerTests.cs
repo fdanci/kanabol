@@ -109,17 +109,17 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     [Theory]
     [InlineData(Permissions.ProjectsViewAll)]
     [InlineData(Permissions.TasksCreate)]
-    public async Task Changes_ByOneWhoIsNotAnOwner_ReturnOwnerRequiredAndChangeNothing(string permission)
+    public async Task Changes_ByOneWhoIsNotAnOwner_ReturnManagerRequiredAndChangeNothing(string permission)
     {
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com", permissions: permission);
         var project = await CreateProject(builder => builder.OwnedBy(owner).WithMember(member));
         SignIn(member);
 
-        (await Add(project, "Review")).Error.Should().Be(ProjectErrors.OwnerRequired);
-        (await Update(project, ColumnAt(project, 0), "Altceva")).Error.Should().Be(ProjectErrors.OwnerRequired);
-        (await MoveColumn(project, ColumnAt(project, 0), 2)).Error.Should().Be(ProjectErrors.OwnerRequired);
-        (await Delete(project, ColumnAt(project, 1))).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Add(project, "Review")).Error.Should().Be(ColumnErrors.ManagerRequired);
+        (await Update(project, ColumnAt(project, 0), "Altceva")).Error.Should().Be(ColumnErrors.ManagerRequired);
+        (await MoveColumn(project, ColumnAt(project, 0), 2)).Error.Should().Be(ColumnErrors.ManagerRequired);
+        (await Delete(project, ColumnAt(project, 1))).Error.Should().Be(ColumnErrors.ManagerRequired);
         (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
     }
 
@@ -142,20 +142,20 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
     }
 
     [Fact]
-    public async Task Changes_WithColumnsManageOutsideTheProject_ReturnOwnerRequiredAndChangeNothing()
+    public async Task Changes_WithColumnsManageOutsideTheProject_ReturnManagerRequiredAndChangeNothing()
     {
         var owner = await CreateUser();
         var outsider = await CreateUser("dan@example.com", permissions: [Permissions.ColumnsManage, Permissions.ProjectsViewAll]);
         var project = await CreateProject(builder => builder.OwnedBy(owner));
         SignIn(outsider);
 
-        (await Add(project, "Review")).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Add(project, "Review")).Error.Should().Be(ColumnErrors.ManagerRequired);
         (await ColumnsOf(project)).Should().Be("Backlog | În lucru | În pauză | Gata*");
     }
 
     // Read from the database: a token still holding columns.manage after the role lost it changes nothing.
     [Fact]
-    public async Task Changes_WhenOnlyTheTokenHasColumnsManage_ReturnOwnerRequired()
+    public async Task Changes_WhenOnlyTheTokenHasColumnsManage_ReturnManagerRequired()
     {
         var owner = await CreateUser();
         var member = await CreateUser("dan@example.com");
@@ -163,7 +163,7 @@ public sealed class BoardColumnCommandHandlerTests(PostgresFixture postgres) : T
         SignIn(member);
         CurrentUser.HasPermission(Permissions.ColumnsManage).Returns(true);
 
-        (await Add(project, "Review")).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Add(project, "Review")).Error.Should().Be(ColumnErrors.ManagerRequired);
     }
 
     [Fact]

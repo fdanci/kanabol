@@ -377,47 +377,47 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
     [Theory]
     [InlineData(Permissions.TasksCreate)]
     [InlineData(Permissions.ProjectsViewAll)]
-    public async Task EnsureColumnManagerAsync_ForAMemberWithoutColumnsManage_ReturnsOwnerRequired(string permission)
+    public async Task EnsureColumnManagerAsync_ForAMemberWithoutColumnsManage_ReturnsManagerRequired(string permission)
     {
         var user = await CreateUser(permissions: [permission]);
         var project = await CreateProject(builder => builder.WithMember(user));
 
         var result = await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None);
 
-        result.Error.Should().Be(ProjectErrors.OwnerRequired);
+        result.Error.Should().Be(ColumnErrors.ManagerRequired);
         result.Error.Type.Should().Be(ErrorType.Forbidden);
     }
 
     // A real membership: columns.manage alone opens no project, nor does it with projects.view_all.
     [Fact]
-    public async Task EnsureColumnManagerAsync_WithColumnsManageOutsideTheProject_ReturnsOwnerRequired()
+    public async Task EnsureColumnManagerAsync_WithColumnsManageOutsideTheProject_ReturnsManagerRequired()
     {
         var user = await CreateUser(permissions: [Permissions.ColumnsManage, Permissions.ProjectsViewAll]);
         await CreateProject(builder => builder.WithMember(user));
         var project = await CreateProject();
 
-        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ColumnErrors.ManagerRequired);
     }
 
     [Fact]
-    public async Task EnsureColumnManagerAsync_ForADeactivatedMemberWithColumnsManage_ReturnsOwnerRequired()
+    public async Task EnsureColumnManagerAsync_ForADeactivatedMemberWithColumnsManage_ReturnsManagerRequired()
     {
         var user = await CreateUser(permissions: [Permissions.ColumnsManage]);
         var project = await CreateProject(builder => builder.WithMember(user));
         await Deactivate(user);
 
-        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ColumnErrors.ManagerRequired);
     }
 
     // The database decides: a token can still show columns.manage after the role lost it.
     [Fact]
-    public async Task EnsureColumnManagerAsync_WhenOnlyAnOldTokenStillHasColumnsManage_ReturnsOwnerRequired()
+    public async Task EnsureColumnManagerAsync_WhenOnlyAnOldTokenStillHasColumnsManage_ReturnsManagerRequired()
     {
         var user = await CreateUser();
         var project = await CreateProject(builder => builder.WithMember(user));
         SignIn(user, Permissions.ColumnsManage);
 
-        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ColumnErrors.ManagerRequired);
     }
 
     [Fact]
@@ -428,7 +428,7 @@ public sealed class ProjectAccessTests(PostgresFixture postgres) : AuthHandlerTe
         var project = await CreateProject(builder => builder.WithMember(caller).WithMember(user));
         SignIn(caller, Permissions.ColumnsManage);
 
-        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ProjectErrors.OwnerRequired);
+        (await Access.EnsureColumnManagerAsync(project.Id, user.Id, CancellationToken.None)).Error.Should().Be(ColumnErrors.ManagerRequired);
     }
 
     private async Task<Project> CreateProject(Func<ProjectBuilder, ProjectBuilder>? configure = null)

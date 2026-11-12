@@ -52,7 +52,7 @@ public sealed class ProjectAccess(IAppDbContext db) : IProjectAccess
 
     /// <summary>
     /// The board's columns (SPEC section 4.4, group 23): an owner, projects.manage, or a real member whose role
-    /// has columns.manage, all read here. A refusal is the owner's, as before the permission came.
+    /// has columns.manage, all read here. Anyone else gets Column.ManagerRequired (group 24).
     /// </summary>
     public async Task<Result> EnsureColumnManagerAsync(Guid projectId, Guid userId, CancellationToken ct)
     {
@@ -69,7 +69,7 @@ public sealed class ProjectAccess(IAppDbContext db) : IProjectAccess
                                     || (permission.Name == Permissions.ColumnsManage && membership.Any()))))),
             ct)
             ? Result.Success()
-            : ProjectErrors.OwnerRequired;
+            : ColumnErrors.ManagerRequired;
     }
 
     private Task<bool> HasAccess(Guid userId, IQueryable<ProjectMember> membership, string[] overridingPermissions, CancellationToken ct) =>

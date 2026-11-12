@@ -101,7 +101,7 @@
 #      WorkedTimeHandlerTests, ArchivedTasksEndpointTests, BoardRealtimeFlowTests); then the API built from this
 #      code, in Production. columns.manage: seeded and the Admin's; on PRM, the admin's, Mara (a member whose
 #      role has it) adds, renames, moves and deletes columns, Petru (a member without it) and Vera (outside, with
-#      it and projects.view_all) get 403 Project.OwnerRequired and change nothing, the board says canManage and
+#      it and projects.view_all) get 403 Column.ManagerRequired and change nothing, the board says canManage and
 #      canManageColumns as 'true|true' for the admin, 'false|true' for Mara, 'false|false' for the others, and
 #      once Mara's role loses it her token, which still lists it, changes nothing (read from the database).
 #      Column.CrossesInProgress on CRS: Analiză before În lucru and Review after it, each holding a task, can't
@@ -1971,12 +1971,12 @@ a_member_with_columns_manage_changes_the_columns() {
   is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,În review:Custom,Gata:Done' "$(columns_of "$prm")"
 }
 
-# A plain member and someone outside the project, columns.manage or not, get the owner's 403 and change nothing.
+# A plain member and someone outside the project, columns.manage or not, get 403 Column.ManagerRequired and change nothing.
 the_others_change_no_column() {
   a_project_whose_columns_a_member_manages || return 1
   before=$(columns_of "$prm")
-  code_is 403 Project.OwnerRequired "$(as "$petru_token" POST "/api/projects/$prm/board-columns" '{"name":"Petru"}')" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$vera_token" POST "/api/projects/$prm/board-columns" '{"name":"Vera"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$petru_token" POST "/api/projects/$prm/board-columns" '{"name":"Petru"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$vera_token" POST "/api/projects/$prm/board-columns" '{"name":"Vera"}')" || return 1
   is "$before" "$(columns_of "$prm")"
 }
 
@@ -1984,7 +1984,7 @@ the_others_change_no_column() {
 columns_manage_is_read_from_the_database() {
   a_project_whose_columns_a_member_manages || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":[]}')" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Târziu"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Târziu"}')" || return 1
   is 'false|false' "$(board_says "$mara_token" "$prm")" || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":["columns.manage"]}')"
 }
@@ -2303,7 +2303,7 @@ task_7() {
   check "the real API in Production seeds columns.manage, which the Admin has" columns_manage_is_seeded_and_the_admins
   check "the board's canManageColumns: the owner and Mara (columns.manage) yes, Petru and Vera (outside) no" the_board_says_who_manages_the_columns
   check "Mara, a member with columns.manage, adds, renames, moves and deletes columns" a_member_with_columns_manage_changes_the_columns
-  check "Petru without it and Vera outside the project get 403 Project.OwnerRequired, nothing changed" the_others_change_no_column
+  check "Petru without it and Vera outside the project get 403 Column.ManagerRequired, nothing changed" the_others_change_no_column
   check "columns.manage is read from the database: Mara's token outlives her role's permission" columns_manage_is_read_from_the_database
   check "a column holding tasks doesn't cross În lucru, either way (409 Column.CrossesInProgress), but moves on its side" a_column_with_tasks_stays_on_its_side_of_in_progress
   check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere

@@ -69,6 +69,8 @@ const BY_CODE: Record<string, () => string> = {
   'Attachment.NotYours': () =>
     $localize`Doar cine a urcat fișierul, sau cine poate arhiva task-uri, îl poate șterge.`,
   // The columns of a board (docs/UI_UX_SPEC.md §7.4).
+  'Column.ManagerRequired': () =>
+    $localize`Coloanele le schimbă ownerul sau cine are permisiunea de a administra coloanele.`,
   'Column.NotFound': () => $localize`Coloana nu mai e pe board. Reîncarcă pagina.`,
   'Column.NotEmpty': () =>
     $localize`Coloana mai are task-uri, poate și arhivate. Mută-le întâi în altă coloană.`,

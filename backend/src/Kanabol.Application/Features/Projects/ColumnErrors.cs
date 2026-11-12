@@ -4,6 +4,14 @@ namespace Kanabol.Application.Features.Projects;
 
 public static class ColumnErrors
 {
+    /// <summary>
+    /// The board's columns are changed by an owner, projects.manage, or a real member whose role has
+    /// columns.manage (SPEC section 4.4); anyone else, a deactivated account too, gets this.
+    /// </summary>
+    public static readonly Error ManagerRequired = Error.Forbidden(
+        "Column.ManagerRequired",
+        "Only an owner, or someone allowed to manage the columns, can change them.");
+
     public static readonly Error NotFound = Error.NotFound("Column.NotFound", "This column isn't on the project's board.");
 
     /// <summary>Archived tasks count too: they keep their column, and come back to it when restored.</summary>
