@@ -3,6 +3,8 @@
 ## Decizie
 Verificările rulează local, în hook-uri git (Husky și lint-staged), fără server de CI. Munca merge feature branch → `dev` → `main`. Suita completă rulează la commit sau merge pe `main`, iar merge-ul în `main` e mereu `--no-ff` și se face doar după ce verificările de acceptanță ale grupului au trecut pe o clonă curată.
 
+De la 2026-11-13, partea despre suita completă pe `main`, despre lipsa unui server de CI și despre `pre-push` e înlocuită de [[Kanban pe steroizi/Decisions/Suita întreagă și gate-ul în GitHub Actions|Suita întreagă și gate-ul în GitHub Actions]]: hook-urile fac doar verificări rapide pe orice branch, iar suita și gate-ul rulează pe GitHub. Rămân hook-urile, feature branch → `dev` → `main` și `--no-ff`.
+
 ## Motiv
 - Nu există runner, iar testele trebuie să ruleze mereu înainte de un commit pe `main`.
 - Fast-forward nu rulează niciun hook, de aceea `--no-ff` e obligatoriu.
@@ -14,4 +16,4 @@ Verificările rulează local, în hook-uri git (Husky și lint-staged), fără s
 - Suita completă la fiecare commit, pe orice branch: ar încetini munca pe feature branches.
 
 ## Legate
-[[Kanban pe steroizi/_Architecture|_Architecture]], [[Kanban pe steroizi/Decisions/Postgres real în teste|Postgres real în teste]]
+[[Kanban pe steroizi/_Architecture|_Architecture]], [[Kanban pe steroizi/Decisions/Postgres real în teste|Postgres real în teste]], [[Kanban pe steroizi/Decisions/Suita întreagă și gate-ul în GitHub Actions|Suita întreagă și gate-ul în GitHub Actions]]
