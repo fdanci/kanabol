@@ -14,10 +14,22 @@ echo "▶ $mode: lint-staged"
 npx --no -- lint-staged --relative
 
 echo "▶ $branch: fast checks"
+# The two sides at once when a commit touches both. The backend's output waits in a file and comes after
+# the specs', so the two don't mix; either one failing stops the commit.
+failed=0
+backend_log=
 if git diff --cached --name-only | grep -q '^backend/'; then
-  dotnet build backend/Kanabol.sln -warnaserror --nologo -v q
-  dotnet test backend/tests/Kanabol.Domain.Tests --no-build --nologo -v q
+  backend_log=$(mktemp)
+  (dotnet build backend/Kanabol.sln -warnaserror --nologo -v q &&
+    dotnet test backend/tests/Kanabol.Domain.Tests --no-build --nologo -v q) >"$backend_log" 2>&1 &
+  backend=$!
 fi
 if git diff --cached --name-only | grep -q '^frontend/'; then
-  (cd frontend && npx ng test --no-watch)
+  (cd frontend && npx ng test --no-watch) || failed=1
 fi
+if [ -n "$backend_log" ]; then
+  wait "$backend" || failed=1
+  cat "$backend_log"
+  rm -f "$backend_log"
+fi
+exit "$failed"
