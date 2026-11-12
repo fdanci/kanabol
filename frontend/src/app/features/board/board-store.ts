@@ -23,6 +23,13 @@ export type BoardState = 'loading' | 'ready' | 'error';
 
 /** How a move of a column ended: Column.CrossesInProgress is the page's to say (docs/UI_UX_SPEC.md §7.4). */
 export type ColumnMove = 'moved' | 'crossesInProgress' | 'refused';
+/** reservedName: a 400 on name, which the field says under it (docs/UI_UX_SPEC.md §7.4, group 24). */
+export type ColumnNaming = 'saved' | 'reservedName' | 'refused';
+
+/** What the field of a column's name says under it at a 400 on name (docs/UI_UX_SPEC.md §7.4). */
+export function reservedColumnName(): string {
+  return $localize`Backlog, În lucru, În pauză, Gata și Arhivate sunt numele board-ului; alege altul.`;
+}
 
 /**
  * The board of the project on screen (docs/SPEC.md §6.2, §6.3). The reads are resources of the
@@ -251,14 +258,15 @@ export class BoardStore {
   }
 
   /**
-   * The columns (docs/UI_UX_SPEC.md §7.4), for an owner or projects.manage. Each answers true once the
-   * API took it; refused, errorInterceptor says why, and the board is read again to be sure.
+   * The columns (docs/UI_UX_SPEC.md §7.4), for canManageColumns. Each answers saved once the API took
+   * it; refused, errorInterceptor says why and the board is read again to be sure, while a 400 on name,
+   * which changed nothing, is the field's to say (reservedName).
    */
-  addColumn(name: string): Promise<boolean> {
+  addColumn(name: string): Promise<ColumnNaming> {
     return this.changeColumns((board) => this.api.addColumn(board.projectId, name), true);
   }
 
-  renameColumn(column: BoardColumnDto, name: string): Promise<boolean> {
+  renameColumn(column: BoardColumnDto, name: string): Promise<ColumnNaming> {
     return this.changeColumns(
       (board) => this.api.updateColumn(board.projectId, column.id, name),
       false,
@@ -301,18 +309,22 @@ export class BoardStore {
     }
   }
 
-  deleteColumn(column: BoardColumnDto): Promise<boolean> {
-    return this.changeColumns((board) => this.api.deleteColumn(board.projectId, column.id), true);
+  async deleteColumn(column: BoardColumnDto): Promise<boolean> {
+    const answer = await this.changeColumns(
+      (board) => this.api.deleteColumn(board.projectId, column.id),
+      true,
+    );
+    return answer === 'saved';
   }
 
   private async changeColumns<T>(
     call: (board: BoardDto) => Observable<T>,
     readAgain: boolean,
     apply?: (saved: T) => void,
-  ): Promise<boolean> {
+  ): Promise<ColumnNaming> {
     const board = this.board();
     if (!board?.canManageColumns) {
-      return false;
+      return 'refused';
     }
     try {
       const saved = await firstValueFrom(call(board), { defaultValue: undefined as T });
@@ -320,10 +332,13 @@ export class BoardStore {
       if (readAgain) {
         this.reload();
       }
-      return true;
-    } catch {
+      return 'saved';
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && problemIn(error)?.errors?.['name']) {
+        return 'reservedName';
+      }
       this.reload();
-      return false;
+      return 'refused';
     }
   }
 

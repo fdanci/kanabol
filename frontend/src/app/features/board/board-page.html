@@ -66,6 +66,7 @@
       <div class="cards-group" cdkDropListGroup>
         @for (column of store.columns(); track column.id) {
           <kb-board-column
+            #columnView
             cdkDrag
             [cdkDragData]="column"
             [cdkDragDisabled]="!canDrag(column)"
@@ -83,7 +84,7 @@
             [canMoveRight]="canMoveRight(column)"
             [beforeInProgress]="beforeInProgress(column)"
             [startedColumnIds]="startedColumnIds()"
-            (renamed)="renameColumn(column, $event)"
+            (renamed)="renameColumn(column, $event, columnView)"
             (moved)="moveColumn(column, $event)"
             (deleted)="deleteColumn(column)"
             [liftedId]="lifted()?.taskId ?? null"
@@ -109,10 +110,16 @@
                 placeholder="Numele coloanei"
                 i18n-aria-label
                 aria-label="Numele coloanei noi"
+                [attr.aria-invalid]="newColumnError() !== null"
+                [attr.aria-describedby]="newColumnError() !== null ? 'kb-new-column-error' : null"
+                (input)="newColumnError.set(null)"
                 (keydown.enter)="addColumn(newColumn)"
-                (keydown.escape)="addingColumn.set(false)"
-                (blur)="newColumn.value.trim() === '' && addingColumn.set(false)"
+                (keydown.escape)="stopAddingColumn()"
+                (blur)="newColumn.value.trim() === '' && stopAddingColumn()"
               />
+              @if (newColumnError(); as message) {
+                <p id="kb-new-column-error" class="kb-field-error">{{ message }}</p>
+              }
             } @else {
               <button
                 matButton="outlined"

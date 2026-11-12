@@ -33,6 +33,7 @@ import {
   aBoardMember,
   aCard,
   anArchivedCard,
+  refusedOnName,
   refusedWith,
 } from './board-testing';
 import { ArchivedTaskDto, BoardColumnDto, BoardDto, BoardTaskDto } from './models';
@@ -819,6 +820,87 @@ describe('BoardPage', () => {
 
       expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c4', 'Design');
       expect(column('Design')).toBeDefined();
+    });
+
+    describe('a name the board keeps for its own columns', () => {
+      const RESERVED =
+        'Backlog, În lucru, În pauză, Gata și Arhivate sunt numele board-ului; alege altul.';
+
+      function errorUnder(field: HTMLInputElement): HTMLElement | null {
+        const id = field.getAttribute('aria-describedby');
+        return id === null ? null : document.getElementById(id);
+      }
+
+      function type(field: HTMLInputElement, value: string): void {
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+      }
+
+      it('says it under the field of a new column, which stays open with the name, until the name changes', async () => {
+        api['addColumn'].mockReturnValue(refusedOnName());
+        await visit();
+
+        page().querySelector<HTMLButtonElement>('.add-column')!.click();
+        await settle();
+        const field = page().querySelector<HTMLInputElement>('.new-column')!;
+        type(field, 'Arhivate');
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        await settle();
+
+        expect(page().querySelector('.new-column')).toBe(field);
+        expect(field.value).toBe('Arhivate');
+        expect(field.getAttribute('aria-invalid')).toBe('true');
+        expect(errorUnder(field)?.textContent.trim()).toBe(RESERVED);
+        expect(errorUnder(field)?.classList).toContain('kb-field-error');
+        field.dispatchEvent(new Event('blur'));
+        await settle();
+        expect(page().querySelector('.new-column')).toBe(field);
+
+        type(field, 'Arhivă');
+        await settle();
+        expect(errorUnder(field)).toBeNull();
+        expect(page().querySelector('.kb-field-error')).toBeNull();
+      });
+
+      it('says it under the rename field, which stays open with the name, and Esc gives up', async () => {
+        api['updateColumn'].mockReturnValue(refusedOnName());
+        await visit();
+
+        await choose('Analiză', 'Redenumește');
+        const field = column('Analiză').querySelector<HTMLInputElement>('.rename')!;
+        type(field, 'gata');
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        await settle();
+
+        expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c4', 'gata');
+        expect(column('Analiză').querySelector('.rename')).toBe(field);
+        expect(field.value).toBe('gata');
+        expect(field.getAttribute('aria-invalid')).toBe('true');
+        expect(errorUnder(field)?.textContent.trim()).toBe(RESERVED);
+        expect(errorUnder(field)?.classList).toContain('kb-field-error');
+        field.dispatchEvent(new Event('blur'));
+        await settle();
+        expect(api['updateColumn']).toHaveBeenCalledTimes(1);
+        expect(column('Analiză').querySelector('.rename')).toBe(field);
+
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        await settle();
+        expect(column('Analiză').querySelector('.rename')).toBeNull();
+        expect(page().querySelector('.kb-field-error')).toBeNull();
+      });
+
+      it('closes the rename field once the API takes another name', async () => {
+        await visit();
+
+        await choose('Analiză', 'Redenumește');
+        const field = column('Analiză').querySelector<HTMLInputElement>('.rename')!;
+        type(field, 'Design');
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        await settle();
+
+        expect(page().querySelector('.rename')).toBeNull();
+        expect(column('Design')).toBeDefined();
+      });
     });
 
     // docs/SPEC.md §4.4: Gata is the done column, and no column's kind changes from the menu.
