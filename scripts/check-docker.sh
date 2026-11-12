@@ -584,12 +584,24 @@ web_limits_a_client_whatever_it_claims() {
 
 # nginx stops reading the path at the #, so this reaches /hubs/ there, while the API resolves the dots
 # and sees a login. Whichever way a request gets through, the client doesn't choose its address, so
-# this client, which has used up its logins above, stays refused. Git Bash would rewrite the target.
+# this client, which has used up its logins above, stays refused: 429. Newer images of nginx or of the
+# API refuse such a target outright, with 400, before any login (GitHub's runners pull those, a
+# developer's Docker may hold older ones): that's no way around the limit either. A 401, or anything
+# else, would be a login that got through. Git Bash would rewrite the target.
 web_limits_a_login_sent_through_hubs() {
-  is 429 "$(MSYS_NO_PATHCONV=1 curl -sS -o "$(native "$scratch/through-hubs.txt")" -w '%{http_code}' \
+  code=$(MSYS_NO_PATHCONV=1 curl -sS -o "$(native "$scratch/through-hubs.txt")" -w '%{http_code}' \
     --path-as-is --request-target '/hubs/#/../../api/auth/login' \
     -H 'X-Forwarded-For: 203.0.113.200' -H 'Content-Type: application/json' \
-    -d '{"email":"nobody@example.com","password":"not the right one"}' "$web_url/")"
+    -d '{"email":"nobody@example.com","password":"not the right one"}' "$web_url/")
+  echo "the hubs path answered $code"
+  case "$code" in
+    429 | 400) ;;
+    *)
+      echo "expected 429, the limit, or 400, the target refused"
+      cat "$scratch/through-hubs.txt"
+      return 1
+      ;;
+  esac
 }
 
 # Inside the web container, nginx sees another client, while the API still only ever talks to nginx.
