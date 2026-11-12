@@ -64,9 +64,9 @@ A summary of `docs/SPEC.md` §7, which has the full tables and examples.
 
 Never mention Claude in commit messages or PRs, and never add a `Co-Authored-By` line or any other AI attribution.
 
-After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the full test suite on `main`, which needs Docker Desktop running, and only fast checks on other branches (`docs/SPEC.md` §14).
+After cloning, run `scripts/setup.sh`. It installs the packages, turns on the hooks and makes every merge into `main` create a commit. The hooks run the same fast checks on every branch, `main` included, and need no Docker (`docs/SPEC.md` §14). The full suite runs in the GitHub workflow (`docs/ci.md`), or by hand with `scripts/test-all.sh`, which needs Docker Desktop running.
 
-Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`, run on a fresh clone in two tiers (`docs/SPEC.md` §14.7). Before calling a group done: the group's script, the scripts the group touches, `check-tests.sh` and `check-lint.sh`. The full gate, every `check-*.sh`, runs only before a version tag.
+Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` has its acceptance checks in `scripts/check-*.sh`, run on a fresh clone in two tiers (`docs/SPEC.md` §14.7). Before calling a group done: the group's script, the scripts the group touches, `check-tests.sh` and `check-lint.sh`. The full gate, every `check-*.sh`, runs on GitHub: `dev` goes into `main` only after a green full gate there, started by hand on the `dev` commit, the push to `main` runs it again, and a tag goes only on a green `main`. Until the first green full gate on GitHub, `dev` goes into `main` only after a green `scripts/test-all.sh` run by hand.
 
 ## The server
 

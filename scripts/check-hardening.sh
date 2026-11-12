@@ -45,9 +45,10 @@
 #      --kb-chart-1 and --kb-chart-2 in the built CSS (#122d94 and #135bf7, and #91c4fb and #3d6fc9 in both
 #      dark rules), and kb-chart reading them instead of brand-800 and sky-300. Only the packages.
 #   6  the tests' common password hashed once per suite: the tests (the people AuthApiTest and
-#      AuthHandlerTest make share one hash, which signs in), no helper hashing per person, then
-#      check-pipeline.sh 6, whose merge into main, with the whole suite and the real hooks in a throwaway
-#      copy of the repo, takes under 210 s; prints the time. Docker.
+#      AuthHandlerTest make share one hash, which signs in), no helper hashing per person, then the rule
+#      that replaced the merge into main under 210 s (docs/SPEC.md v1.33, §14.3, §14.6): the hooks run the
+#      same fast checks on main as anywhere, with no pre-push hook, and the full suite is the workflow's
+#      (check-pipeline.sh 3 to 6 run the hooks themselves). Docker.
 #
 # Docker runs nginx and a stand-in for the API, and the tests' own PostgreSQL; 5 needs only the packages that
 # scripts/setup.sh installs. PostgreSQL means one whose user may create databases, with its connection string
@@ -1470,7 +1471,7 @@ task_5() {
   check "kb-chart reads --kb-chart-1 and --kb-chart-2, and no hex" the_chart_reads_its_tokens
 }
 
-# ---- 19.6: the common test password hashed once per suite, and the merge into main under 210 s.
+# ---- 19.6: the common test password hashed once per suite, and the hooks on main kept to the fast checks.
 
 common_password_tests_pass() {
   named_tests_pass Kanabol.Api.Tests CommonPasswordTests.People_MadeByTheTests_ShareOneHashOfTheCommonPassword_AndSignInWithIt &&
@@ -1487,26 +1488,24 @@ nobody_hashes_per_person() {
     in_file 'Lazy<string> _passwordHash = new(() => new PasswordHasher().Hash(Password));' backend/tests/Kanabol.Application.Tests/Features/Auth/AuthHandlerTest.cs
 }
 
-# docs/SPEC.md §14.6: check-pipeline.sh 6 makes a throwaway repo from this one, with its real hooks, and
-# merges a branch into main with --no-ff, which runs the whole suite, in under 210 s.
-merge_into_main_is_under_210_seconds() {
-  stop_api
-  sh scripts/check-pipeline.sh 6 >"$scratch/pipeline.log" 2>&1
-  status=$?
-  sed -n '/a --no-ff merge into main runs the full suite, in under 210 s/,+1p' "$scratch/pipeline.log"
-  grep -q '^  ok    a --no-ff merge into main runs the full suite, in under 210 s' "$scratch/pipeline.log" && [ "$status" -eq 0 ] || {
-    grep -E 'FAIL' -A3 "$scratch/pipeline.log" | head -n 20
+# docs/SPEC.md §14.3 and §14.6 (v1.33): the full suite left the hooks, so a merge into main has no time of
+# its own to keep any more. verify.sh treats main as any branch, and nothing runs the suite on a push.
+main_hooks_run_only_the_fast_checks() {
+  ! grep -v '^[[:space:]]*#' scripts/verify.sh | grep -nE 'test-all\.sh|"main"' &&
+    [ ! -e .husky/pre-push ] &&
+    in_file 'exec scripts/verify.sh merge' .husky/pre-merge-commit &&
+    in_file 'exec scripts/verify.sh commit' .husky/pre-commit || {
+    echo "a hook still runs the full suite, or treats main apart"
     return 1
   }
 }
 
 task_6() {
-  echo "19.6 the common password hashed once, and the merge into main under 210 s"
+  echo "19.6 the common password hashed once, and the hooks on main kept to the fast checks"
   check "Docker is running" docker_is_running
   check "the people the tests make share one hash of the common password" common_password_tests_pass
   check "no helper hashes it per person" nobody_hashes_per_person
-  check "check-pipeline.sh 6 passes, its merge into main under 210 s" merge_into_main_is_under_210_seconds
-  sed -n '/a --no-ff merge into main runs the full suite, in under 210 s/{n;p}' "$scratch/pipeline.log" 2>/dev/null
+  check "the hooks on main run only the fast checks, and no pre-push runs the suite" main_hooks_run_only_the_fast_checks
 }
 tasks=${*:-1 2 3 4 5 6}
 for task in $tasks; do
