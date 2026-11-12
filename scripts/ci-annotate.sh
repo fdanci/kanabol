@@ -55,6 +55,10 @@ for status in "$folder"/*.status; do
   [ -f "$status" ] || continue
   [ "$(cat "$status")" = 0 ] && continue
   name=$(basename "$status" .status)
-  annotate error "prepare: $name exited $(cat "$status")" "$(tail -n 40 "$folder/$name.log" 2>/dev/null)"
+  log="$folder/$name.log"
+  # A failed test, a build error or a crash, with the lines after it; else the end of the log.
+  details=$(grep -E -A 8 '^ *Failed |^Failed!|error [A-Z]+[0-9]+|Test Run Aborted|crashed|FAIL ' "$log" 2>/dev/null | head -n 70)
+  [ -n "$details" ] || details=$(tail -n 40 "$log" 2>/dev/null)
+  annotate error "prepare: $name exited $(cat "$status")" "$details"
 done
 exit 0

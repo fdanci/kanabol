@@ -53,7 +53,8 @@ jobs:
       - uses: ./.github/actions/setup
       - name: scripts/gate-prepare.sh
         run: sh scripts/gate-prepare.sh "$HOME/gate-cache"
-      - if: failure()
+      # The preparation keeps going when a step fails, so its failures are annotated whatever the job's outcome.
+      - if: always()
         name: annotations
         run: sh scripts/ci-annotate.sh "$HOME/gate-cache"
       - if: always()

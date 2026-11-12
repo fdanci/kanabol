@@ -28,12 +28,16 @@ runs:
         key: nuget-${{ runner.os }}-${{ hashFiles('backend/Directory.Packages.props', 'backend/**/*.csproj', 'dotnet-tools.json') }}
         restore-keys: nuget-${{ runner.os }}-
 
-    # On Windows the scripts run under Git for Windows' sh, which is bash; dash would read them differently.
+    # On Windows the scripts run under Git for Windows' sh, which is bash; dash would read them differently. Only
+    # the sh found on the PATH becomes bash: /bin/sh stays dash for npm exec (npx), which runs its command
+    # through it, and bash would split an --include glob's {a,b} into words.
     - name: sh is bash
       shell: bash
       run: |
-        sudo ln -sf bash /usr/bin/sh
-        sh -c 'echo "sh is bash $BASH_VERSION"'
+        mkdir -p "$RUNNER_TEMP/sh-is-bash"
+        ln -sf "$(command -v bash)" "$RUNNER_TEMP/sh-is-bash/sh"
+        echo "$RUNNER_TEMP/sh-is-bash" >>"$GITHUB_PATH"
+        echo "::notice title=toolchain::dotnet $(dotnet --version), node $(node --version), npm $(npm --version)"
 
     # PostgreSQL 17 from its own apt repository, without the cluster Debian would start on 5432: check-docker.sh 5
     # needs that port free. The job's cluster is on 5433, in the C locale, as the scripts' databases expect, with
