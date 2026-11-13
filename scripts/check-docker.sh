@@ -314,7 +314,7 @@ start_web() { # start_web <name> [configuration file]
   fi
   sleep 2
   web_url="http://$(docker port "$run_id-$1" 80/tcp | head -n 1)"
-  curl -sS -o /dev/null --retry 10 --retry-connrefused --retry-delay 1 "$web_url/"
+  curl -sS -o /dev/null --retry 10 --retry-all-errors --retry-delay 1 "$web_url/"
 }
 
 web_serves_the_app() { # web_serves_the_app <path>

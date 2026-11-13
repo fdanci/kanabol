@@ -474,7 +474,8 @@ start_web() { # start_web <name> [nginx-app.conf to use]
   # shellcheck disable=SC2086 # the mount is meant to split
   docker run -d --label "$run_id" --name "$run_id-$1" --network "$network" -p 127.0.0.1::80 $mount "$web_image" >/dev/null || return 1
   web_url="http://$(docker port "$run_id-$1" 80/tcp | head -n 1)"
-  curl -sS -o /dev/null --retry 15 --retry-connrefused --retry-delay 1 "$web_url/" || {
+  # Docker's proxy takes the connection before nginx listens and resets it: a reset is retried too.
+  curl -sS -o /dev/null --retry 15 --retry-all-errors --retry-delay 1 "$web_url/" || {
     docker logs "$run_id-$1" 2>&1 | tail -n 10
     return 1
   }
@@ -492,7 +493,7 @@ start_prod_web() {
     -v "$(native "$scratch/certs"):/etc/nginx/certs:ro" "$web_image" >/dev/null || return 1
   http_port=$(docker port "$run_id-prod" 80/tcp | head -n 1 | sed 's/.*://')
   https_port=$(docker port "$run_id-prod" 443/tcp | head -n 1 | sed 's/.*://')
-  curl -sSk -o /dev/null --retry 15 --retry-connrefused --retry-delay 1 "https://127.0.0.1:$https_port/" || {
+  curl -sSk -o /dev/null --retry 15 --retry-all-errors --retry-delay 1 "https://127.0.0.1:$https_port/" || {
     docker logs "$run_id-prod" 2>&1 | tail -n 10
     return 1
   }
