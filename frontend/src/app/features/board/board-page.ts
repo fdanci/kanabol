@@ -45,7 +45,7 @@ import { ArchivedStore } from './archived-store';
 import { BoardColumn, NewCard } from './board-column';
 import { cardFilter } from './board-filters';
 import { crossesInProgress, placeAmong } from './board-moves';
-import { BoardStore } from './board-store';
+import { BoardStore, reservedColumnName } from './board-store';
 import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto, MoveAnswers } from './models';
 
 /** A card picked up from the keyboard: where it would land, among the cards that column shows. */
@@ -146,6 +146,8 @@ export class BoardPage {
       ),
   );
   protected readonly addingColumn = signal(false);
+  /** A name the board keeps, under the field (docs/UI_UX_SPEC.md §7.4, group 24). */
+  protected readonly newColumnError = signal<string | null>(null);
   private readonly newColumn = viewChild<ElementRef<HTMLInputElement>>('newColumn');
 
   /**
@@ -343,15 +345,31 @@ export class BoardPage {
     return column.position < this.inProgressPosition();
   }
 
+  /** Saved, the field closes; a name the board keeps leaves it open, the name written and the error under it. */
   protected async addColumn(field: HTMLInputElement): Promise<void> {
     const name = field.value.trim();
-    if (name !== '' && (await this.store.addColumn(name))) {
-      this.addingColumn.set(false);
+    if (name === '') {
+      return;
+    }
+    const answer = await this.store.addColumn(name);
+    if (answer === 'saved') {
+      this.stopAddingColumn();
+    } else if (answer === 'reservedName') {
+      this.newColumnError.set(reservedColumnName());
     }
   }
 
-  protected renameColumn(column: BoardColumnDto, name: string): void {
-    void this.store.renameColumn(column, name);
+  protected stopAddingColumn(): void {
+    this.addingColumn.set(false);
+    this.newColumnError.set(null);
+  }
+
+  protected async renameColumn(
+    column: BoardColumnDto,
+    name: string,
+    view: BoardColumn,
+  ): Promise<void> {
+    view.renameAnswered(await this.store.renameColumn(column, name));
   }
 
   /** A column of the project's own drags by its head, for canManageColumns (docs/UI_UX_SPEC.md §7.4, group 23). */

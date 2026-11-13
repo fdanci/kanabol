@@ -1,7 +1,7 @@
 # The full suite and the acceptance checks on GitHub's standard Linux machines (docs/ci.md, docs/SPEC.md §14).
 #   push to dev, feature/*, fix/*, chore/*: the short tier, check-tests, check-lint and each check-*.sh the push
 #     changed
-#   push to main, or started by hand on any branch: the full gate, every check-*.sh, in parallel jobs
+#   push to main, and only then: the full gate, every check-*.sh, in parallel jobs
 # A job "prepare" does once what the scripts share (scripts/gate-prepare.sh: the build, the formatting, the
 # lint, the production build and scripts/test-all.sh) and hands it to the check jobs through the cache of
 # this run; each check job runs its scripts through scripts/gate.sh. Only ubuntu-latest, official actions
@@ -11,7 +11,6 @@ name: CI
 on:
   push:
     branches: [main, dev, "feature/**", "fix/**", "chore/**"]
-  workflow_dispatch:
 
 permissions:
   contents: read

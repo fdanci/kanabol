@@ -101,6 +101,21 @@ export function refusedWith(status: number, code: string): Observable<never> {
   );
 }
 
+/** A 400 on name, as the API answers a column named as one of the board's own. */
+export function refusedOnName(): Observable<never> {
+  return throwError(
+    () =>
+      new HttpErrorResponse({
+        status: 400,
+        error: {
+          status: 400,
+          errors: { name: ['Backlog, În lucru, În pauză, Gata and Arhivate…'] },
+        },
+        url: '/api/projects/p1/board-columns',
+      }),
+  );
+}
+
 /** The titles of each column from the left, as "A B C | D | E". */
 export function titlesByColumn(
   tasks: readonly BoardTaskDto[],

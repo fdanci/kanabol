@@ -2,9 +2,8 @@
 # What .github/workflows/ci.yml runs on this push (docs/ci.md, docs/SPEC.md §14.7). Writes tier= and shards= (a
 # JSON list of {"name", "scripts"}, each a job of scripts/gate.sh) to $GITHUB_OUTPUT, or prints them.
 #
-#   full   on a push to main and when started by hand: every scripts/check-*.sh, in the shards below. By hand
-#          means workflow_dispatch, which GitHub offers only once ci.yml is on the default branch, or a push
-#          whose last commit has [full gate] in its subject, which works on any branch before that too
+#   full   on a push to main, and only then (docs/SPEC.md §14.7, §14.8): every scripts/check-*.sh, in the shards
+#          below. Nothing starts it by hand: ci.yml has no workflow_dispatch, and a commit's subject decides nothing
 #   short  on any other push: check-tests, check-lint and each check-*.sh the push changed, a job each
 #
 # Usage: scripts/ci-plan.sh <event name> <ref> <commit before the push, or nothing>
@@ -12,6 +11,7 @@
 
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
+# The event decides nothing any more, only the ref: it stays in the usage, as ci.yml passes it.
 event=${1:?usage: scripts/ci-plan.sh <event> <ref> [before]}
 ref=${2:?usage: scripts/ci-plan.sh <event> <ref> [before]}
 before=${3:-}
@@ -39,8 +39,7 @@ json() { # json <name=scripts lines>: the shards as JSON
   '
 }
 
-if [ "$event" = workflow_dispatch ] || [ "$ref" = refs/heads/main ] ||
-  { [ "$event" = push ] && git log -1 --format=%s HEAD | grep -qF '[full gate]'; }; then
+if [ "$ref" = refs/heads/main ]; then
   tier=full
   missing=
   for script in scripts/check-*.sh; do

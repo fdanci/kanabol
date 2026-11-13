@@ -34,7 +34,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
 
     // SPEC section 4.4, group 23: a real member whose role has columns.manage; one without gets 403.
     [Fact]
-    public async Task Post_ByAMemberWithColumnsManage_Returns201AndWithoutIt403OwnerRequired()
+    public async Task Post_ByAMemberWithColumnsManage_Returns201AndWithoutIt403ManagerRequired()
     {
         var (member, token) = await SignedIn(Permissions.ColumnsManage);
         var (plain, plainToken) = await SignedIn(Permissions.TasksCreate);
@@ -45,7 +45,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
 
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         using var body = await JsonFrom(refused);
-        body.RootElement.GetProperty("code").GetString().Should().Be("Project.OwnerRequired");
+        body.RootElement.GetProperty("code").GetString().Should().Be("Column.ManagerRequired");
     }
 
     [Fact]
@@ -201,7 +201,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
     }
 
     [Fact]
-    public async Task Post_ByAMember_Returns403OwnerRequired()
+    public async Task Post_ByAMember_Returns403ManagerRequired()
     {
         var (member, token) = await SignedIn(Permissions.TasksCreate);
         var project = await CreateProject(builder => builder.WithMember(member));
@@ -209,7 +209,7 @@ public sealed class BoardColumnsEndpointTests(ApiFixture api) : ProjectApiTest(a
         var response = await Send(HttpMethod.Post, ColumnsOf(project.Id), token, new { name = "Review" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await CodeFrom(response)).Should().Be("Project.OwnerRequired");
+        (await CodeFrom(response)).Should().Be("Column.ManagerRequired");
     }
 
     [Fact]

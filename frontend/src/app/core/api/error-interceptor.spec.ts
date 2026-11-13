@@ -145,6 +145,10 @@ describe('errorInterceptor', () => {
     ],
     ['User.LastAdmin', 'Este ultimul administrator activ. Dă întâi rolul Admin altcuiva.'],
     ['User.OwnPasswordReset', 'Parola ta o schimbi cu parola curentă, nu prin resetare.'],
+    [
+      'Column.ManagerRequired',
+      'Coloanele le schimbă ownerul sau cine are permisiunea de a administra coloanele.',
+    ],
   ])('says what %s means', (code, message) => {
     failed(
       code === 'User.LastAdmin' || code.endsWith('IsFixed') || code.endsWith('InUse') ? 409 : 403,

@@ -15,6 +15,7 @@ import {
   aBoard,
   aBoardMember,
   aCard,
+  refusedOnName,
   refusedWith,
   titlesByColumn,
 } from './board-testing';
@@ -315,7 +316,7 @@ describe('BoardStore', () => {
     it('renames a column in place, without reading the board again', async () => {
       await opened();
 
-      expect(await store.renameColumn(store.columns()[1], 'Lucrez')).toBe(true);
+      expect(await store.renameColumn(store.columns()[1], 'Lucrez')).toBe('saved');
 
       expect(api['updateColumn']).toHaveBeenCalledWith('p1', 'c2', 'Lucrez');
       expect(store.columns().map((column) => column.name)).toEqual(['De făcut', 'Lucrez', 'Gata']);
@@ -417,13 +418,31 @@ describe('BoardStore', () => {
       expect(api['board']).toHaveBeenCalledTimes(2);
     });
 
+    // docs/UI_UX_SPEC.md §7.4, group 24: the field says it, so the board stays as it is.
+    it('answers reservedName for a 400 on name, to add or to rename, without reading the board again', async () => {
+      api['addColumn'].mockReturnValue(refusedOnName());
+      api['updateColumn'].mockReturnValue(refusedOnName());
+      await opened();
+
+      expect(await store.addColumn('Arhivate')).toBe('reservedName');
+      expect(await store.renameColumn(store.columns()[1], 'gata')).toBe('reservedName');
+      TestBed.tick();
+
+      expect(store.columns().map((column) => column.name)).toEqual([
+        'De făcut',
+        'În lucru',
+        'Gata',
+      ]);
+      expect(api['board']).toHaveBeenCalledTimes(1);
+    });
+
     it('changes nothing for one who is not an owner', async () => {
       board.canManage = false;
       board.canManageColumns = false;
       await opened();
 
-      expect(await store.addColumn('Review')).toBe(false);
-      expect(await store.renameColumn(store.columns()[0], 'X')).toBe(false);
+      expect(await store.addColumn('Review')).toBe('refused');
+      expect(await store.renameColumn(store.columns()[0], 'X')).toBe('refused');
       expect(api['addColumn']).not.toHaveBeenCalled();
       expect(api['updateColumn']).not.toHaveBeenCalled();
     });
@@ -436,7 +455,7 @@ describe('BoardStore', () => {
       board.canManageColumns = true;
       await opened();
 
-      expect(await store.addColumn('Review')).toBe(true);
+      expect(await store.addColumn('Review')).toBe('saved');
       expect(api['addColumn']).toHaveBeenCalled();
     });
 
@@ -445,7 +464,7 @@ describe('BoardStore', () => {
       board.canManageColumns = false;
       await opened();
 
-      expect(await store.addColumn('Review')).toBe(false);
+      expect(await store.addColumn('Review')).toBe('refused');
       expect(api['addColumn']).not.toHaveBeenCalled();
     });
   });

@@ -14,6 +14,7 @@ import { MatButton, MatIconButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { ColumnKind } from '../../shared/models/column-kind';
+import { ColumnNaming, reservedColumnName } from './board-store';
 import { ArchivedTaskDto, BoardColumnDto, BoardTaskDto } from './models';
 import { TaskCard } from './task-card';
 
@@ -94,8 +95,11 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
             [value]="column().name"
             i18n-aria-label
             aria-label="Numele coloanei"
+            [attr.aria-invalid]="nameError() !== null"
+            [attr.aria-describedby]="nameError() !== null ? nameErrorId() : null"
+            (input)="nameChanged()"
             (keydown.enter)="rename(renameField)"
-            (keydown.escape)="renaming.set(false)"
+            (keydown.escape)="stopRenaming()"
             (blur)="rename(renameField)"
           />
         }
@@ -137,6 +141,9 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
           </mat-menu>
         }
       </header>
+      @if (nameError(); as message) {
+        <p class="kb-field-error name-error" [id]="nameErrorId()">{{ message }}</p>
+      }
 
       <div
         class="cards"
@@ -290,6 +297,10 @@ const KIND_ICONS: Partial<Record<ColumnKind, string>> = {
       margin-left: auto;
     }
 
+    .name-error {
+      padding: 0 2px;
+    }
+
     .count {
       display: inline-grid;
       place-items: center;
@@ -391,6 +402,11 @@ export class BoardColumn {
   protected readonly maxTitleLength = MAX_TITLE_LENGTH;
   protected readonly maxNameLength = MAX_NAME_LENGTH;
   protected readonly renaming = signal(false);
+  /** A name the board keeps, refused with 400 on name (docs/UI_UX_SPEC.md §7.4, group 24). */
+  protected readonly nameError = signal<string | null>(null);
+  protected readonly nameErrorId = computed(() => `kb-column-name-error-${this.column().id}`);
+  private savingName = false;
+  private refusedName: string | null = null;
   protected readonly menuLabel = computed(
     () => $localize`Acțiunile coloanei ${this.column().name}:name:`,
   );
@@ -414,16 +430,46 @@ export class BoardColumn {
     this.renaming.set(true);
   }
 
-  /** Enter and leaving the field save; a blank or unchanged name changes nothing. */
+  /**
+   * Enter and leaving the field save; a blank or unchanged name changes nothing. The field waits for the
+   * page's answer (renameAnswered), and a name already refused isn't sent again: the field says why.
+   */
   protected rename(field: HTMLInputElement): void {
-    if (!this.renaming()) {
+    if (!this.renaming() || this.savingName) {
       return;
     }
-    this.renaming.set(false);
     const name = field.value.trim();
-    if (name !== '' && name !== this.column().name) {
+    if (name === '' || name === this.column().name) {
+      this.stopRenaming();
+    } else if (name !== this.refusedName) {
+      this.savingName = true;
       this.renamed.emit(name);
     }
+  }
+
+  /** What the API said to renamed: at reservedName the field stays open, with the name written. */
+  renameAnswered(answer: ColumnNaming): void {
+    this.savingName = false;
+    const field = this.renameField()?.nativeElement;
+    if (answer === 'reservedName' && field) {
+      this.refusedName = field.value.trim();
+      this.nameError.set(reservedColumnName());
+      field.focus();
+    } else {
+      this.stopRenaming();
+    }
+  }
+
+  protected stopRenaming(): void {
+    this.renaming.set(false);
+    this.savingName = false;
+    this.nameChanged();
+  }
+
+  /** The error stays until the name changes. */
+  protected nameChanged(): void {
+    this.nameError.set(null);
+    this.refusedName = null;
   }
 
   /** The field stays open, empty, for the next card. */

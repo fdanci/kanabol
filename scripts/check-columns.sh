@@ -101,7 +101,7 @@
 #      WorkedTimeHandlerTests, ArchivedTasksEndpointTests, BoardRealtimeFlowTests); then the API built from this
 #      code, in Production. columns.manage: seeded and the Admin's; on PRM, the admin's, Mara (a member whose
 #      role has it) adds, renames, moves and deletes columns, Petru (a member without it) and Vera (outside, with
-#      it and projects.view_all) get 403 Project.OwnerRequired and change nothing, the board says canManage and
+#      it and projects.view_all) get 403 Column.ManagerRequired and change nothing, the board says canManage and
 #      canManageColumns as 'true|true' for the admin, 'false|true' for Mara, 'false|false' for the others, and
 #      once Mara's role loses it her token, which still lists it, changes nothing (read from the database).
 #      Column.CrossesInProgress on CRS: Analiză before În lucru and Review after it, each holding a task, can't
@@ -119,7 +119,8 @@
 #      archivedCount and its cards read only while open, a task with an estimate asked nothing back from În
 #      pauză (the board by the mouse and the keyboard, the panel's Stare), the columns of the project's own
 #      dragged by their head between Backlog and Gata with the cards' lists still connected, the dialog
-#      "Coloana «X» are task-uri" at a drop, a menu move and the API's 409, the settings' day names whole with
+#      "Coloana «X» are task-uri" at a drop, a menu move and the API's 409, a reserved name refused with 400 on
+#      name said under the field of "+ Coloană" and of the rename, which stays open (group 24), the settings' day names whole with
 #      the short ones aria-hidden and docs/ui-review.md's axe-core run, the report's work time in hours and
 #      minutes with its screenshot taken again since v1.1.0, and the specs of the board, the roles, the panel,
 #      the settings, the reports and the confirmation sheet. Last, backend/CLAUDE.md and frontend/CLAUDE.md say
@@ -128,7 +129,8 @@
 #      heard nothing; the column without Arhivate among the reserved names took it; the API asking an estimate
 #      every time answered 400; the board and the panel asking every time failed four specs; Arhivate reading
 #      while closed, the cards' group back on the board's list and a day duration left in the section each
-#      failed their check. Docker, PostgreSQL, Node and the packages.
+#      failed their check; the rename field closing at a reserved name failed its spec (group 24). Docker,
+#      PostgreSQL, Node and the packages.
 #
 # PostgreSQL means one whose user may create databases, with its connection string in KANABOL_CHECK_DB or
 # else in the API's user secrets (ConnectionStrings:Default); each run works in its own database,
@@ -1971,12 +1973,12 @@ a_member_with_columns_manage_changes_the_columns() {
   is 'Backlog:Backlog,În lucru:InProgress,În pauză:Paused,În review:Custom,Gata:Done' "$(columns_of "$prm")"
 }
 
-# A plain member and someone outside the project, columns.manage or not, get the owner's 403 and change nothing.
+# A plain member and someone outside the project, columns.manage or not, get 403 Column.ManagerRequired and change nothing.
 the_others_change_no_column() {
   a_project_whose_columns_a_member_manages || return 1
   before=$(columns_of "$prm")
-  code_is 403 Project.OwnerRequired "$(as "$petru_token" POST "/api/projects/$prm/board-columns" '{"name":"Petru"}')" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$vera_token" POST "/api/projects/$prm/board-columns" '{"name":"Vera"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$petru_token" POST "/api/projects/$prm/board-columns" '{"name":"Petru"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$vera_token" POST "/api/projects/$prm/board-columns" '{"name":"Vera"}')" || return 1
   is "$before" "$(columns_of "$prm")"
 }
 
@@ -1984,7 +1986,7 @@ the_others_change_no_column() {
 columns_manage_is_read_from_the_database() {
   a_project_whose_columns_a_member_manages || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":[]}')" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Târziu"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$mara_token" POST "/api/projects/$prm/board-columns" '{"name":"Târziu"}')" || return 1
   is 'false|false' "$(board_says "$mara_token" "$prm")" || return 1
   status_is 200 "$(as "$admin_token" PUT "/api/roles/$mara_role" '{"name":"Rol Mara Coloane","permissions":["columns.manage"]}')"
 }
@@ -2200,6 +2202,17 @@ the_columns_drag_by_their_head() {
 # The dialog "Coloana «X» are task-uri" (UI §7.4): a sheet of 440px with one button, at a drop of a column with
 # cards across În lucru and at the menu's moves that would cross it, before any request, and at the API's 409
 # Column.CrossesInProgress, which the error snackbar leaves to it.
+# Group 24 (docs/UI_UX_SPEC.md §7.4): a 400 on name is said under the field, "+ Coloană"'s and the rename's,
+# which stays open with the name written; the board isn't read again for it.
+the_reserved_name_is_said_under_the_field() {
+  in_file 'Backlog, În lucru, În pauză, Gata și Arhivate sunt numele board-ului; alege altul.' "$board/board-store.ts" &&
+    in_file "return 'reservedName';" "$board/board-store.ts" &&
+    in_file 'class="kb-field-error name-error"' "$board/board-column.ts" &&
+    in_file 'class="kb-field-error"' "$board/board-page.html" &&
+    specs_named "$board/board-page.spec.ts"       'says it under the field of a new column, which stays open with the name, until the name changes'       'says it under the rename field, which stays open with the name, and Esc gives up'       'closes the rename field once the API takes another name' &&
+    specs_named "$board/board-store.spec.ts"       'answers reservedName for a 400 on name, to add or to rename, without reading the board again'
+}
+
 the_column_with_tasks_says_why() {
   in_file 'Coloana «${column.name}:column:» are task-uri' "$board/board-page.ts" &&
     in_file 'O coloană cu task-uri nu poate trece peste «În lucru», pentru că un task început nu se mai întoarce înaintea ei. Mută întâi task-urile în altă coloană.' "$board/board-page.ts" &&
@@ -2303,7 +2316,7 @@ task_7() {
   check "the real API in Production seeds columns.manage, which the Admin has" columns_manage_is_seeded_and_the_admins
   check "the board's canManageColumns: the owner and Mara (columns.manage) yes, Petru and Vera (outside) no" the_board_says_who_manages_the_columns
   check "Mara, a member with columns.manage, adds, renames, moves and deletes columns" a_member_with_columns_manage_changes_the_columns
-  check "Petru without it and Vera outside the project get 403 Project.OwnerRequired, nothing changed" the_others_change_no_column
+  check "Petru without it and Vera outside the project get 403 Column.ManagerRequired, nothing changed" the_others_change_no_column
   check "columns.manage is read from the database: Mara's token outlives her role's permission" columns_manage_is_read_from_the_database
   check "a column holding tasks doesn't cross În lucru, either way (409 Column.CrossesInProgress), but moves on its side" a_column_with_tasks_stays_on_its_side_of_in_progress
   check "an archived task holds its column there too, and an empty column crosses În lucru both ways" an_archived_task_holds_it_and_an_empty_one_goes_anywhere
@@ -2318,6 +2331,7 @@ task_7() {
   check "back from În pauză a task with an estimate asks nothing: the board's mouse and keyboard, the panel's Stare" the_estimate_is_asked_only_once
   check "the columns of the project's own drag by their head between Backlog and Gata, the cards still between columns" the_columns_drag_by_their_head
   check "a column with tasks across În lucru: the dialog, by a drop, the menu and the API's 409" the_column_with_tasks_says_why
+  check "a reserved name under the field of + Coloană and of the rename, which stays open with it (group 24)" the_reserved_name_is_said_under_the_field
   check "Setări generale names each day whole, the short name aria-hidden; ui-review.md has axe-core's run" the_days_are_named_whole
   check "Estimare și timp lucrat writes hours and minutes, never days; its screenshot taken again" the_work_time_is_in_hours
   check "the board's and the roles screen's specs pass" group_23_specs_pass

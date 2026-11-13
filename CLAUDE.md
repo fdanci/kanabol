@@ -72,7 +72,7 @@ Feature branches go into `dev`, and `dev` into `main`. Each group in `Tasks.md` 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on GitHub's `ubuntu-latest` machines: on a push to `dev`, `feature/*`, `fix/*` or `chore/*`, `check-tests.sh`, `check-lint.sh` and the `check-*.sh` the push changed; on a push to `main` and when started by hand, the full gate (`docs/ci.md`, `docs/SPEC.md` §14.8). A new `check-*.sh` goes into one of the shards in `scripts/ci-plan.sh`.
+`.github/workflows/ci.yml` runs on GitHub's `ubuntu-latest` machines: on a push to `dev`, `feature/*`, `fix/*` or `chore/*`, `check-tests.sh`, `check-lint.sh` and the `check-*.sh` the push changed; on a push to `main`, and only then, the full gate (`docs/ci.md`, `docs/SPEC.md` §14.8). Nothing starts it by hand, and no commit subject does. A new `check-*.sh` goes into one of the shards in `scripts/ci-plan.sh`.
 
 ## The server
 

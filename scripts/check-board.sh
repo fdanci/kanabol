@@ -448,10 +448,10 @@ only_an_empty_column_is_deleted() {
   is '0|1|2|3' "$(in_db "SELECT string_agg(position::text, '|' ORDER BY position) FROM board_columns WHERE project_id = '$brd_id'")"
 }
 
-a_member_reads_them_but_only_an_owner_changes_them() {
+a_member_reads_them_but_only_a_column_manager_changes_them() {
   status_is 200 "$(as "$dan_token" GET "/api/projects/$brd_id/board-columns")" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$dan_token" POST "/api/projects/$brd_id/board-columns" '{"name":"A lui Dan"}')" || return 1
-  code_is 403 Project.OwnerRequired "$(as "$dan_token" DELETE "/api/projects/$brd_id/board-columns/$doing_id")"
+  code_is 403 Column.ManagerRequired "$(as "$dan_token" POST "/api/projects/$brd_id/board-columns" '{"name":"A lui Dan"}')" || return 1
+  code_is 403 Column.ManagerRequired "$(as "$dan_token" DELETE "/api/projects/$brd_id/board-columns/$doing_id")"
 }
 
 the_endpoints_are_written_down() {
@@ -491,7 +491,7 @@ task_2() {
   check "a task that enters Gata is completed, and open again once it leaves" a_done_column_completes_its_tasks
   check "it moves after Backlog, the others closing up, and Gata never moves" a_column_moves_and_the_others_close_up
   check "a fixed column stays, an empty one of the project's own goes, and the places stay 0, 1, 2" only_an_empty_column_is_deleted
-  check "a member reads the columns, but only an owner changes them" a_member_reads_them_but_only_an_owner_changes_them
+  check "a member reads the columns, but only a column manager changes them (403 Column.ManagerRequired)" a_member_reads_them_but_only_a_column_manager_changes_them
   check "the addition is logged" log_has_entry "Column {ColumnId} added to project {ProjectId}" "\"ColumnId\":\"$review_id\""
   check "the log has no unhandled exception" no_errors_in_the_log
 }
