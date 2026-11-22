@@ -103,7 +103,7 @@ record_count_is() {
 task_3() {
   echo "0.3 the decision notes from SPEC section 17, and the ones added later"
   TMPDIR_CHECK=$(mktemp -d)
-  check "docs/adr holds 20 records" record_count_is 20
+  check "docs/adr holds 22 records" record_count_is 22
   while IFS='|' read -r number slug name; do
     record="docs/adr/$number-$slug.md"
     check "$number is tracked" tracked "$record"
@@ -133,6 +133,8 @@ task_3() {
 0018|coloane-fixe-pe-board|Coloane fixe pe board
 0019|timp-lucrat-in-programul-de-lucru|Timp lucrat în programul de lucru
 0020|suita-intreaga-si-gate-ul-in-github-actions|Suita întreagă și gate-ul în GitHub Actions
+0021|vectori-in-postgresql-prin-pgvector|Vectori în PostgreSQL prin pgvector
+0022|modele-ai-in-spatele-unei-interfete|Modele AI în spatele unei interfețe
 EOF
   if has_vault; then
     check "_Architecture.md's links resolve" links_resolve "$VAULT/_Architecture.md"

@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v2.0 — 2026-11-13. De la versiunea asta spec-ul ține doar regulile: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline. Cum e implementat fiecare lucru se vede în cod, în teste și în capul scripturilor `scripts/check-*.sh`. Istoricul e în git (`git log -- docs/SPEC.md`); v1.34 e ultima versiune cu detaliile de implementare ale fiecărui grup.
+> Stare: v2.1 — 2026-11-22, cu regulile primului pas al chat-ului cu RAG în §19. De la v2.0 (2026-11-13) spec-ul ține doar regulile: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline. Cum e implementat fiecare lucru se vede în cod, în teste și în capul scripturilor `scripts/check-*.sh`. Istoricul e în git (`git log -- docs/SPEC.md`); v1.34 e ultima versiune cu detaliile de implementare ale fiecărui grup.
 >
 > Cum se ține la zi: un gol mic îl hotărăște cine implementează și îl scrie în mesajul commit-ului, fără să-l adauge aici. O regulă de aici se schimbă în același commit cu codul care o schimbă. La Florin ajung doar deciziile de produs, adică ce vede sau ce poate face un utilizator.
 
@@ -35,12 +35,13 @@
 | Git | Feature branches → `dev` → `main`, Conventional Commits, **Husky + lint-staged** cu verificări rapide pe orice branch; suita completă rulează în workflow-ul GitHub, iar gate-ul întreg rulează acolo doar la push pe `main`, când intră `dev` (§14) |
 | Deploy | Server Linux, Docker Compose, nginx servește SPA + proxy către API |
 | TLS | Certificat **self-signed** (CA proprie), terminat în nginx, importat o dată în browserele colegilor |
+| Căutare după înțeles | Vectori în PostgreSQL-ul aplicației, prin **`pgvector`**; modelele AI doar în spatele unor interfețe, oprite implicit (§19) |
 
 ---
 
 ## 1. Scop și limite
 
-Task manager intern, tip Jira-light: utilizatori + RBAC, proiecte, task-uri cu prioritate, kanban configurabil cu drag & drop, comentarii + atașamente, istoric modificări, alerte deadline, productivitate per dezvoltator/proiect. Fără integrări externe, fără mobil, fără LLM în v1.
+Task manager intern, tip Jira-light: utilizatori + RBAC, proiecte, task-uri cu prioritate, kanban configurabil cu drag & drop, comentarii + atașamente, istoric modificări, alerte deadline, productivitate per dezvoltator/proiect. Fără integrări externe, fără mobil, fără LLM în v1. După v1.2, un chat care răspunde din datele aplicației se construiește pe pași, cu modelele AI ca singura integrare externă; regulile lui sunt în §19.
 
 Constrângeri care au ghidat deciziile:
 - **Un singur dezvoltator**, timp limitat → preferăm convenții clare și puțin ceremonial față de flexibilitate maximă.
@@ -972,3 +973,61 @@ Toate întrebările din v1.0 au fost închise pe 2026-11-04 (vezi §0 și §17).
 - Hostname-ul/IP-ul intern al serverului (le primește `scripts/make-certs.sh`, §13.4).
 - Intervalul `OverdueTasksWorker`: 15 min implicit, configurabil prin `Alerts:OverdueCheckInterval` (§4.3; decis 2026-11-08).
 - Lista de extensii permise la atașamente.
+
+---
+
+## 19. Chat cu RAG — pasul 1: `pgvector` și vectorizarea
+
+Chat-ul răspunde la întrebări despre proiecte și task-uri din datele aplicației: caută task-urile după înțeles, iar un model de chat scrie răspunsul din ele. Se construiește pe pași. Pasul 1 e temelia: vectorii în bază, vectorizarea task-urilor și o căutare de probă. Chat-ul propriu-zis vine din pasul 2. Deciziile: „Vectori în PostgreSQL prin pgvector” (`docs/adr/0021`) și „Modele AI în spatele unei interfețe” (`docs/adr/0022`).
+
+Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele, §3 structura, §4.4 permisiunile, §13.3 compose, §15 secretele) se schimbă în același commit cu codul lor, nu înainte.
+
+### 19.1 Baza de date
+
+- **Imagine proprie.** `postgres:17-alpine` nu are `pgvector`. Baza rulează pe o imagine construită din `database/Dockerfile`: o bază fixată la versiune (`postgres:17.11-alpine3.24`, nu eticheta `17-alpine`, care se mută) și `pgvector` la o versiune fixată, construit din sursă, fără `-march=native`.
+- **Aceeași imagine peste tot:** compose, teste (Testcontainers o construiește din același Dockerfile), server. Scripturile `check-*.sh` din CI folosesc PostgreSQL-ul instalat pe mașină, cu pachetul `pgvector` al distribuției.
+- **Ordinea românească rămâne.** Imaginea păstrează sistemul de bază (Alpine), ca `ro-x-icu` să nu se schimbe sub o bază existentă. Testele de colație trec neschimbate pe ea.
+- **Extensia o activează o migrare**, cu `DROP EXTENSION` la întoarcere. Restaurarea are nevoie de extensie în baza în care restaurează.
+- **Fără index pe vectori** până în pasul 6. Căutarea filtrează întâi pe coloane, cu indecșii obișnuiți, apoi calculează distanța doar pe rândurile rămase. Rezultatul e exact; un index HNSW ar fi aproximativ și ar filtra după ce caută vecinii.
+
+### 19.2 Tabela vectorilor
+
+- `task_embeddings`: un rând pe task și sursă, cu textul vectorizat, vectorul, numele modelului care l-a făcut și momentul. Rândul se șterge odată cu task-ul.
+- În pasul 1 singura sursă e task-ul: titlul și descrierea, ca un singur text. Comentariile vin în pasul 6, atașamentele rămân afară.
+- Coloana vectorului e `vector` fără lungime fixă: lungimea e a modelului, iar fiecare rând își ține modelul.
+- Filtrele (proiect, asignați, perioadă, arhivat) nu se copiază în tabelă. Se iau prin `task_id` din tabelele existente.
+- Task-urile arhivate se vectorizează și ele, pentru că pot intra în căutare la cerere.
+- Domain nu depinde de pachetul `Pgvector`. În Domain vectorul e o listă de `float`, iar conversia o face configurația EF. Un test de arhitectură ține regula.
+
+### 19.3 Modelul de vectorizare
+
+- **O interfață în Application**, `IEmbeddingModel`: primește o listă de texte și întoarce vectorii, în aceeași ordine, și tokenii consumați. Implementările stau în Infrastructure: Azure acum, un model local în pasul 6. Application nu referă niciun pachet Azure sau OpenAI; un test de arhitectură ține regula.
+- **Niciun test nu cheamă un model real.** CI-ul nu are secrete (§14.8). Testele folosesc un model fals, care dă același vector pentru același text, și vectori dați de test când au nevoie de texte apropiate ca sens. O probă pe modelul real se rulează de mână, în afara CI-ului.
+- **Modelul și deployment-ul sunt setări separate.** Apelul la Azure numește deployment-ul, iar lângă vector se scrie numele modelului, ca o redenumire a deployment-ului să nu refacă vectorii.
+
+### 19.4 Configurare și secrete
+
+- Vectorizarea e **oprită implicit** (`Embeddings:Enabled = false`). Oprită, aplicația pornește fără nicio cheie și nu cheamă niciun model.
+- Pornită, setările ei (modelul, intervalul, lotul, adresa, deployment-ul și cheia Azure) se validează la pornire, ca restul opțiunilor (§15). Mesajele de validare numesc setarea, niciodată valoarea.
+- Cheia stă în `dotnet user-secrets` în dev și în `.env` în Docker. Niciodată în git, în loguri sau în răspunsuri.
+
+### 19.5 Vectorizarea
+
+- Un command ia task-urile fără vector, cele cu textul schimbat și cele vectorizate cu alt model decât cel din configurație. Ce trebuie refăcut se află în SQL, comparând textul ținut cu textul compus acum de aceeași expresie care îl trimite la model.
+- Lucrează în loturi, cu un apel la model și o salvare pe lot. Un lot căzut nu strică loturile salvate înainte.
+- Un text mai lung decât limita modelului nu se trimite așa cum e, ca să nu cadă tot lotul: se scurtează sau se sare, iar logul o spune.
+- Un worker cheamă command-ul la un interval din configurație, după modelul `OverdueTasksWorker`. O rulare căzută se loghează, iar următoarea reia de unde a rămas.
+- Fiecare apel la model scrie câți tokeni a consumat, pentru calculatorul de costuri din pasul 4.
+- **Logurile nu țin textele trimise la model** și nici vectorii. Țin cifre: câte texte, câte loturi, câți tokeni, cât a durat.
+
+### 19.6 Căutarea de probă
+
+- Un endpoint primește un text și filtre opționale (proiect, om, perioadă, „și arhivatele”) și întoarce task-urile cele mai apropiate, cu distanța. Întrebarea se vectorizează cu același model ca task-urile.
+- În căutare intră doar vectorii modelului din configurație. Vectorii a două modele nu se compară.
+- Distanța e cea cosinus (`<=>`): 0 pentru același sens, mai mare cu cât textele se depărtează.
+- **Permisiunea `chat.use`** cere căutarea și, din pasul 2, chat-ul. Dă singură citire peste toate proiectele, fără `projects.view_all`, deci se dă doar cui are voie să vadă tot. Regula „nimeni nu dă mai mult decât are” (§4.4) se aplică și ei.
+
+### 19.7 Pentru pașii următori
+
+- **Textul scris de oameni e date, nu instrucțiuni.** Ce scrie cineva într-un task sau într-un comentariu nu schimbă ce face modelul de chat.
+- **Cifrele nu vin din căutare.** Pentru totaluri, modelul de chat primește unelte peste rapoartele existente, niciodată SQL scris de el.
