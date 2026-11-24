@@ -51,6 +51,6 @@ public sealed class AddVectorExtensionMigrationTests(PostgresFixture postgres) :
         }
 
         var connection = new NpgsqlConnectionStringBuilder(Postgres.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        return new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).UseSnakeCaseNamingConvention().Options);
+        return new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection, npgsql => npgsql.UseVector()).UseSnakeCaseNamingConvention().Options);
     }
 }

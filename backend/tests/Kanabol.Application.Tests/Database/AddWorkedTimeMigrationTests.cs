@@ -64,7 +64,7 @@ public sealed class AddWorkedTimeMigrationTests(PostgresFixture postgres) : Post
         }
 
         var connection = new NpgsqlConnectionStringBuilder(Postgres.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).UseSnakeCaseNamingConvention().Options);
+        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection, npgsql => npgsql.UseVector()).UseSnakeCaseNamingConvention().Options);
         await db.GetService<IMigrator>().MigrateAsync(Before);
 
         await db.Database.ExecuteSqlRawAsync($"""

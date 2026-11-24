@@ -183,7 +183,7 @@ public sealed class AddColumnKindsMigrationTests(PostgresFixture postgres) : Pos
         }
 
         var connection = new NpgsqlConnectionStringBuilder(Postgres.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).UseSnakeCaseNamingConvention().Options);
+        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection, npgsql => npgsql.UseVector()).UseSnakeCaseNamingConvention().Options);
         await db.GetService<IMigrator>().MigrateAsync(Before);
 
         // Column ids end in their project's digit and their place from 1, c11 to c63.

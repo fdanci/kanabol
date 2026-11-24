@@ -7,6 +7,7 @@ namespace Kanabol.Api.Tests.Architecture;
 public sealed class ArchitectureTests
 {
     private const string EntityFramework = "Microsoft.EntityFrameworkCore";
+    private const string Pgvector = "Pgvector";
     private const string Application = "Kanabol.Application";
     private const string Infrastructure = "Kanabol.Infrastructure";
     private const string Api = "Kanabol.Api";
@@ -18,6 +19,11 @@ public sealed class ArchitectureTests
     [Fact]
     public void Domain_WhenInspected_DoesNotDependOnEntityFramework() =>
         ShouldNotDependOn(_domain, EntityFramework);
+
+    // A vector is a plain list of numbers in the domain; only the EF configuration knows pgvector (SPEC section 19.2).
+    [Fact]
+    public void Domain_WhenInspected_DoesNotDependOnPgvector() =>
+        ShouldNotDependOn(_domain, Pgvector);
 
     [Fact]
     public void Domain_WhenInspected_DoesNotDependOnOuterLayers() =>

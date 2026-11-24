@@ -167,6 +167,9 @@ task_6() {
   check "EF in Domain is caught" architecture_tests_catch domain-ef Kanabol.Domain/Probe.cs \
     'namespace Kanabol.Domain; public sealed class Probe(Microsoft.EntityFrameworkCore.DbContext context) { public object Context { get; } = context; }' \
     Microsoft.EntityFrameworkCore
+  check "Pgvector in Domain is caught" architecture_tests_catch domain-pgvector Kanabol.Domain/Probe.cs \
+    'namespace Kanabol.Domain; public sealed class Probe { public Pgvector.Vector Numbers { get; } = new(new float[] { 1f }); }' \
+    Pgvector.EntityFrameworkCore
   check "Infrastructure in Application is caught" architecture_tests_catch application-infrastructure Kanabol.Application/Probe.cs \
     'namespace Kanabol.Infrastructure.Probing { public sealed class Thing; } namespace Kanabol.Application { public sealed class Probe { public Kanabol.Infrastructure.Probing.Thing? Used { get; set; } } }'
 }
@@ -230,6 +233,8 @@ task_2() {
   check "the migration's tests pass: created, then dropped" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AddVectorExtensionMigrationTests' 2
   check "the restart tests pass with the API's own pool" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~DatabaseRestartTests' 2
   check "CI's PostgreSQL gets pgvector" in_file 'postgresql-17-pgvector' .github/actions/setup/action.yml
+  check "task_embeddings keeps a vector of any length, one row per task and source, gone with the task, with <=> in SQL" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskEmbeddingPersistenceTests' 5
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean
 }

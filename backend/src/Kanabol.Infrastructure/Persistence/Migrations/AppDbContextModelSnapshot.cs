@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -310,6 +311,50 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_project_members_user_id");
 
                     b.ToTable("project_members", (string)null);
+                });
+
+            modelBuilder.Entity("Kanabol.Domain.Search.TaskEmbedding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTimeOffset>("EmbeddedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("embedded_at");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("source");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_embeddings");
+
+                    b.HasIndex("TaskId", "Source")
+                        .IsUnique()
+                        .HasDatabaseName("ux_task_embeddings_task_id_source");
+
+                    b.ToTable("task_embeddings", (string)null);
                 });
 
             modelBuilder.Entity("Kanabol.Domain.Settings.WorkSchedule", b =>
@@ -845,6 +890,16 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_project_members_users_user_id");
+                });
+
+            modelBuilder.Entity("Kanabol.Domain.Search.TaskEmbedding", b =>
+                {
+                    b.HasOne("Kanabol.Domain.Tasks.TaskItem", null)
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_embeddings_task_items_task_id");
                 });
 
             modelBuilder.Entity("Kanabol.Domain.Settings.WorkSchedule", b =>

@@ -60,6 +60,6 @@ public sealed class AddWorkScheduleMigrationTests(PostgresFixture postgres) : Po
         }
 
         var connection = new NpgsqlConnectionStringBuilder(Postgres.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        return new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).UseSnakeCaseNamingConvention().Options);
+        return new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection, npgsql => npgsql.UseVector()).UseSnakeCaseNamingConvention().Options);
     }
 }

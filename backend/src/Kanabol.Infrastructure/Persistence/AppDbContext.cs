@@ -3,6 +3,7 @@ using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Common;
 using Kanabol.Domain.Notifications;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Search;
 using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
@@ -39,6 +40,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Notification> Notifications => Set<Notification>();
 
     public DbSet<WorkSchedule> WorkSchedules => Set<WorkSchedule>();
+
+    public DbSet<TaskEmbedding> TaskEmbeddings => Set<TaskEmbedding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

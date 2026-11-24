@@ -323,7 +323,8 @@ User ──< ProjectMember >── Project ──< BoardColumn
 Project ──< TaskItem ──< Comment
                      ├──< Attachment
                      ├──< TaskHistoryEntry
-                     └──< Notification (overdue etc.)
+                     ├──< Notification (overdue etc.)
+                     └──< TaskEmbedding (vectorii, §19.2)
 ```
 
 - `User`: `Email` (unic, păstrat cu litere mici), `DisplayName`, `PasswordHash`, `RoleId` (exact un rol; concurrency token, §4.4), `IsActive` (și el concurrency token, §4.4), `FailedLoginAttempts`, `LockedUntil?`, `MustChangePassword`.
@@ -334,6 +335,7 @@ Project ──< TaskItem ──< Comment
 - `TaskHistoryEntry`: `Field`, `OldValue`, `NewValue`, `ChangedById`, `ChangedAt`. Entitatea `TaskItem` o adaugă singură în metodele de modificare (`Rename`, `ChangeDescription`, `MoveTo`, `Assign`, `SetPriority`, `SetDueDate`, `Archive`, `Restore`) — istoricul e garantat, nu depinde de handler. O valoare care nu se schimbă nu scrie nimic, iar crearea nu scrie istoric.
 - `Notification`: `UserId`, `Type` (enum `TaskOverdue|TaskAssigned|CommentAdded`), `TaskId?`, `Message`, `CreatedAt`, `ReadAt?`. Cine le produce e în §4.3: worker-ul pentru `TaskOverdue`, handlerele de domain events pentru celelalte două. Livrate exclusiv in-app (listă + clopoțel + push prin SignalR). **Nu** definim `IEmailSender` sau alt canal în v1; dacă apare nevoia, se adaugă atunci ca un consumer suplimentar al acelorași domain events.
 - `WorkSchedule` (grupul 22): programul de lucru, un singur rând în `work_schedules`: `WorkDays` (zilele ISO, `work_days` ca text, „1,2,3,4,5”), `StartTime` și `EndTime` (`start_time`, `end_time`, de tip `time`), `UpdatedAt`, `UpdatedById?`; migrarea îl pune cu luni–vineri, 08:30–16:30 (§4.4 „Setările generale”).
+- `TaskEmbedding` (grupul 25, `Domain/Search`): vectorul unui text din task, în `task_embeddings`: `TaskId` (cascadă: rândul pleacă odată cu task-ul), `Source` (enum `Task`, ca text; comentariile din pasul 6), `Content` (textul trimis la model), `Embedding` (în Domain o listă de `float`, în bază `vector` fără lungime fixă, prin conversia din configurația EF), `Model` (numele modelului, nu al deployment-ului), `EmbeddedAt`. Un rând pe task și sursă (`ux_task_embeddings_task_id_source`). `Replace` îl reface pentru alt text sau alt model. Distanța în LINQ: `EF.Property<Vector>(row, "Embedding").CosineDistance(intrebare)`, cu întrebarea ca `Vector` într-o variabilă locală (ca `float[]` ar pleca drept `real[]`, pe care `<=>` nu-l primește); §19.2.
 
 **Arhivare, nu ștergere.** `DELETE /api/tasks/{id}` arhivează (`ArchivedAt = now`), nu șterge rânduri. Global query filter `HasQueryFilter(t => t.ArchivedAt == null)` pe `TaskItem`; comentariile, atașamentele și istoricul rămân intacte și intră în rapoarte. Admin (permisiunea `tasks.archive`) vede task-urile arhivate cu `?includeArchived=true` (handler cu `IgnoreQueryFilters()`) și le poate restaura (`POST /api/tasks/{id}/restore`). Nu există hard delete în API; curățarea fizică (dacă va fi vreodată nevoie) e o operațiune de DBA, nu o funcție de produs. Proiectele urmează aceeași regulă (`archived_at` pe `projects`).
 

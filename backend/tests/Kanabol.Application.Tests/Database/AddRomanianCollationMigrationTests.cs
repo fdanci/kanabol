@@ -111,7 +111,7 @@ public sealed class AddRomanianCollationMigrationTests(PostgresFixture postgres)
         }
 
         var connection = new NpgsqlConnectionStringBuilder(Postgres.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).UseSnakeCaseNamingConvention().Options);
+        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection, npgsql => npgsql.UseVector()).UseSnakeCaseNamingConvention().Options);
         await db.GetService<IMigrator>().MigrateAsync(Before);
 
         var users = new[] { ("Zoe Ene", "zoe"), ("Țone Matei", "țone"), ("ștefan Pop", "ștefan"), ("Sara Dinu", "sara"), ("Îon Rus", "îon"), ("ăla Mic", "ăla"), ("Ana Ene", "ana") }

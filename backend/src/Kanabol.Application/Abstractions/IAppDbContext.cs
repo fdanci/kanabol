@@ -1,6 +1,7 @@
 using Kanabol.Domain.Authorization;
 using Kanabol.Domain.Notifications;
 using Kanabol.Domain.Projects;
+using Kanabol.Domain.Search;
 using Kanabol.Domain.Settings;
 using Kanabol.Domain.Tasks;
 using Kanabol.Domain.Users;
@@ -37,6 +38,8 @@ public interface IAppDbContext
     DbSet<Notification> Notifications { get; }
 
     DbSet<WorkSchedule> WorkSchedules { get; }
+
+    DbSet<TaskEmbedding> TaskEmbeddings { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

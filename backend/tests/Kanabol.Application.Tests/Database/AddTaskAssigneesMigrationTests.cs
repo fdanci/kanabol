@@ -83,7 +83,7 @@ public sealed class AddTaskAssigneesMigrationTests(PostgresFixture postgres) : P
         }
 
         var connection = new NpgsqlConnectionStringBuilder(Postgres.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).UseSnakeCaseNamingConvention().Options);
+        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection, npgsql => npgsql.UseVector()).UseSnakeCaseNamingConvention().Options);
         await db.GetService<IMigrator>().MigrateAsync(Before);
         await Execute(db, $"""
             INSERT INTO roles (id, name, is_system, holders_version, created_at) VALUES ('{_role}', 'Membru', false, 0, now());
