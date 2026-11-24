@@ -56,7 +56,7 @@ Constrângeri care au ghidat deciziile:
 |---|---|---|
 | .NET SDK | 10.0 (LTS, suport până nov. 2028) | LTS curent |
 | EF Core + Npgsql | 10.x | pereche cu .NET 10 |
-| PostgreSQL | 17 | stabil, suportat de Npgsql 10 |
+| PostgreSQL | 17.11, pe Alpine 3.24, cu `pgvector` 0.8.7 | stabil, suportat de Npgsql 10; imagine proprie, `database/Dockerfile` (§19.1) |
 | Node.js | 22 LTS | cerut de Angular 22 |
 | Angular | 22.x | curent (iunie 2026); upgrade la 24 LTS când apare |
 | Angular Material + CDK | 22.x | aceeași versiune cu Angular |
@@ -86,6 +86,8 @@ kanabol/
 ├── compose.override.yaml         # dev (porturi expuse, volume locale) — încărcat automat
 ├── compose.prod.yaml             # prod (nginx, fără porturi inutile)
 ├── .env.example
+├── database/
+│   └── Dockerfile                # PostgreSQL cu pgvector, construit de compose și de teste (§19.1)
 ├── scripts/
 │   ├── setup.sh                  # instalare tooling + git config (rulat o dată după clone)
 │   ├── verify.sh                 # ce rulează hook-ul: lint + teste
@@ -382,7 +384,7 @@ Un `AuditingInterceptor : SaveChangesInterceptor` completează câmpurile de aud
 - Toate datele în `timestamptz` (`DateTimeOffset` în C#). Serverul lucrează în UTC; frontend-ul afișează local.
 - `string` → `varchar(n)` explicit cu `HasMaxLength`; `Description` și `Comment.Body` → `text`.
 - Migrări în `Infrastructure/Persistence/Migrations/`, nume descriptive: `20261104120000_AddTaskHistory`. Generate cu `dotnet ef migrations add <Name> -p src/Kanabol.Infrastructure -s src/Kanabol.Api`.
-- Colația: migrarea `AddRomanianCollation` pune colația ICU `ro-x-icu` a PostgreSQL-ului (vine din `initdb` când serverul e construit cu ICU, cum sunt imaginea oficială și `postgres:17-alpine`, deci fără `CREATE COLLATION`) prin `UseCollation("ro-x-icu")` în configurările EF, pe coloanele de text după care se sortează: `task_items.title`, `users.display_name`, `users.email`, `projects.name` și `roles.name`. Orice `OrderBy` pe ele, inclusiv `upper(display_name)` din §4.4, ordonează atunci Ă, Â, Î, Ș și Ț la locul lor, fără `.Collate()` în query-uri; indexurile pe acele coloane se refac cu colația.
+- Colația: migrarea `AddRomanianCollation` pune colația ICU `ro-x-icu` a PostgreSQL-ului (vine din `initdb` când serverul e construit cu ICU, cum sunt imaginile oficiale și imaginea bazei, construită peste `postgres:17.11-alpine3.24` (§19.1), deci fără `CREATE COLLATION`) prin `UseCollation("ro-x-icu")` în configurările EF, pe coloanele de text după care se sortează: `task_items.title`, `users.display_name`, `users.email`, `projects.name` și `roles.name`. Orice `OrderBy` pe ele, inclusiv `upper(display_name)` din §4.4, ordonează atunci Ă, Â, Î, Ș și Ț la locul lor, fără `.Collate()` în query-uri; indexurile pe acele coloane se refac cu colația.
 - Reziliență la conexiune: `EnableRetryOnFailure()` pe Npgsql, ca prima cerere după un restart al PostgreSQL să nu mai dea 500 (`57P01` dintr-o conexiune moartă din pool, văzut de `check-release.sh` 1 în grupul 19b). Tranzacția explicită din `TaskNumbers` (§4.2) trece prin `CreateExecutionStrategy().ExecuteAsync`, ca strategia să nu refuze tranzacțiile deschise de mână; restul salvărilor nu se schimbă.
 - Aplicare: în dev și prod la pornire (`Database:MigrateOnStartup=true`), suficient pentru o singură instanță. Dacă apar mai multe instanțe, trecem la `dotnet ef migrations bundle` rulat ca job separat.
 - Seed: un `Admin` inițial (parolă din config/env la prima pornire, forțat schimbată la primul login) + permisiunile din constante, sincronizate la pornire (permisiunile noi din cod apar în DB automat).
@@ -688,7 +690,8 @@ Un login trimis prin calea hub-ului (`/hubs/#/../../api/auth/login`, cu ținta l
 ```yaml
 services:
   postgres:
-    image: postgres:17-alpine
+    build: ./database
+    image: kanabol-postgres:17.11-pgvector0.8.7
     environment:
       POSTGRES_DB: kanabol
       POSTGRES_USER: kanabol

@@ -105,13 +105,25 @@ on_network() {
   docker network inspect "$network" >/dev/null 2>&1 || docker network create "$network" >/dev/null
 }
 
+# The database image, built from database/Dockerfile as compose builds it (docs/SPEC.md §19.1).
+postgres_image="kanabol-check-postgres:$$"
+
+postgres_image_built() {
+  docker image inspect "$postgres_image" >/dev/null 2>&1 && return 0
+  docker build -t "$postgres_image" database >"$scratch/postgres-build.log" 2>&1 || {
+    tail -n 25 "$scratch/postgres-build.log"
+    return 1
+  }
+}
+
 start_postgres() { # A database on the check's network, under the name compose gives it.
   on_network || return 1
   docker ps -q --filter "name=^$run_id-postgres$" | grep -q . && return 0
+  postgres_image_built || return 1
   docker run -d --label "$run_id" --name "$run_id-postgres" --network "$network" --network-alias postgres \
     -e POSTGRES_DB=kanabol -e POSTGRES_USER=kanabol -e POSTGRES_PASSWORD=check \
     --health-cmd 'pg_isready -U kanabol -d kanabol' --health-interval 2s --health-retries 30 \
-    postgres:17-alpine >/dev/null || return 1
+    "$postgres_image" >/dev/null || return 1
   health_becomes "$run_id-postgres" healthy 60
 }
 
@@ -746,7 +758,9 @@ task_3() {
   check "compose.yaml alone publishes nothing" config_satisfies "$base" \
     "Object.values(services).every((s) => !s.ports)"
   check "it uses PostgreSQL 17 and Seq" config_satisfies "$base" \
-    "services.postgres.image === 'postgres:17-alpine' && services.seq.image === 'datalust/seq:latest'"
+    "services.postgres.image === 'kanabol-postgres:17.11-pgvector0.8.7' && services.seq.image === 'datalust/seq:latest'"
+  check "it builds the database from database/Dockerfile" config_satisfies "$base" \
+    "/[\\\\/]database$/.test(services.postgres.build.context) && services.postgres.build.dockerfile === 'Dockerfile'"
   check "the API gets its settings" config_satisfies "$base" \
     "env('api').ConnectionStrings__Default === 'Host=postgres;Database=kanabol;Username=kanabol;Password=check-database-password'
      && env('api').Jwt__Secret === '$secret'
@@ -1169,6 +1183,47 @@ docs_explain() { # docs_explain <text>
   grep -qF -- "$1" docs/tls.md
 }
 
+psql_in() { # psql_in <container> <sql>: one value per line
+  docker exec "$1" psql -U kanabol -d kanabol -tAc "$2"
+}
+
+has_the_vector_extension() {
+  psql_in "$run_id-postgres" 'CREATE EXTENSION IF NOT EXISTS vector' >/dev/null || return 1
+  is 0.8.7 "$(psql_in "$run_id-postgres" "SELECT extversion FROM pg_extension WHERE extname = 'vector'")"
+}
+
+# The cosine distance: 0 for the same direction, 1 at a right angle.
+measures_the_distance() {
+  is '0 1' "$(psql_in "$run_id-postgres" \
+    "SELECT ('[1,2,3]'::vector <=> '[2,4,6]'::vector)::text || ' ' || ('[1,0]'::vector <=> '[0,1]'::vector)::text")"
+}
+
+# The Romanian order the collation's tests expect (docs/SPEC.md §5.3), on this image as on the official one.
+keeps_the_romanian_order() {
+  is 'Ana Ăla Âncă Iarnă Înger Sare Șir Tren Țară' "$(psql_in "$run_id-postgres" \
+    "SELECT string_agg(w, ' ' ORDER BY w COLLATE \"ro-x-icu\")
+     FROM unnest(array['Țară','Tren','Șir','Sare','Înger','Iarnă','Ăla','Ana','Âncă']) AS w")"
+}
+
+leaves_no_compilers() {
+  left=$(docker exec "$run_id-postgres" sh -c 'for c in gcc clang-21 git make; do command -v "$c"; done')
+  is '' "$left"
+}
+
+task_7() {
+  echo "4.7 database/Dockerfile: PostgreSQL with pgvector"
+  check "Docker is running" docker_is_running
+  check "database/Dockerfile is tracked" tracked database/Dockerfile
+  check "the base is pinned to a version, not to 17-alpine" in_file 'FROM postgres:17.11-alpine3.24' database/Dockerfile
+  check "pgvector is pinned to a version" in_file 'ARG PGVECTOR_VERSION=0.8.7' database/Dockerfile
+  check "it turns off -march=native" in_file 'OPTFLAGS=""' database/Dockerfile
+  check "the image builds and the database becomes healthy" start_postgres
+  check "the vector extension is there, at 0.8.7" has_the_vector_extension
+  check "it measures the cosine distance" measures_the_distance
+  check "ro-x-icu keeps the Romanian order" keeps_the_romanian_order
+  check "the compilers left the image" leaves_no_compilers
+}
+
 task_6() {
   echo "4.6 make-certs.sh and importing the CA"
   check "scripts/make-certs.sh is tracked" tracked scripts/make-certs.sh
@@ -1198,7 +1253,7 @@ task_6() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- 1 2 3 4 5 6
+  set -- 1 2 3 4 5 6 7
 fi
 
 for task in "$@"; do

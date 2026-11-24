@@ -6,7 +6,7 @@
 #
 # Usage: scripts/check-collation.sh [task-number...]    (no arguments: every task)
 # Exits non-zero if any check fails. What each task does, and needs:
-#   1  the ro-x-icu collation: the tests on postgres:17-alpine (the five columns and only they, their
+#   1  the ro-x-icu collation: the tests on the database image (the five columns and only they, their
 #      indexes rebuilt with it, the migration over old data and back, the list by title and by assignee,
 #      the assignees of a task, the search, the projects, the members, the users and the roles in the
 #      Romanian order); the five configurations naming Collations.Romanian, no CREATE COLLATION and no
@@ -17,7 +17,7 @@
 #      task's assignees, the search for ș finding Ș, the projects, the users by email and the roles by
 #      name, all in the Romanian order, and the check scripts' own ORDER BY upper(...) giving the API's
 #      order, on the collated columns only. Docker, PostgreSQL.
-#   2  the retry after a restart of PostgreSQL: the tests on postgres:17-alpine (TaskNumbers run again with
+#   2  the retry after a restart of PostgreSQL: the tests on the database image (TaskNumbers run again with
 #      the same number when the connection drops in its transaction or its commit fails, a commit whose
 #      answer was lost not run again, the board and the assignees told once; the API answering 200 and
 #      201 after every connection of its pool was ended with 57P01, as a restart does); Npgsql's
@@ -499,7 +499,7 @@ scripts_sort_as_the_api_does() {
 task_1() {
   echo "20.1 the ro-x-icu collation on the sorted text columns"
   check "Docker is running, for the tests' own PostgreSQL" docker_is_running
-  check "the collation's tests pass on postgres:17-alpine" collation_tests_pass
+  check "the collation's tests pass on the database image" collation_tests_pass
   check "the five columns name Collations.Romanian, ro-x-icu, and nothing else has a collation" configurations_name_the_collation
   check "no migration creates the collation, and no query names one" nothing_else_names_a_collation
   check "the local PostgreSQL has ro-x-icu, ICU and deterministic" local_postgres_has_the_collation

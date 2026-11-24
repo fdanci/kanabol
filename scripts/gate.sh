@@ -9,7 +9,7 @@
 #   scripts/gate.sh <log folder> [script...]
 #       in this checkout, which has to be clean: the preparation, then the scripts named (check-tests, or
 #       check-docker:1,2,3 for some of a script's tasks), or every one: each check-*.sh but check-docker, then
-#       check-docker 1 2 3 4 6, then check-docker 5 with the local PostgreSQL stopped, since it needs port 5432
+#       check-docker 1 2 3 4 6 7, then check-docker 5 with the local PostgreSQL stopped, since it needs port 5432
 #
 # <log folder> gets a log per script, the preparation's in cache/, and summary.txt: ok or FAIL for each, its
 # seconds, how many answers came from the cache, and the total minutes. The exit code is 1 if any failed.
@@ -148,7 +148,7 @@ if [ "$#" -eq 0 ]; then
     name=$(basename "$script" .sh)
     [ "$name" = check-docker ] || set -- "$@" "$name"
   done
-  set -- "$@" check-docker:1,2,3,4,6 check-docker:5
+  set -- "$@" check-docker:1,2,3,4,6,7 check-docker:5
 fi
 
 for wanted in "$@"; do

@@ -21,7 +21,7 @@ namespace Kanabol.Application.Tests.Features;
 
 /// <summary>
 /// The text columns the lists sort by have the ro-x-icu collation (SPEC section 5.3, group 20): Ă after A,
-/// Â after Ă, Î after I, Ș after S and Ț after T, in any case, on postgres:17-alpine as in compose. Before
+/// Â after Ă, Î after I, Ș after S and Ț after T, in any case, on the database image compose uses. Before
 /// it they compared byte by byte, and a name starting with one of them came after Z.
 /// </summary>
 public sealed class RomanianOrderTests(PostgresFixture postgres) : TaskHandlerTest(postgres)

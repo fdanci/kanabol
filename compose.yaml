@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    build: ./database
+    image: kanabol-postgres:17.11-pgvector0.8.7
     environment:
       POSTGRES_DB: kanabol
       POSTGRES_USER: kanabol

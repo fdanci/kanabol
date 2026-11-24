@@ -214,7 +214,8 @@ task_2() {
   echo "3.2 PostgreSQL with Testcontainers and Respawn"
   check "Docker is running" docker_is_running
   check "the fixture is tracked" tracked backend/tests/Shared/Database/PostgresFixture.cs
-  check "it uses the image compose uses" in_file 'postgres:17-alpine' backend/tests/Shared/Database/PostgresFixture.cs
+  check "it uses the image compose uses" in_file '"kanabol-postgres:17.11-pgvector0.8.7"' backend/tests/Shared/Database/PostgresFixture.cs
+  check "it builds that image from database/Dockerfile" in_file 'var database = Path.Combine(folder, "database");' backend/tests/Shared/Database/PostgresFixture.cs
   check "the fixture's tests pass on a real PostgreSQL" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~PostgresFixtureTests' 5
   check "they notice when the reset does nothing" tests_notice_a_broken_reset
   check "the solution builds with warnings as errors" solution_builds

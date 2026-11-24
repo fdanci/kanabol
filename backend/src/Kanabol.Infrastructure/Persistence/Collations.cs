@@ -2,7 +2,8 @@ namespace Kanabol.Infrastructure.Persistence;
 
 /// <summary>
 /// PostgreSQL's own ICU collations, which initdb makes when the server is built with ICU, as the official
-/// images and postgres:17-alpine are, so no migration creates them (SPEC section 5.3).
+/// images and the database image built on postgres:17.11-alpine3.24 are, so no migration creates them
+/// (SPEC sections 5.3 and 19.1).
 /// </summary>
 public static class Collations
 {

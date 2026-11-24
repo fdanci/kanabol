@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using DotNet.Testcontainers.Builders;
 using Kanabol.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -12,13 +14,47 @@ namespace Kanabol.Tests.Shared.Database;
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine").Build();
+    /// <summary>The image compose builds, from the same Dockerfile (SPEC section 19.1).</summary>
+    public const string Image = "kanabol-postgres:17.11-pgvector0.8.7";
+
+    // Built once per test assembly from database/Dockerfile. Docker's cache makes a build without changes
+    // take a second, and building every time means a changed Dockerfile is never tested on a stale image
+    // under the same name. A copy of backend/ alone, as some checks make, has no Dockerfile: it runs on
+    // the image the checkout last built.
+    private static readonly Lazy<Task> _imageBuilt = new(() => DatabaseFolder() is { } folder
+        ? new ImageFromDockerfileBuilder()
+            .WithDockerfileDirectory(folder)
+            .WithDockerfile("Dockerfile")
+            .WithName(Image)
+            .WithCleanUp(false)
+            .Build()
+            .CreateAsync()
+        : Task.CompletedTask);
+
+    private PostgreSqlContainer? _container;
     private Respawner? _respawner;
 
-    public string ConnectionString => _container.GetConnectionString();
+    public string ConnectionString => _container!.GetConnectionString();
+
+    /// <summary>The repo's database/ folder, found upward from this source file, or null outside a checkout.</summary>
+    private static string? DatabaseFolder([CallerFilePath] string sourceFile = "")
+    {
+        for (var folder = Path.GetDirectoryName(sourceFile); folder is not null; folder = Path.GetDirectoryName(folder))
+        {
+            var database = Path.Combine(folder, "database");
+            if (File.Exists(Path.Combine(database, "Dockerfile")))
+            {
+                return database;
+            }
+        }
+
+        return null;
+    }
 
     public async Task InitializeAsync()
     {
+        await _imageBuilt.Value;
+        _container = new PostgreSqlBuilder(Image).Build();
         await _container.StartAsync();
 
         await using (var db = CreateContext())
@@ -43,7 +79,13 @@ public sealed class PostgresFixture : IAsyncLifetime
         await _respawner!.ResetAsync(connection);
     }
 
-    public async Task DisposeAsync() => await _container.DisposeAsync();
+    public async Task DisposeAsync()
+    {
+        if (_container is not null)
+        {
+            await _container.DisposeAsync();
+        }
+    }
 
     /// <summary>A plain context, without the interceptors, for setting up and reading back data.</summary>
     public AppDbContext CreateContext() => new(new DbContextOptionsBuilder<AppDbContext>()
