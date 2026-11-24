@@ -32,6 +32,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         : Task.CompletedTask);
 
     private PostgreSqlContainer? _container;
+    private NpgsqlDataSource? _dataSource;
     private Respawner? _respawner;
 
     public string ConnectionString => _container!.GetConnectionString();
@@ -57,6 +58,10 @@ public sealed class PostgresFixture : IAsyncLifetime
         _container = new PostgreSqlBuilder(Image).Build();
         await _container.StartAsync();
 
+        var dataSource = new NpgsqlDataSourceBuilder(ConnectionString);
+        dataSource.UseVector();
+        _dataSource = dataSource.Build();
+
         await using (var db = CreateContext())
         {
             await db.Database.MigrateAsync();
@@ -79,8 +84,20 @@ public sealed class PostgresFixture : IAsyncLifetime
         await _respawner!.ResetAsync(connection);
     }
 
+    /// <summary>
+    /// Empties the pool of the contexts below. They have their own data source, for pgvector's types, and
+    /// NpgsqlConnection.ClearAllPools() doesn't reach a data source's pool, so a test that ends the
+    /// database's connections clears it, or its next read gets one of the dead ones.
+    /// </summary>
+    public void ClearPool() => _dataSource!.Clear();
+
     public async Task DisposeAsync()
     {
+        if (_dataSource is not null)
+        {
+            await _dataSource.DisposeAsync();
+        }
+
         if (_container is not null)
         {
             await _container.DisposeAsync();
@@ -89,7 +106,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     /// <summary>A plain context, without the interceptors, for setting up and reading back data.</summary>
     public AppDbContext CreateContext() => new(new DbContextOptionsBuilder<AppDbContext>()
-        .UseNpgsql(ConnectionString)
+        .UseNpgsql(_dataSource!, npgsql => npgsql.UseVector())
         .UseSnakeCaseNamingConvention()
         .Options);
 }

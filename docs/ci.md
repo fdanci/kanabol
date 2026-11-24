@@ -34,7 +34,7 @@ Un push nou pe același branch anulează rularea veche. Toate joburile rulează 
 
 - .NET 10, SDK-ul 10.0.403 al mașinii de lucru (unul mai nou aduce reguli de analiză pe care `-warnaserror` le face erori), și Node 26 (cel cu care sunt scrise lock-urile npm, ca `npm install` să le lase neschimbate), cu cache-ul pachetelor NuGet și npm;
 - `scripts/gate.sh` rulează scripturile cu bash (`KANABOL_GATE_SH`), care e și `sh`-ul din Git for Windows, deci același interpretor ca local; `sh` rămâne al sistemului, pentru că `npx` își rulează comanda prin el, iar bash ar desface acoladele unui glob `--include`;
-- un PostgreSQL 17 al jobului, pe portul 5433, în locale-ul C, cu o parolă făcută în job și ascunsă în log, doar pe 127.0.0.1. `KANABOL_CHECK_DB`, `KANABOL_PGDATA` și `KANABOL_PGBIN` îl arată scripturilor, iar `check-collation.sh` 2 îl poate opri și porni cu `pg_ctl`. Portul 5432 rămâne liber pentru `check-docker.sh` 5;
+- un PostgreSQL 17 al jobului, cu pachetul `postgresql-17-pgvector`, pe portul 5433, în locale-ul C, cu o parolă făcută în job și ascunsă în log, doar pe 127.0.0.1. `KANABOL_CHECK_DB`, `KANABOL_PGDATA` și `KANABOL_PGBIN` îl arată scripturilor, iar `check-collation.sh` 2 îl poate opri și porni cu `pg_ctl`. Portul 5432 rămâne liber pentru `check-docker.sh` 5;
 - `scripts/setup.sh`.
 
 Jobul care rulează `check-hardening.sh` își micșorează bufferele TCP (`sysctl`) cât sunt pe Windows: pe Linux, bufferele unei conexiuni locale cresc până la câțiva MB, iar board-ul care nu mai citește din `check-hardening.sh` 3 nu și-ar umple niciodată socket-ul, deci serverul nu l-ar închide. Docker e deja pe mașină. Notele din vault nu sunt, iar `check-foundation` și `check-ui` sar peste verificările lor, cum scriu. Pe Windows totul rulează exact ca înainte.

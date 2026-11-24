@@ -26,13 +26,20 @@ public sealed class DatabaseRestartTests(ApiFixture api) : ProjectApiTest(api)
         await using var command = new NpgsqlCommand(
             "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()",
             connection);
-        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+        var dropped = Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+
+        // The tests' own contexts read through a pool of their own, which isn't what's under test: emptied, so
+        // reading back after the API answers doesn't get a dropped connection. The API's pool stays as it was.
+        Api.Postgres.ClearPool();
+        return dropped;
     }
 
-    // The pool is the tests' own too: the connections dropped and not yet reused go, so the next test starts clean.
+    // The global pool is the tests' too (Respawn's connections): the ones dropped and not yet reused go, so the
+    // next test starts clean.
     public override async Task DisposeAsync()
     {
         NpgsqlConnection.ClearAllPools();
+        Api.Postgres.ClearPool();
         await base.DisposeAsync();
     }
 

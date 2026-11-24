@@ -66,7 +66,7 @@ formatting_is_clean() {
 backend_copy() { # backend_copy <folder>
   mkdir -p "$1"
   cp .editorconfig "$1/"
-  git archive "$(git write-tree)" backend | tar -x -C "$1"
+  git archive "$(git write-tree)" backend database | tar -x -C "$1"
 }
 
 fluent_assertions_is_the_free_version() {
@@ -210,6 +210,12 @@ tests_notice_a_broken_reset() {
   }
 }
 
+# Npgsql only drops the annotation going back, so the migration drops the extension itself (docs/SPEC.md §19.1).
+vector_migration_drops_it() {
+  migration=$(ls backend/src/Kanabol.Infrastructure/Persistence/Migrations/*_AddVectorExtension.cs 2>/dev/null)
+  [ -n "$migration" ] && in_file 'DROP EXTENSION IF EXISTS vector' "$migration"
+}
+
 task_2() {
   echo "3.2 PostgreSQL with Testcontainers and Respawn"
   check "Docker is running" docker_is_running
@@ -218,6 +224,12 @@ task_2() {
   check "it builds that image from database/Dockerfile" in_file 'var database = Path.Combine(folder, "database");' backend/tests/Shared/Database/PostgresFixture.cs
   check "the fixture's tests pass on a real PostgreSQL" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~PostgresFixtureTests' 5
   check "they notice when the reset does nothing" tests_notice_a_broken_reset
+  check "the API's context maps pgvector's types" in_file '.UseVector())' backend/src/Kanabol.Infrastructure/DependencyInjection.cs
+  check "the model has the vector extension" in_file 'HasPostgresExtension("vector")' backend/src/Kanabol.Infrastructure/Persistence/AppDbContext.cs
+  check "AddVectorExtension drops it going back" vector_migration_drops_it
+  check "the migration's tests pass: created, then dropped" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AddVectorExtensionMigrationTests' 2
+  check "the restart tests pass with the API's own pool" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~DatabaseRestartTests' 2
+  check "CI's PostgreSQL gets pgvector" in_file 'postgresql-17-pgvector' .github/actions/setup/action.yml
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean
 }
@@ -408,10 +420,10 @@ test_all_passes() {
 # The script has to stop at a failing test, on either side.
 test_all_copy() {
   copy="$scratch/test-all-copy"
-  rm -rf "$copy/backend" "$copy/frontend/src" "$copy/scripts"
+  rm -rf "$copy/backend" "$copy/database" "$copy/frontend/src" "$copy/scripts"
   mkdir -p "$copy"
   cp .editorconfig "$copy/"
-  git archive "$(git write-tree)" backend frontend scripts | tar -x -C "$copy"
+  git archive "$(git write-tree)" backend database frontend scripts | tar -x -C "$copy"
   [ -d "$copy/.git" ] || git init -q "$copy"
   [ -d "$copy/frontend/node_modules" ] || (cd "$copy/frontend" && npm ci --no-audit --no-fund) >/dev/null 2>&1
 }

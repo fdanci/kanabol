@@ -40,14 +40,14 @@ runs:
         echo "KANABOL_GATE_SH=bash" >>"$GITHUB_ENV"
         echo "::notice title=toolchain::dotnet $(dotnet --version), node $(node --version), npm $(npm --version)"
 
-    # PostgreSQL 17 from its own apt repository, without the cluster Debian would start on 5432: check-docker.sh 5
+    # PostgreSQL 17 and its pgvector package (docs/SPEC.md §19.1) from its own apt repository, without the cluster Debian would start on 5432: check-docker.sh 5
     # needs that port free. The job's cluster is on 5433, in the C locale, as the scripts' databases expect, with
     # a password made in the job and masked in the log (check-backend.sh looks for it in the API's logs).
     - name: PostgreSQL 17
       shell: bash
       run: |
         sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
-        sudo apt-get install -y -qq postgresql-17 >/dev/null
+        sudo apt-get install -y -qq postgresql-17 postgresql-17-pgvector >/dev/null
         sudo pg_dropcluster --stop 17 main 2>/dev/null || true
         if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
           echo "Something listens on 5432, which check-docker.sh 5 needs free."

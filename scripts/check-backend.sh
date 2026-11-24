@@ -142,7 +142,7 @@ trap 'exit 130' INT TERM
 backend_copy() { # backend_copy <folder>
   mkdir -p "$1"
   cp .editorconfig "$1/"
-  git archive "$(git write-tree)" backend | tar -x -C "$1"
+  git archive "$(git write-tree)" backend database | tar -x -C "$1"
 }
 
 # What the API needs to start, none of it real. Later settings in the environment win.

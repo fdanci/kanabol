@@ -66,7 +66,9 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>((provider, options) => options
             // A restart of PostgreSQL leaves the pool's connections dead, and the first command on each failed
             // with 57P01: the strategy runs the operation again on another one (SPEC section 5.3).
-            .UseNpgsql(configuration.GetConnectionString("Default"), npgsql => npgsql.EnableRetryOnFailure())
+            // UseVector() maps pgvector's types, and makes EF build its own NpgsqlDataSource for them, with its
+            // own pool: NpgsqlConnection.ClearAllPools() no longer reaches the API's connections.
+            .UseNpgsql(configuration.GetConnectionString("Default"), npgsql => npgsql.EnableRetryOnFailure().UseVector())
             .UseSnakeCaseNamingConvention()
             .AddInterceptors(
                 provider.GetRequiredService<AuditingInterceptor>(),
