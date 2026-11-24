@@ -33,6 +33,11 @@ public sealed class ArchitectureTests
     public void Application_WhenInspected_DoesNotDependOnOuterLayers() =>
         ShouldNotDependOn(_application, Infrastructure, Api);
 
+    // The models are behind IEmbeddingModel: Azure, a local model or a fake one, and Application knows none (SPEC section 19.3).
+    [Fact]
+    public void Application_WhenInspected_DoesNotDependOnAzureOrOpenAi() =>
+        ShouldNotDependOn(_application, "Azure", "OpenAI");
+
     [Fact]
     public void Infrastructure_WhenInspected_DoesNotDependOnApi() =>
         ShouldNotDependOn(_infrastructure, Api);

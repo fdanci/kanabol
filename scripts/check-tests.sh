@@ -172,6 +172,10 @@ task_6() {
     Pgvector.EntityFrameworkCore
   check "Infrastructure in Application is caught" architecture_tests_catch application-infrastructure Kanabol.Application/Probe.cs \
     'namespace Kanabol.Infrastructure.Probing { public sealed class Thing; } namespace Kanabol.Application { public sealed class Probe { public Kanabol.Infrastructure.Probing.Thing? Used { get; set; } } }'
+  check "OpenAI in Application is caught (docs/SPEC.md §19.3)" architecture_tests_catch application-openai Kanabol.Application/Probe.cs \
+    'namespace OpenAI.Probing { public sealed class Client; } namespace Kanabol.Application { public sealed class Probe { public OpenAI.Probing.Client? Used { get; set; } } }'
+  check "the fake model's tests pass: same text same vector, given vectors, order, calls, failure" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~FakeEmbeddingModelTests' 6
 }
 
 docker_is_running() {

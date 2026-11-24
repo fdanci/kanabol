@@ -8,6 +8,7 @@
   <ItemGroup>
     <!-- Not a project of its own: it needs the test libraries, and each assembly needs its own collection. -->
     <Compile Include="..\Shared\Database\*.cs" LinkBase="Shared\Database" />
+    <Compile Include="..\Shared\Fakes\*.cs" LinkBase="Shared\Fakes" />
   </ItemGroup>
 
   <ItemGroup>
