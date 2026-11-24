@@ -233,6 +233,8 @@ task_2() {
   check "the migration's tests pass: created, then dropped" tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AddVectorExtensionMigrationTests' 2
   check "the restart tests pass with the API's own pool" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~DatabaseRestartTests' 2
   check "CI's PostgreSQL gets pgvector" in_file 'postgresql-17-pgvector' .github/actions/setup/action.yml
+  check "the vectorization's settings: off by default, checked only when on, never printing a value" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsOptionsTests' 15
   check "task_embeddings keeps a vector of any length, one row per task and source, gone with the task, with <=> in SQL" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskEmbeddingPersistenceTests' 5
   check "the solution builds with warnings as errors" solution_builds

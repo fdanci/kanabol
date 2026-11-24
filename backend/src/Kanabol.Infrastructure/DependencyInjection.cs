@@ -1,4 +1,5 @@
 using Kanabol.Application.Abstractions;
+using Kanabol.Application.Features.Search;
 using Kanabol.Application.Features.Settings;
 using Kanabol.Infrastructure.Alerts;
 using Kanabol.Infrastructure.Authentication;
@@ -54,6 +55,7 @@ public static class DependencyInjection
             .Validate(
                 auth => auth.RefreshTokenCleanupInterval <= AuthOptions.MaximumInterval,
                 $"Auth:RefreshTokenCleanupInterval must be at most {AuthOptions.MaximumInterval}.");
+        AddEmbeddingsOptions(services, configuration);
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -88,6 +90,34 @@ public static class DependencyInjection
         services.AddHostedService<RefreshTokensCleanupWorker>();
 
         return services;
+    }
+
+    // Checked only when the vectorization is on, so a machine without the keys starts (SPEC section 19.4).
+    // The messages name the setting, never its value: the key would end up in the log of a failed start.
+    private static void AddEmbeddingsOptions(IServiceCollection services, IConfiguration configuration)
+    {
+        const string WhenOn = "when Embeddings:Enabled is true";
+        services.AddValidatedOptions<EmbeddingsOptions>(configuration, EmbeddingsOptions.SectionName)
+            .Validate(
+                embeddings => !embeddings.Enabled || !string.IsNullOrWhiteSpace(embeddings.Model),
+                $"Embeddings:Model is needed {WhenOn}: the name of the model the deployment runs, such as text-embedding-3-small.")
+            .Validate(
+                embeddings => !embeddings.Enabled
+                    || (embeddings.Interval >= EmbeddingsOptions.MinimumInterval && embeddings.Interval <= EmbeddingsOptions.MaximumInterval),
+                $"Embeddings:Interval must be between {EmbeddingsOptions.MinimumInterval} and {EmbeddingsOptions.MaximumInterval}.")
+            .Validate(
+                embeddings => !embeddings.Enabled || embeddings.BatchSize is >= 1 and <= EmbeddingsOptions.MaximumBatchSize,
+                $"Embeddings:BatchSize must be between 1 and {EmbeddingsOptions.MaximumBatchSize}.");
+        services.AddValidatedOptions<AzureEmbeddingsOptions>(configuration, AzureEmbeddingsOptions.SectionName)
+            .Validate<IOptions<EmbeddingsOptions>>(
+                (azure, embeddings) => !embeddings.Value.Enabled || AzureEmbeddingsOptions.IsAnHttpsAddress(azure.Endpoint),
+                $"Embeddings:Azure:Endpoint is needed {WhenOn}, as an https address.")
+            .Validate<IOptions<EmbeddingsOptions>>(
+                (azure, embeddings) => !embeddings.Value.Enabled || !string.IsNullOrWhiteSpace(azure.Deployment),
+                $"Embeddings:Azure:Deployment is needed {WhenOn}: the name the deployment was given in Azure.")
+            .Validate<IOptions<EmbeddingsOptions>>(
+                (azure, embeddings) => !embeddings.Value.Enabled || !string.IsNullOrWhiteSpace(azure.ApiKey),
+                $"Embeddings:Azure:ApiKey is needed {WhenOn}.");
     }
 
     private static OptionsBuilder<TOptions> AddValidatedOptions<TOptions>(

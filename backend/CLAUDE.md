@@ -57,6 +57,13 @@ Set these once per machine, from `backend/`:
 - `dotnet user-secrets set "Jwt:Secret" "<at least 32 characters>" --project src/Kanabol.Api`
 - `dotnet user-secrets set "Admin:InitialPassword" "<at least 10 characters>" --project src/Kanabol.Api`
 
+The vectorization is off unless turned on, and then it needs the Azure deployment's values (`docs/SPEC.md` §19.4). Only on a machine that should call Azure:
+
+- `dotnet user-secrets set "Embeddings:Azure:Endpoint" "https://<resource>.cognitiveservices.azure.com/" --project src/Kanabol.Api`
+- `dotnet user-secrets set "Embeddings:Azure:Deployment" "<the deployment's name>" --project src/Kanabol.Api`
+- `dotnet user-secrets set "Embeddings:Azure:ApiKey" "<the key, from the Azure portal>" --project src/Kanabol.Api`
+- `Embeddings:Model` (the model the deployment runs, such as `text-embedding-3-small`) and `Embeddings:Enabled=true` aren't secret: `appsettings.Development.local.json`.
+
 The first start creates the permissions, the `Admin` role and the admin user `admin@kanabol.local`, who has to change that password at first login. Later starts don't need the password, and they bring the permissions in line with `Permissions.All` in the code.
 
 ## Configuration
@@ -64,7 +71,7 @@ The first start creates the permissions, the `Admin` role and the admin user `ad
 - Shared values are in `appsettings.json`, and values for one environment in `appsettings.Development.json` and `appsettings.Production.json`.
 - Development secrets go in user secrets, never in a file.
 - Local overrides that aren't secret go in `src/Kanabol.Api/appsettings.Development.local.json`, which git ignores. It's only read in Development, and it wins over everything else.
-- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day, if `Auth:RefreshTokenCleanupInterval` is under an hour or over 30 days, or if `Schedule:TimeZone` is a zone the system doesn't know.
+- The API refuses to start if `Jwt:Secret` (at least 32 characters), `Storage:Root` or the connection string is missing, if a new database has no `Admin:InitialPassword` (at least 10 characters), or if `Alerts:OverdueCheckInterval` is under a minute or over a day, if `Auth:RefreshTokenCleanupInterval` is under an hour or over 30 days, or if `Schedule:TimeZone` is a zone the system doesn't know. With `Embeddings:Enabled` true, it also refuses to start without `Embeddings:Model`, `Embeddings:Azure:Endpoint` (an https address), `Embeddings:Azure:Deployment` and `Embeddings:Azure:ApiKey`, or with `Embeddings:Interval` outside a minute to a day or `Embeddings:BatchSize` outside 1 to 2048; off, none of them is checked. The messages name the setting, never its value.
 
 In Docker and production, settings come from environment variables:
 
@@ -83,6 +90,13 @@ In Docker and production, settings come from environment variables:
 | `Auth__RefreshTokenCleanupEnabled`     | `true` by default; `false` stops the cleanup, as the API's tests do                                                                                          |
 | `Schedule__TimeZone`                   | The time zone of the work schedule's hours, `Europe/Bucharest` by default; the API image carries the zone data                                               |
 | `Serilog__WriteTo__1__Args__serverUrl` | Seq's address, `http://seq:5341` by default                                                                                                                  |
+| `Embeddings__Enabled`                  | `false` by default; `true` turns the vectorization on, from `EMBEDDINGS_ENABLED` in `.env`                                                                   |
+| `Embeddings__Model`                    | The model the deployment runs, such as `text-embedding-3-small`, from `EMBEDDINGS_MODEL`; no default                                                         |
+| `Embeddings__Interval`                 | How often the vectorization runs, `00:05:00` by default, at least `00:01:00` and at most a day                                                               |
+| `Embeddings__BatchSize`                | The texts sent to the model in one call, `64` by default, 1 to 2048                                                                                          |
+| `Embeddings__Azure__Endpoint`          | The Azure resource's https address, from `EMBEDDINGS_AZURE_ENDPOINT`                                                                                         |
+| `Embeddings__Azure__Deployment`        | The deployment's name, from `EMBEDDINGS_AZURE_DEPLOYMENT`                                                                                                    |
+| `Embeddings__Azure__ApiKey`            | The deployment's key, from `EMBEDDINGS_AZURE_API_KEY`; never in git                                                                                          |
 
 ## Access rules
 

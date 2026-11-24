@@ -494,6 +494,16 @@ compose_as() { # compose_as <project> <arguments...>
   docker compose -p "$project" --env-file "$(native "$scratch/check.env")" "$@"
 }
 
+# Each variable compose reads for the vectorization, as a commented line: .env.example holds no values.
+env_example_names_the_embeddings() {
+  for name in EMBEDDINGS_ENABLED EMBEDDINGS_MODEL EMBEDDINGS_AZURE_ENDPOINT EMBEDDINGS_AZURE_DEPLOYMENT EMBEDDINGS_AZURE_API_KEY; do
+    grep -qx "# $name=" .env.example || {
+      echo ".env.example has no '# $name='"
+      return 1
+    }
+  done
+}
+
 # Judges what compose really makes of the files. "services" is what the expression gets to look at.
 config_satisfies() { # config_satisfies <-f arguments, or nothing for the default files> <JS expression>
   # shellcheck disable=SC2086 # the file arguments are meant to split
@@ -770,6 +780,10 @@ task_3() {
      && env('api').ASPNETCORE_ENVIRONMENT === 'Production'"
   check "the API gets the first admin's password" config_satisfies "$base" \
     "env('api').Admin__InitialPassword === 'check-admin-password'"
+  check "the vectorization is off unless .env turns it on, with no key in compose (docs/SPEC.md §19.4)" config_satisfies "$base" \
+    "env('api').Embeddings__Enabled === 'false'
+     && ['Model', 'Azure__Endpoint', 'Azure__Deployment', 'Azure__ApiKey'].every((name) => env('api')['Embeddings__' + name] === '')"
+  check ".env.example names the vectorization's settings, commented out" env_example_names_the_embeddings
   check "the API waits for a healthy database" config_satisfies "$base" \
     "services.api.depends_on.postgres.condition === 'service_healthy'"
   check "data lives in named volumes" config_satisfies "$base" \

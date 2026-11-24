@@ -727,6 +727,12 @@ services:
       # The refresh token cleanup runs once a day by default: Auth__RefreshTokenCleanupInterval=01:00:00 changes it (1 hour to 30 days), Auth__RefreshTokenCleanupEnabled=false stops it (group 19)
       # The work schedule's time zone is Europe/Bucharest by default: Schedule__TimeZone=Europe/Vienna changes it (group 22)
       Database__MigrateOnStartup: "true"
+      # Vectorization, for the search by meaning, is off unless EMBEDDINGS_ENABLED=true in .env, which then needs the four after it (docs/SPEC.md §19.4, group 25)
+      Embeddings__Enabled: ${EMBEDDINGS_ENABLED:-false}
+      Embeddings__Model: ${EMBEDDINGS_MODEL:-}
+      Embeddings__Azure__Endpoint: ${EMBEDDINGS_AZURE_ENDPOINT:-}
+      Embeddings__Azure__Deployment: ${EMBEDDINGS_AZURE_DEPLOYMENT:-}
+      Embeddings__Azure__ApiKey: ${EMBEDDINGS_AZURE_API_KEY:-}
     volumes: [attachments:/data/attachments]
     depends_on:
       postgres: { condition: service_healthy }
@@ -926,7 +932,7 @@ Gate-ul întreg îl rulează `scripts/gate.sh` (local `scripts/gate.sh --fresh <
 ## 15. Configurare și secrete
 
 - `appsettings.json` (valori comune) + `appsettings.Development.json` (loguri verbose, Swagger). Fără CORS: în dev `proxy.conf.json`, în prod nginx — același origin peste tot.
-- Secrete în dev: `dotnet user-secrets` (`Jwt:Secret`, `ConnectionStrings:Default`, `Admin:InitialPassword`). Override-uri locale **nesecrete** pot sta în `appsettings.Development.local.json` (deja în `.gitignore`), încărcat explicit în `Program.cs` după cel standard. În Docker/prod: variabile de mediu (`__` ca separator).
+- Secrete în dev: `dotnet user-secrets` (`Jwt:Secret`, `ConnectionStrings:Default`, `Admin:InitialPassword` și, doar cu vectorizarea pornită, `Embeddings:Azure:Endpoint`, `Embeddings:Azure:Deployment`, `Embeddings:Azure:ApiKey`, §19.4). Override-uri locale **nesecrete** pot sta în `appsettings.Development.local.json` (deja în `.gitignore`), încărcat explicit în `Program.cs` după cel standard. În Docker/prod: variabile de mediu (`__` ca separator).
 - Toate opțiunile tipate (`JwtOptions` etc.) cu `[Required]` și `ValidateOnStart()` → aplicația refuză să pornească cu config incompletă, nu eșuează la primul request.
 - Frontend: `environment.ts` conține doar `apiBaseUrl` (`/api`) și `hubsBaseUrl` (`/hubs`); același build pentru toate mediile, nginx face restul.
 
@@ -1013,7 +1019,7 @@ Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele
 ### 19.4 Configurare și secrete
 
 - Vectorizarea e **oprită implicit** (`Embeddings:Enabled = false`). Oprită, aplicația pornește fără nicio cheie și nu cheamă niciun model.
-- Pornită, setările ei (modelul, intervalul, lotul, adresa, deployment-ul și cheia Azure) se validează la pornire, ca restul opțiunilor (§15). Mesajele de validare numesc setarea, niciodată valoarea.
+- Pornită, setările ei se validează la pornire, ca restul opțiunilor (§15): `Embeddings:Model` (numele modelului, fără valoare implicită), `Embeddings:Interval` (între un minut și o zi, 5 minute implicit), `Embeddings:BatchSize` (1–2048, 64 implicit) și `Embeddings:Azure:Endpoint` (o adresă https), `Embeddings:Azure:Deployment`, `Embeddings:Azure:ApiKey`. Oprită, niciuna nu se verifică. Mesajele de validare numesc setarea, niciodată valoarea. În compose vin din `.env` (`EMBEDDINGS_ENABLED` și celelalte patru, comentate în `.env.example`).
 - Cheia stă în `dotnet user-secrets` în dev și în `.env` în Docker. Niciodată în git, în loguri sau în răspunsuri.
 
 ### 19.5 Vectorizarea
