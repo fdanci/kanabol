@@ -12,18 +12,22 @@ using Kanabol.Infrastructure.Embeddings;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.ML.Tokenizers;
 
 namespace Kanabol.Application.Tests.Features.Search;
 
 /// <summary>
 /// The Azure model against a fake answer, with no network and no key (SPEC section 19.3): what it sends, the vectors
-/// put back in the texts' order, the tokens, and the failures turned into EmbeddingFailedException without a text
-/// or the key. The call to the real Azure is AzureEmbeddingModelProbe, by hand.
+/// put back in the texts' order, the tokens, the failures turned into EmbeddingFailedException without a text or
+/// the key, and the texts cut at the models' 8191 tokens. The call to the real Azure is AzureEmbeddingModelProbe, by hand.
 /// </summary>
 public sealed class AzureEmbeddingModelTests
 {
     private const string Key = "the-key-from-the-portal";
     private const string Endpoint = "https://example.cognitiveservices.azure.com/";
+
+    /// <summary>The tokenizer of OpenAI's embedding models, to count what Fit kept.</summary>
+    private static readonly TiktokenTokenizer _cl100k = TiktokenTokenizer.CreateForEncoding("cl100k_base");
 
     private static AzureEmbeddingModel Model(FakeAzure azure) => new(
         Options.Create(new EmbeddingsOptions { Enabled = true, Model = "text-embedding-3-small", BatchSize = 64 }),
@@ -114,11 +118,48 @@ public sealed class AzureEmbeddingModelTests
         Model(new FakeAzure()).Name.Should().Be("text-embedding-3-small");
 
     [Fact]
+    public void Fit_ATextUnderTheLimit_StaysAsItIs()
+    {
+        var text = "Pregătește raportul lunar pentru client";
+
+        Model(new FakeAzure()).Fit(text).Should().BeSameAs(text);
+    }
+
+    [Fact]
+    public void Fit_ATextOverTheLimit_KeepsItsStart_UpTo8191Tokens()
+    {
+        var text = string.Concat(Enumerable.Repeat("Raportul lunar pentru client. ", 5_000));
+
+        var fitted = Model(new FakeAzure()).Fit(text);
+
+        text.Should().StartWith(fitted);
+        var tokens = _cl100k.CountTokens(fitted);
+        tokens.Should().BeLessThanOrEqualTo(AzureEmbeddingModel.TokenLimit).And.BeGreaterThan(AzureEmbeddingModel.TokenLimit - 10);
+    }
+
+    [Fact]
+    public void Fit_ATextOfFewerCharactersThanTheLimit_ButMoreTokens_IsCutToo()
+    {
+        // 8,000 characters, but an emoji is two characters and several tokens.
+        var text = string.Concat(Enumerable.Repeat("🦊", 4_000));
+        _cl100k.CountTokens(text).Should().BeGreaterThan(AzureEmbeddingModel.TokenLimit);
+
+        var fitted = Model(new FakeAzure()).Fit(text);
+
+        fitted.Length.Should().BeLessThan(text.Length);
+        _cl100k.CountTokens(fitted).Should().BeLessThanOrEqualTo(AzureEmbeddingModel.TokenLimit);
+        char.IsHighSurrogate(fitted[^1]).Should().BeFalse("an emoji isn't cut in half");
+    }
+
+    [Fact]
     public async Task TurnedOff_RefusesEveryCall()
     {
-        var embedding = () => new TurnedOffEmbeddingModel().EmbedAsync(["Text"], CancellationToken.None);
+        var model = new TurnedOffEmbeddingModel();
+        var embedding = () => model.EmbedAsync(["Text"], CancellationToken.None);
+        var fitting = () => model.Fit("Text");
 
         await embedding.Should().ThrowAsync<EmbeddingFailedException>().WithMessage("*Embeddings:Enabled*");
+        fitting.Should().Throw<EmbeddingFailedException>().WithMessage("*Embeddings:Enabled*");
     }
 
     [Theory]

@@ -6,7 +6,7 @@ namespace Kanabol.Application.Tests.Fakes;
 /// <summary>
 /// The fake model the other tests lean on (SPEC section 19.3): the same text gets the same vector, in any run and
 /// from any instance; different texts get different ones; a test's own vectors win; the order follows the texts;
-/// the calls are kept; and it fails on demand, then recovers.
+/// the calls are kept; it fails on demand, then recovers; and it refuses a text over its token limit, as Azure does.
 /// </summary>
 public sealed class FakeEmbeddingModelTests
 {
@@ -79,5 +79,31 @@ public sealed class FakeEmbeddingModelTests
         var failing = () => model.EmbedAsync(["Text"], CancellationToken.None);
 
         await failing.Should().ThrowAsync<TimeoutException>().WithMessage("too slow");
+    }
+
+    [Fact]
+    public async Task Fail_AfterSomeCalls_LetsThemAnswer_ThenFails()
+    {
+        var model = new FakeEmbeddingModel();
+        await model.EmbedAsync(["before"], CancellationToken.None);
+        model.Fail(afterCalls: 1);
+
+        var answered = await model.EmbedAsync(["first"], CancellationToken.None);
+        var failing = () => model.EmbedAsync(["second"], CancellationToken.None);
+
+        answered.Vectors.Should().ContainSingle();
+        await failing.Should().ThrowAsync<EmbeddingFailedException>();
+    }
+
+    [Fact]
+    public async Task Fit_CutsATextOverTheLimit_AndEmbedRefusesOneThatWasntCut()
+    {
+        var model = new FakeEmbeddingModel(tokenLimit: 3);
+        var tooLong = new string('a', 13);
+
+        model.Fit("twelve chars").Should().Be("twelve chars");
+        model.Fit(tooLong).Should().Be(new string('a', 12));
+        var refused = () => model.EmbedAsync(["short", tooLong], CancellationToken.None);
+        await refused.Should().ThrowAsync<EmbeddingFailedException>().WithMessage("*status 400*");
     }
 }

@@ -11,6 +11,12 @@ public interface IEmbeddingModel
     string Name { get; }
 
     /// <summary>
+    /// The text as the model takes it (SPEC section 19.5): the text itself, or only its start when it's longer than
+    /// the model's limit in tokens, since a single text over the limit fails the whole call. It calls nothing.
+    /// </summary>
+    string Fit(string text);
+
+    /// <summary>
     /// One call for the whole batch: the vectors come in the texts' order. Throws EmbeddingFailedException when
     /// the model doesn't answer, so a run can stop and the next one can take it up again.
     /// </summary>

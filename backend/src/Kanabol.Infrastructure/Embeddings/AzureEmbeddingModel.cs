@@ -1,9 +1,11 @@
 using System.ClientModel;
+using System.Text;
 using Azure.AI.OpenAI;
 using Kanabol.Application.Abstractions;
 using Kanabol.Application.Features.Search;
 using Kanabol.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
+using Microsoft.ML.Tokenizers;
 using OpenAI.Embeddings;
 
 namespace Kanabol.Infrastructure.Embeddings;
@@ -12,10 +14,17 @@ namespace Kanabol.Infrastructure.Embeddings;
 /// The vectors from an Azure deployment (SPEC section 19.3), through the official SDK: one call per batch, to the
 /// deployment Embeddings:Azure:Deployment names. The vectors are put back in the texts' order by their index, the
 /// tokens come from the answer's usage, and any failure becomes an EmbeddingFailedException whose message has the
-/// status, never a text or the key.
+/// status, never a text or the key. Fit cuts a text at 8191 tokens, counted by the models' own tokenizer.
 /// </summary>
 public sealed class AzureEmbeddingModel : IEmbeddingModel
 {
+    /// <summary>The longest text OpenAI's embedding models take, in their tokens: a longer one fails the whole call.</summary>
+    public const int TokenLimit = 8191;
+
+    // cl100k_base, the encoding of OpenAI's embedding models (ada-002 and the two 3s), so the count is theirs. Its
+    // vocabulary loads at the first text that might be too long, and only once.
+    private static readonly Lazy<TiktokenTokenizer> _tokenizer = new(() => TiktokenTokenizer.CreateForEncoding("cl100k_base"));
+
     private readonly EmbeddingClient _client;
 
     public AzureEmbeddingModel(IOptions<EmbeddingsOptions> embeddings, IOptions<AzureEmbeddingsOptions> azure)
@@ -33,6 +42,18 @@ public sealed class AzureEmbeddingModel : IEmbeddingModel
     }
 
     public string Name { get; }
+
+    public string Fit(string text)
+    {
+        // A token is at least one byte of UTF-8, so a text with no more bytes than the limit fits without counting.
+        if (Encoding.UTF8.GetByteCount(text) <= TokenLimit)
+        {
+            return text;
+        }
+
+        var end = _tokenizer.Value.GetIndexByTokenCount(text, TokenLimit, out _, out _);
+        return end >= text.Length ? text : text[..end];
+    }
 
     public async Task<EmbeddedTexts> EmbedAsync(IReadOnlyList<string> texts, CancellationToken ct)
     {

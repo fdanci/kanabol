@@ -25,7 +25,10 @@ public sealed class TaskEmbedding : Entity
 
     public EmbeddingSource Source { get; private set; }
 
-    /// <summary>The text sent to the model, as it was then.</summary>
+    /// <summary>
+    /// The task's text when the vector was made, whole even when the model got only its start (SPEC section 19.5):
+    /// it's what a later run compares with the text now.
+    /// </summary>
     public string Content { get; private set; } = null!;
 
     /// <summary>Its length is the model's: the column has no fixed one, since each row keeps its model.</summary>

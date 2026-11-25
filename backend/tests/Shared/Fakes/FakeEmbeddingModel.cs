@@ -7,17 +7,25 @@ namespace Kanabol.Tests.Shared.Fakes;
 /// <summary>
 /// The model the tests use, since CI has no keys (SPEC section 19.3). The same text always gets the same vector,
 /// made from its SHA-256, so runs are repeatable; it understands nothing, so a test that needs texts close in
-/// meaning gives their vectors itself. It keeps the calls, and fails on demand, as Azure would when it's down.
+/// meaning gives their vectors itself. It keeps the calls, and fails on demand, as Azure would when it's down. Like
+/// Azure, it refuses the whole call when a text is over its token limit, so a test sees what Fit saves a batch from.
 /// </summary>
-public sealed class FakeEmbeddingModel(string name = FakeEmbeddingModel.DefaultName, int dimensions = FakeEmbeddingModel.DefaultDimensions) : IEmbeddingModel
+public sealed class FakeEmbeddingModel(
+    string name = FakeEmbeddingModel.DefaultName,
+    int dimensions = FakeEmbeddingModel.DefaultDimensions,
+    int tokenLimit = FakeEmbeddingModel.DefaultTokenLimit) : IEmbeddingModel
 {
     public const string DefaultName = "fake-embedding-model";
 
     public const int DefaultDimensions = 8;
 
+    /// <summary>The limit of OpenAI's embedding models.</summary>
+    public const int DefaultTokenLimit = 8191;
+
     private readonly Dictionary<string, float[]> _given = [];
     private readonly List<IReadOnlyList<string>> _calls = [];
     private Exception? _failure;
+    private int _failingFrom;
 
     public string Name { get; } = name;
 
@@ -31,10 +39,14 @@ public sealed class FakeEmbeddingModel(string name = FakeEmbeddingModel.DefaultN
         return this;
     }
 
-    /// <summary>Every call fails from now on, until Recover, with an EmbeddingFailedException unless another is given.</summary>
-    public FakeEmbeddingModel Fail(Exception? failure = null)
+    /// <summary>
+    /// Every call fails, until Recover, with an EmbeddingFailedException unless another is given: from now on, or
+    /// after the given number of calls that still answer, as Azure going down in the middle of a run.
+    /// </summary>
+    public FakeEmbeddingModel Fail(Exception? failure = null, int afterCalls = 0)
     {
         _failure = failure ?? new EmbeddingFailedException("The fake model was told to fail.");
+        _failingFrom = _calls.Count + afterCalls;
         return this;
     }
 
@@ -59,13 +71,21 @@ public sealed class FakeEmbeddingModel(string name = FakeEmbeddingModel.DefaultN
     /// <summary>About one token per four characters, at least one per text, as the real models count.</summary>
     public static int TokensOf(string text) => Math.Max(1, (text.Length + 3) / 4);
 
+    /// <summary>The text's first tokenLimit tokens, four characters each, as TokensOf counts them.</summary>
+    public string Fit(string text) => TokensOf(text) <= tokenLimit ? text : text[..(tokenLimit * 4)];
+
     public Task<EmbeddedTexts> EmbedAsync(IReadOnlyList<string> texts, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         _calls.Add([.. texts]);
-        if (_failure is not null)
+        if (_failure is not null && _calls.Count > _failingFrom)
         {
             throw _failure;
+        }
+
+        if (texts.Any(text => TokensOf(text) > tokenLimit))
+        {
+            throw new EmbeddingFailedException($"The fake model refused the {texts.Count} texts with status 400: one is over {tokenLimit} tokens.");
         }
 
         IReadOnlyList<IReadOnlyList<float>> vectors = [.. texts.Select(VectorOf)];

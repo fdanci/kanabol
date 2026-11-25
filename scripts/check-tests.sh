@@ -174,10 +174,10 @@ task_6() {
     'namespace Kanabol.Infrastructure.Probing { public sealed class Thing; } namespace Kanabol.Application { public sealed class Probe { public Kanabol.Infrastructure.Probing.Thing? Used { get; set; } } }'
   check "OpenAI in Application is caught (docs/SPEC.md §19.3)" architecture_tests_catch application-openai Kanabol.Application/Probe.cs \
     'namespace OpenAI.Probing { public sealed class Client; } namespace Kanabol.Application { public sealed class Probe { public OpenAI.Probing.Client? Used { get; set; } } }'
-  check "the fake model's tests pass: same text same vector, given vectors, order, calls, failure" \
-    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~FakeEmbeddingModelTests' 6
-  check "the Azure model's tests pass on a fake answer: what it sends, order, tokens, failures without a key" \
-    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AzureEmbeddingModelTests' 13
+  check "the fake model's tests pass: same text same vector, given vectors, order, calls, failure, token limit" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~FakeEmbeddingModelTests' 8
+  check "the Azure model's tests pass on a fake answer: what it sends, order, tokens, failures without a key, 8191 tokens" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AzureEmbeddingModelTests' 16
   check "the probe on the real Azure is skipped without KANABOL_AZURE_PROBE=1" azure_probe_is_skipped
 }
 
@@ -254,6 +254,8 @@ task_2() {
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsOptionsTests' 15
   check "task_embeddings keeps a vector of any length, one row per task and source, gone with the task, with <=> in SQL" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskEmbeddingPersistenceTests' 5
+  check "the vectorization makes the missing and stale vectors in batches, keeps them when the model fails, cuts long texts" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbedTasks' 12
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean
 }

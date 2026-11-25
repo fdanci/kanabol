@@ -8,8 +8,12 @@ namespace Kanabol.Infrastructure.Embeddings;
 /// </summary>
 public sealed class TurnedOffEmbeddingModel : IEmbeddingModel
 {
+    private const string Off = "The vectorization is off: Embeddings:Enabled is false.";
+
     public string Name => "";
 
+    public string Fit(string text) => throw new EmbeddingFailedException(Off);
+
     public Task<EmbeddedTexts> EmbedAsync(IReadOnlyList<string> texts, CancellationToken ct) =>
-        throw new EmbeddingFailedException("The vectorization is off: Embeddings:Enabled is false.");
+        throw new EmbeddingFailedException(Off);
 }
