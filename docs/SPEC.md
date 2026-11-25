@@ -236,8 +236,10 @@ Reguli:
 users.manage        roles.manage        projects.create
 projects.view_all   projects.manage     tasks.create
 tasks.archive       reports.view        settings.manage
-columns.manage
+columns.manage      chat.use
 ```
+
+`chat.use` (grupul 25) e a căutării după sens și, din pasul 2, a chat-ului. Citește singură peste toate proiectele, fără `projects.view_all`, deci se dă doar cui are voie să vadă tot (§19.6).
 
 `tasks.create` se verifică pe lângă apartenența la proiect: creezi task-uri doar în proiectele în care ești membru și doar dacă rolul tău are permisiunea (UI §7.4). Apartenența e cea reală, un rând în `project_members`, nu cea derivată din `projects.view_all` sau `projects.manage`: cine administrează un proiect străin se adaugă întâi ca membru. Un rol poate deci vedea un proiect fără să poată adăuga task-uri în el.
 

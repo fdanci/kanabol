@@ -17,7 +17,8 @@ public sealed class PermissionsTests
             "tasks.archive",
             "reports.view",
             "settings.manage",
-            "columns.manage");
+            "columns.manage",
+            "chat.use");
 
     [Fact]
     public void All_WhenRead_HasNoDuplicates() =>

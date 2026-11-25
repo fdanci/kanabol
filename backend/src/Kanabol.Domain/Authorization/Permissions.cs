@@ -17,6 +17,12 @@ public static class Permissions
     /// <summary>Adding, renaming, moving and deleting a board's columns, for a real member of the project (group 23).</summary>
     public const string ColumnsManage = "columns.manage";
 
+    /// <summary>
+    /// The search by meaning and, from step 2, the chat (group 25, SPEC section 19.6). It reads over every project
+    /// on its own, without projects.view_all, so it's for whoever may see everything.
+    /// </summary>
+    public const string ChatUse = "chat.use";
+
     public static IReadOnlyList<string> All { get; } =
     [
         UsersManage,
@@ -29,5 +35,6 @@ public static class Permissions
         ReportsView,
         SettingsManage,
         ColumnsManage,
+        ChatUse,
     ];
 }
