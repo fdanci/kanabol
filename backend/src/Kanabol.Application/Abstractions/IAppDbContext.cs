@@ -41,5 +41,7 @@ public interface IAppDbContext
 
     DbSet<TaskEmbedding> TaskEmbeddings { get; }
 
+    DbSet<EmbeddingCall> EmbeddingCalls { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

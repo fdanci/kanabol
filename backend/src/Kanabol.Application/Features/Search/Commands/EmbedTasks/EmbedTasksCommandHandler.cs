@@ -13,8 +13,9 @@ namespace Kanabol.Application.Features.Search.Commands.EmbedTasks;
 /// text is no longer the one TaskText composes now, or one made by another model than Embeddings:Model. Archived
 /// tasks too, since the search can take them in. The database finds them, in batches ordered by the task's id;
 /// each batch is one call to the model and one save, so a failed call keeps the batches before it, and the next run
-/// starts again from the first task still to do. A text over the model's limit is cut by the model's Fit and the
-/// log names its task. The logs hold numbers and ids, never a text or a vector.
+/// starts again from the first task still to do. Each call the model answered gets a row in embedding_calls, with
+/// its tokens. A text over the model's limit is cut by the model's Fit and the log names its task. The logs hold
+/// numbers and ids, never a text or a vector.
 /// </summary>
 public sealed class EmbedTasksCommandHandler(
     IAppDbContext db,
@@ -79,6 +80,9 @@ public sealed class EmbedTasksCommandHandler(
                 return EmbeddingErrors.ModelFailed;
             }
 
+            // Before the vectors, in a save of its own: a call the model answered used its tokens even when its
+            // vectors then can't be saved.
+            await Record(batch.Count, answer.Tokens, ct);
             await Save(batch, answer.Vectors, ct);
             done = new EmbeddedTasks(done.Tasks + batch.Count, done.Batches + 1, done.Tokens + answer.Tokens, done.Shortened + shortened);
             logger.LogDebug(
@@ -115,6 +119,15 @@ public sealed class EmbedTasksCommandHandler(
             && row.Source == EmbeddingSource.Task
             && row.Model == modelName
             && row.Content == text.Text));
+    }
+
+    /// <summary>The call, with the model's name and the tokens it answered, for the cost calculator; no text goes in its row.</summary>
+    private async Task Record(int textCount, int tokens, CancellationToken ct)
+    {
+        var call = new EmbeddingCall(EmbeddingPurpose.Vectorization, model.Name, textCount, tokens, clock.UtcNow);
+        db.EmbeddingCalls.Add(call);
+        await db.SaveChangesAsync(ct);
+        db.EmbeddingCalls.Entry(call).State = EntityState.Detached;
     }
 
     /// <summary>

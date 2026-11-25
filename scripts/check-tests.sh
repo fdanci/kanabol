@@ -254,8 +254,10 @@ task_2() {
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsOptionsTests' 16
   check "task_embeddings keeps a vector of any length, one row per task and source, gone with the task, with <=> in SQL" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskEmbeddingPersistenceTests' 5
-  check "the vectorization makes the missing and stale vectors in batches, keeps them when the model fails, cuts long texts" \
-    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbedTasks' 12
+  check "a call to the model keeps its purpose, model, number of texts and tokens, and refuses wrong counts" \
+    tests_pass Kanabol.Domain.Tests 'FullyQualifiedName~EmbeddingCallTests' 6
+  check "the vectorization makes the missing and stale vectors in batches, keeps them when the model fails, cuts long texts, records each call's tokens" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbedTasks' 15
   check "the worker runs the vectorization at start and every interval, logs a failed run and goes on, stops cleanly" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsWorkerTests' 7
   check "the solution builds with warnings as errors" solution_builds

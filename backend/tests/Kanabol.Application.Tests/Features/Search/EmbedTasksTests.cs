@@ -64,6 +64,13 @@ public sealed class EmbedTasksTests(PostgresFixture postgres) : TaskHandlerTest(
         return await db.TaskEmbeddings.OrderBy(row => row.Content).ToListAsync();
     }
 
+    // In no order: the ids are UUID v7, ordered only to the millisecond, and the test's clock doesn't move.
+    private async Task<List<EmbeddingCall>> CallsRecorded()
+    {
+        await using var db = Postgres.CreateContext();
+        return await db.EmbeddingCalls.ToListAsync();
+    }
+
     private async Task<Project> AProject()
     {
         var owner = await CreateUser();
@@ -233,6 +240,59 @@ public sealed class EmbedTasksTests(PostgresFixture postgres) : TaskHandlerTest(
 
         (await Embed()).Tasks.Should().Be(0);
         _model.Calls.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Handle_RecordsEachCall_WithTheModel_HowManyTexts_AndItsTokens_AndARunWithNothingToDoRecordsNone()
+    {
+        var project = await AProject();
+        await ATask(project, "Login SSO", "Se face cu Entra ID.");
+        await ATask(project, "Raport lunar");
+        await ATask(project, "Imprimanta");
+
+        var done = await Embed(batchSize: 2);
+        await Embed(batchSize: 2);
+
+        var calls = await CallsRecorded();
+        calls.Should().HaveCount(2).And.BeEquivalentTo(_model.Calls.Select(texts => new
+        {
+            Purpose = EmbeddingPurpose.Vectorization,
+            Model = FakeEmbeddingModel.DefaultName,
+            TextCount = texts.Count,
+            Tokens = texts.Sum(FakeEmbeddingModel.TokensOf),
+            CalledAt = Now,
+        }));
+        calls.Sum(call => call.Tokens).Should().Be(done.Tokens);
+    }
+
+    [Fact]
+    public async Task Handle_ACallThatFailed_HasNoRow_TheOneBeforeItHas()
+    {
+        var project = await AProject();
+        await ATask(project, "Unu");
+        await ATask(project, "Doi");
+        _model.Fail(afterCalls: 1);
+
+        (await Run(batchSize: 1)).IsFailure.Should().BeTrue();
+
+        _model.Calls.Should().HaveCount(2);
+        (await CallsRecorded()).Should().ContainSingle()
+            .Which.Tokens.Should().Be(FakeEmbeddingModel.TokensOf(_model.Calls[0].Single()));
+    }
+
+    // pgvector refuses NaN, so a model that answers one leaves vectors that can't be saved; its call still used tokens.
+    [Fact]
+    public async Task Handle_ACallWhoseVectorsCantBeSaved_IsStillRecorded()
+    {
+        var project = await AProject();
+        await ATask(project, "Raport lunar");
+        _model.Give("Raport lunar", float.NaN, 0f);
+
+        var run = () => Run();
+
+        await run.Should().ThrowAsync<DbUpdateException>();
+        (await Vectors()).Should().BeEmpty();
+        (await CallsRecorded()).Should().ContainSingle().Which.Tokens.Should().Be(FakeEmbeddingModel.TokensOf("Raport lunar"));
     }
 
     [Fact]

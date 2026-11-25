@@ -43,6 +43,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<TaskEmbedding> TaskEmbeddings => Set<TaskEmbedding>();
 
+    public DbSet<EmbeddingCall> EmbeddingCalls => Set<EmbeddingCall>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // pgvector, for the vectors of the search by meaning (SPEC section 19.1). The image has it.

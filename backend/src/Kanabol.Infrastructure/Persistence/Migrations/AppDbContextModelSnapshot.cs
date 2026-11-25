@@ -313,6 +313,40 @@ namespace Kanabol.Infrastructure.Persistence.Migrations
                     b.ToTable("project_members", (string)null);
                 });
 
+            modelBuilder.Entity("Kanabol.Domain.Search.EmbeddingCall", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CalledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("called_at");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("purpose");
+
+                    b.Property<int>("TextCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("text_count");
+
+                    b.Property<int>("Tokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("tokens");
+
+                    b.HasKey("Id")
+                        .HasName("pk_embedding_calls");
+
+                    b.ToTable("embedding_calls", (string)null);
+                });
+
             modelBuilder.Entity("Kanabol.Domain.Search.TaskEmbedding", b =>
                 {
                     b.Property<Guid>("Id")
