@@ -147,3 +147,9 @@ KANABOL_CACERT=certs/ca.crt scripts/demo-data.sh https://kanabol.local
 `KANABOL_DEMO_PASSWORD` (cel puțin 10 caractere) e parola cu care intră Ana și Dan. Ioana o primește ca parolă inițială și o schimbă la prima intrare. Fără adresă, scriptul merge la `http://localhost:4200`, aplicația pornită local cu `ng serve`.
 
 Rulat a doua oară, scriptul nu face nimic de două ori: găsește ce există după email, numele rolului, cheia proiectului și cheia task-ului, și adaugă doar ce lipsește.
+
+Pentru încercarea căutării după înțeles (`docs/SPEC.md` §19.6), `scripts/search-data.sh` rulează întâi `demo-data.sh`, cu aceleași variabile, apoi adaugă 262 de task-uri în română, din `scripts/search-data.txt`, în șase proiecte: „Facturare” (`FAC`), „Magazin online” (`MAG`), „Resurse umane” (`RU`), „Infrastructură” (`INF`), „Suport clienți” (`SUP`) și „Site de prezentare” (`SITE`), arhivat. Vectorii îi face worker-ul vectorizării, când e pornită. Nici acest script nu face nimic de două ori, iar un proiect cu aceeași cheie, dar cu alt nume, îl oprește fără să-i adauge ceva:
+
+```sh
+KANABOL_CACERT=certs/ca.crt scripts/search-data.sh https://kanabol.local
+```

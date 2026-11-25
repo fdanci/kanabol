@@ -1048,6 +1048,7 @@ Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele
 - **Apelul întrebării** se scrie în `embedding_calls`, cu scopul `Search`, înainte de căutare, ca să fie numărat orice ar urma.
 - **Erorile:** cu vectorizarea oprită, 409 `Search.TurnedOff`. Dacă modelul nu răspunde, 503 `Search.ModelFailed`; atunci nu se caută nimic și nu se scrie niciun apel.
 - **Permisiunea `chat.use`** cere căutarea și, din pasul 2, chat-ul. Dă singură citire peste toate proiectele, fără `projects.view_all`, deci se dă doar cui are voie să vadă tot. Regula „nimeni nu dă mai mult decât are” (§4.4) se aplică și ei. Se citește din token, ca `reports.view`.
+- **Datele de probă:** `scripts/search-data.sh` rulează întâi `scripts/demo-data.sh`, apoi adaugă prin API proiectele a cinci echipe ale unei firme și site-ul ei vechi, arhivat, cu cele 262 de task-uri din `scripts/search-data.txt`. Sunt scrise cum scriu oamenii: unele doar cu titlu, unele fără diacritice, iar aceleași idei revin în alte proiecte, cu alte cuvinte. Scriptul nu cheamă modelul, vectorii îi face worker-ul. Toate task-urile primesc data creării de la rulare, deci filtrul pe perioadă nu se poate judeca pe ele.
 
 ### 19.7 Pentru pașii următori
 

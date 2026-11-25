@@ -1,0 +1,282 @@
+# The tasks of scripts/search-data.sh, for trying the search by meaning: several teams of one company, written
+# as people write them, some without diacritics, with ideas that come back in other projects in other words.
+# One task a line, its fields separated by |:
+#
+#   project|priority|assignees|archived|title|description
+#
+# project    the key of one of the script's projects. A project's tasks get its numbers in this order: the first
+#            FAC line is FAC-1, so a line is only ever added at the end of its project.
+# priority   Low, Medium, High or Critical
+# assignees  admin, ana, dan and ioana, separated by commas, or - for nobody
+# archived   archived for a task archived once it's made, - otherwise
+# description  \n starts a new line, an empty field means none
+#
+# Lines starting with # and empty ones are skipped.
+
+FAC|High|ana|-|Trimiterea facturilor în e-Factura|Fiecare factură emisă către o firmă din România trebuie să ajungă în sistemul ANAF în cel mult 5 zile lucrătoare.\n\n- XML-ul în formatul cerut\n- starea trimiterii vizibilă pe factură\n- reîncercare automată când ANAF nu răspunde
+FAC|High|dan|-|Mesajele de eroare de la ANAF lângă factură|Când o factură e respinsă, motivul trebuie să apară pe pagina facturii, nu doar în log. Contabila vrea să vadă de ce a fost respinsă fără să ne sune.
+FAC|Medium|ana|-|Cotele noi de TVA de la 1 august|Cota standard trece la 21%, iar cea redusă la 11%. Facturile emise înainte de această dată rămân cu cotele vechi, inclusiv când sunt stornate.
+FAC|Medium|dan|-|Facturi storno|O factură greșită nu se șterge: se emite una cu minus, legată de cea inițială. Numărul ei vine din aceeași serie.
+FAC|Low|-|-|Proforme transformate în facturi|Clientul primește proforma, plătește, iar factura finală se face dintr-un click, cu aceleași produse și prețuri.
+FAC|Medium|ana|-|Facturi recurente pentru abonamente|În fiecare lună, la data din contract, se emite automat factura de abonament și se trimite pe email.
+FAC|High|ana,dan|-|Remindere pentru facturile neplătite|Un email la 3 zile după scadență, altul la 10 zile, apoi clientul intră pe lista Anei de telefoane. Textul să fie politicos, nu amenințător.
+FAC|Medium|dan|-|Importul extraselor de cont|Extrasul de la bancă, în format CAMT.053, se încarcă o dată pe zi. Plățile găsite se potrivesc cu facturile după număr și sumă.
+FAC|Medium|dan|-|Potrivirea plăților fără număr de factură|Mulți clienți scriu la detalii doar „plata servicii”. Propunem factura cu aceeași sumă și același plătitor, iar omul confirmă.
+FAC|Low|-|-|Cursul BNR pentru facturile în euro|Cursul se ia automat de pe site-ul BNR după ora 13. Dacă nu e publicat încă, rămâne cel din ziua precedentă.
+FAC|Medium|ana|-|Serii de numerotare separate pe punct de lucru|Magazinul din Cluj și cel din București au serii proprii, CJ și B. Numerele nu au voie să sară și nici să se repete.
+FAC|High|dan|-|Numere de factură duplicate după restart|Ieri două facturi au primit același număr, B-01844, când serverul s-a repornit în timpul emiterii. Seria trebuie blocată cât se alege numărul.
+FAC|Medium|ana|-|Exportul lunar pentru contabilitate|Până pe 5 ale lunii, contabila primește un fișier cu toate facturile și încasările lunii trecute, în formatul pe care îl importă programul ei.
+FAC|Low|ioana|-|Șablonul PDF al facturii|Logo mai mic, adresa de corespondență în antet și IBAN-ul afișat mare jos, ca să nu mai întrebe clienții unde plătesc.
+FAC|Medium|-|-|Plăți parțiale|Un client poate plăti o factură în două sau trei tranșe. Factura rămâne „parțial plătită” până la ultima tranșă.
+FAC|Low|ana|-|Penalități de întârziere|Penalitățile de 0,1% pe zi pentru facturile întârziate, calculate pe fișa clientului. Nu se facturează automat, doar se propun.
+FAC|High|ana|-|Limită de credit pe client|Dacă un client are datorii peste limita stabilită, comenzile noi se opresc până plătește. Limita o poate schimba doar directorul financiar.
+FAC|Medium|dan|-|Validarea codului de TVA în VIES|La adăugarea unui client din UE, verificăm codul de TVA în VIES și păstrăm dovada verificării.
+FAC|Low|-|-|Diferențe de rotunjire la totalul facturii|Pe facturile cu multe produse la cantități cu zecimale, suma liniilor nu dă totalul: diferă cu un ban.
+FAC|Medium|ioana|-|Rambursarea banilor la retururi|Când magazinul aprobă un retur, se emite factura storno și pornește rambursarea pe card sau în cont. Clientul primește email la fiecare pas.
+FAC|Low|-|-|Raport de vechime a creanțelor|Cât avem de încasat, pe intervale: sub 30 de zile, 30–60, 60–90 și peste 90.
+FAC|Medium|ana|-|Fișa clientului cu soldul la zi|Facturile, plățile, soldul și ultimele emailuri trimise, toate pe o singură pagină.
+FAC|Low|dan|-|Păstrarea facturilor timp de 10 ani|Legea cere păstrarea documentelor contabile. PDF-urile și XML-urile se mută lunar într-un spațiu de stocare ieftin, dar în care se poate căuta.
+FAC|Critical|dan,admin|-|Facturile nu mai pleacă pe email|De azi-dimineață niciun client nu primește facturile. Serverul de email răspunde cu eroare de autentificare.
+FAC|Medium|-|-|Discount pe linie și pe total|Reducerea se poate da pe un produs sau pe toată factura. Pe PDF se vede prețul inițial și reducerea.
+FAC|Low|ana|-|Mesaj personalizat pe factură|Un câmp de note care apare sub tabel, de exemplu „Vă mulțumim pentru colaborare!”.
+FAC|Medium|dan|-|Link de plată cu cardul pe factură|Pe factura trimisă pe email apare un buton „Plătește cu cardul”. Plata o marchează automat ca încasată.
+FAC|Low|-|-|Chitanțe pentru plățile în numerar|Pentru clienții care plătesc la casierie: chitanță numerotată, legată de factură.
+FAC|Medium|ana|-|Aprobarea facturilor mari|Facturile de peste 50.000 de lei trec pe la directorul financiar înainte să plece la client.
+FAC|High|dan|-|Factura se emite de două ori la dublu click|Butonul „Emite” trebuie dezactivat după primul click, iar serverul să refuze a doua cerere identică.
+FAC|Low|ioana|-|Factura în română și engleză|Clienții din străinătate vor factura bilingvă, cu ambele limbi pe același document.
+FAC|Medium|-|-|Note de credit pentru reduceri de volum|La sfârșitul trimestrului, clienții care au trecut de un prag primesc o reducere retroactivă, ca notă de credit.
+FAC|Low|ana|-|Notificare când un client plătește|Agentul de vânzări primește un mesaj când clientul lui achită o factură restantă.
+FAC|Medium|dan|-|Clienții din magazinul online, aduși în facturare|Cine cumpără din magazin apare automat în facturare, fără să fie introdus de mână.
+FAC|Low|-|-|facturi neplatite pe agent|un raport cu agentii care au cei mai multi clienti cu restante, ca sa stim pe cine ajutam
+FAC|Medium|ana|-|Închiderea de lună|Pașii de la sfârșitul lunii: toate plățile importate, facturile recurente emise, exportul trimis, luna blocată la modificări.
+FAC|High|ana|-|Blocarea modificărilor pe lunile închise|După ce contabila închide luna, nicio factură din ea nu mai poate fi modificată sau anulată. Se poate doar storna, în luna curentă.
+FAC|Low|dan|-|Cod QR pentru plată pe factură|Codul conține IBAN-ul, suma și numărul facturii, ca factura să se poată plăti din aplicația băncii.
+FAC|Medium|-|-|Taxarea inversă|Pentru anumite produse și clienți, TVA-ul nu se aplică pe factură, iar pe document apare mențiunea „taxare inversă”.
+FAC|Low|ioana|-|Întrebări frecvente despre facturi|Pagina pentru clienți: cum descarc factura, de ce am primit o factură storno, cum îmi schimb adresa de facturare.
+FAC|Medium|ana|-|Schimbarea datelor de facturare ale clientului|Clientul își schimbă sediul sau denumirea. Facturile vechi rămân cu datele vechi, iar cele noi le iau pe cele noi.
+FAC|Low|-|-|Avans și factură finală|Clientul plătește un avans de 30% și primește factură de avans, iar la livrare factura finală scade avansul.
+FAC|High|dan|-|Exportul lunar durează prea mult|Exportul durează 12 minute și uneori expiră. Trebuie făcut în fundal, cu un email când e gata.
+FAC|Low|ana|-|Încasările pe ultimele 12 luni|Un grafic simplu cu facturat față de încasat, pe fiecare lună.
+FAC|Medium|dan|archived|Sincronizare cu programul vechi de facturare|Am renunțat: datele vechi se importă o singură dată, nu le mai sincronizăm.
+FAC|Low|-|archived|Plăți în criptomonede|Idee venită de la un client. Nu e cazul deocamdată.
+FAC|Medium|ioana|-|Factura în contul clientului din magazin|Clientul își vede factura în contul de pe site imediat după ce comanda e livrată.
+FAC|Low|-|-|Seria facturilor pornește de la 1 în fiecare an|B-2026-0001, apoi B-2027-0001. De discutat cu contabila înainte de decembrie.
+FAC|Medium|ana|-|Drepturi separate pentru emitere și anulare|Agenții pot emite facturi, dar doar contabilitatea le poate anula sau storna.
+FAC|Low|dan|-|Istoricul fiecărei facturi|Cine a emis-o, cine a trimis-o, cine a stornat-o și când, pe pagina facturii.
+
+MAG|High|dan|-|Filtre în pagina de categorie|Filtre după preț, mărime, culoare și disponibilitate. Filtrele alese rămân în adresa paginii, ca link-ul să poată fi trimis cuiva.
+MAG|Medium|ioana|-|Căutare care iartă greșelile de scriere|„adidasi” trebuie să găsească „adidași”, iar „tricou alb barbat” produsele potrivite, chiar și fără diacritice.
+MAG|High|dan|-|Email pentru coșurile abandonate|Dacă un client logat lasă produse în coș și nu comandă în 24 de ore, primește un email cu produsele și un link înapoi la coș.
+MAG|Critical|dan|-|Plata cu cardul cade după 3-D Secure|Unii clienți ajung pe pagina băncii și confirmă, dar la întoarcere comanda apare neplătită, deși banii le-au fost reținuți.
+MAG|Medium|-|-|Taxă pentru plata ramburs|La plata la livrare se adaugă 7 lei, afișați clar în coș, înainte de finalizarea comenzii.
+MAG|High|dan|-|Generarea automată a AWB-ului|Când comanda e gata de expediere, AWB-ul se generează la curier, iar eticheta se tipărește direct în depozit.
+MAG|Medium|ioana|-|Urmărirea coletului din contul clientului|Clientul vede unde e coletul fără să intre pe site-ul curierului.
+MAG|High|ioana|-|Formularul de retur|Clientul are 14 zile ca să returneze. Alege produsele, motivul și cum vrea banii înapoi, apoi primește pe email AWB-ul de retur.
+MAG|Critical|dan|-|Stocul nu scade după vânzările din magazinul fizic|Produsele vândute în magazin apar încă disponibile online. Sincronizarea cu gestiunea trebuie făcută la cel mult 5 minute.
+MAG|Low|-|-|Recenzii la produse|Doar clienții care au cumpărat produsul pot lăsa o recenzie. Recenziile se aprobă înainte să apară.
+MAG|Medium|ana|-|Vouchere de reducere|Coduri cu procent sau cu sumă fixă, cu dată de expirare și număr maxim de folosiri. Un singur cod pe comandă.
+MAG|Low|ioana|-|Lista de favorite|Clientul salvează produse pentru mai târziu și primește un email când unul dintre ele intră la reducere.
+MAG|Medium|dan|-|Imagini prea mari pe pagina de produs|Pozele de 4 MB încetinesc pagina pe telefon. Le servim în WebP, la mărimea ecranului.
+MAG|High|dan|-|Pregătirea pentru Black Friday|Anul trecut site-ul a căzut la ora 21.\n\n- test de încărcare cu de cinci ori traficul obișnuit\n- cache pe paginile de categorie\n- comenzile trec printr-o coadă
+MAG|Medium|ioana|-|Bannerul de cookie-uri|Clientul alege ce cookie-uri acceptă. Nicio bifă pusă dinainte la marketing, iar butonul de refuz e la fel de vizibil ca cel de acceptare.
+MAG|Low|-|-|Abonarea la newsletter din pagina comenzii|O bifă, nebifată implicit, cu un text scurt despre ce primește clientul.
+MAG|Medium|dan|-|Variante de produs|Un tricou are mărimi și culori, fiecare combinație cu stocul și codul ei, dar o singură pagină de produs.
+MAG|High|ana|-|Cel mai mic preț din ultimele 30 de zile|La produsele reduse, legea cere să afișăm cel mai mic preț din ultimele 30 de zile, nu doar prețul tăiat.
+MAG|Medium|-|-|Factură pe firmă la comandă|În pagina comenzii, o opțiune „Vreau factură pe firmă”: clientul scrie CUI-ul, iar denumirea și adresa se completează automat.
+MAG|Low|ioana|-|Pagina despre livrare|Costurile, termenele pe județe și ce se întâmplă dacă nu ești acasă când vine curierul.
+MAG|Medium|dan|-|Livrare în lockere|Clientul alege lockerul de pe hartă, la pasul de livrare. Costul e mai mic decât la curier.
+MAG|Low|-|-|Produse recomandate|„Clienții care au cumpărat asta au mai cumpărat…”, sub fiecare produs.
+MAG|Medium|ana|-|Pragul pentru transport gratuit|Peste 200 de lei, transportul e gratuit. În coș apare cât mai lipsește până la prag.
+MAG|High|dan|-|Comenzi dublate când clientul apasă înapoi|După plată, dacă dă back în browser și retrimite formularul, se face a doua comandă. Fiecare comandă trebuie să aibă o cheie unică.
+MAG|Low|ioana|-|Ghid de mărimi|Tabelul de mărimi al fiecărui brand, deschis dintr-un link de lângă alegerea mărimii.
+MAG|Medium|-|-|SEO pentru paginile de categorie|Titluri și descrieri unice, un text scurt deasupra produselor și adrese fără parametri inutili.
+MAG|Low|dan|-|Sitemap pentru motoarele de căutare|
+MAG|Medium|ioana|-|Istoricul comenzilor în contul clientului|Lista comenzilor, cu starea fiecăreia, factura și butonul de retur.
+MAG|High|dan|-|Cont prin Google și Apple|Clienții își pot face cont și pot intra cu contul de Google sau de Apple, fără o parolă nouă.
+MAG|Medium|ioana|-|Resetarea parolei pentru clienți|Linkul din email expiră după o oră și merge o singură dată. Mesajul nu spune dacă adresa are sau nu cont.
+MAG|Low|-|-|Precomenzi|Produsele care urmează să apară se pot comanda dinainte, iar plata se face la expediere.
+MAG|Medium|ana|-|Prețuri negociate pentru firme|Firmele cu contract își văd prețurile lor după ce intră în cont.
+MAG|Low|dan|-|Compararea produselor|
+MAG|Medium|-|-|Anunță-mă când revine în stoc|Un buton pe produsele epuizate, cu email la reaprovizionare.
+MAG|High|ioana|-|Comanda pe o singură pagină|Acum sunt patru pași, iar mulți clienți renunță la al treilea. Totul pe o pagină, cu adresa salvată deja completată.
+MAG|Low|-|-|Ambalaj cadou|Opțiune de 10 lei, cu un mesaj scris de client pe felicitare.
+MAG|Medium|dan|-|Monitorizarea erorilor de la plată|Fiecare eroare la plată ajunge în monitorizare, cu pasul la care a apărut, ca să vedem ce se repetă.
+MAG|Low|ioana|-|Fotografii noi pentru colecția de iarnă|Ședința foto e pe 10 decembrie. Până atunci rămân pozele de la furnizor.
+MAG|Medium|ana|-|Campania de Crăciun|Reduceri pe categorii între 15 și 23 decembrie, cu banner pe prima pagină și email către abonați.
+MAG|Low|-|-|Stocul din fiecare magazin|Pe pagina produsului: „disponibil în magazinul din Cluj”, cu ridicare personală.
+MAG|High|dan|-|Pagina de produs se încarcă greu pe mobil|Peste 6 secunde pe 4G. Scripturile externe se încarcă după conținut, iar fonturile se încarcă dinainte.
+MAG|Medium|ioana|-|Accesibilitatea paginii de comandă|Formularul trebuie să poată fi completat doar cu tastatura și să fie citit corect de cititoarele de ecran.
+MAG|Low|dan|-|Feed de produse pentru comparatoarele de prețuri|Un fișier XML cu prețurile și stocul, actualizat în fiecare oră.
+MAG|Medium|-|-|Puncte de fidelitate|Un punct pentru fiecare 10 lei cheltuiți. Punctele se folosesc ca reducere la comenzile următoare.
+MAG|Low|ana|archived|Aplicație mobilă separată pentru magazin|Am decis să rămânem la site, adaptat pentru telefon. Poate anul viitor.
+MAG|Low|-|archived|Licitații pentru produsele resigilate|Prea complicat pentru câte produse resigilate avem.
+MAG|Medium|dan|-|Costul transportului după greutate|Coletele de peste 10 kg costă mai mult la curier. Costul din coș trebuie să țină cont de greutatea totală.
+MAG|High|ioana|-|Comenzi blocate în „în procesare”|Câteva comenzi plătite stau de două zile fără să ajungă în depozit. De găsit unde se opresc.
+MAG|Low|-|-|Pagina 404 cu produse sugerate|
+MAG|Medium|ana|-|Raport zilnic de vânzări|Un email la 8 dimineața cu vânzările de ieri, pe categorii, comparate cu aceeași zi de săptămâna trecută.
+
+RU|High|ana|-|Cereri de concediu online|Angajatul alege zilele și vede câte îi mai rămân, iar cererea ajunge la șeful lui pentru aprobare. Fără hârtii de semnat.
+RU|Medium|ana|-|Aprobarea concediilor de pe telefon|Șefii primesc o notificare și aprobă sau resping cererea cu un singur buton, chiar dacă sunt plecați.
+RU|Medium|-|-|Zilele libere legale|Sărbătorile legale ale anului, care nu se scad din zilele de concediu. Lista se actualizează în fiecare decembrie.
+RU|High|dan|-|Pontajul zilnic|Ora de intrare, ora de ieșire și pauza de masă. Pentru cei care lucrează de acasă, un buton „Încep lucrul” în intranet.
+RU|Medium|ana|-|Pașii pentru un angajat nou|Contractul, laptopul, conturile, prezentarea echipei, instruirea de securitate. Fiecare pas are un responsabil și un termen.
+RU|High|admin|-|Conturile închise în ziua plecării|În ziua în care pleacă un angajat, accesul la email, VPN și toate aplicațiile se oprește. Acum rămâne mereu ceva deschis.
+RU|Medium|-|-|Fluturașii de salariu în intranet|Fiecare angajat își vede și își descarcă fluturașul lunar, fără să-l mai primească pe email.
+RU|Medium|ana|-|Concediile medicale|Angajatul încarcă certificatul medical, iar zilele apar în calendar și în pontaj fără să le introducă cineva de mână.
+RU|Low|ioana|-|Cursuri și instruiri|Catalogul cursurilor interne, înscrierea la ele și certificatele obținute, pe profilul fiecăruia.
+RU|Medium|ana|-|Evaluarea anuală|Formularul de autoevaluare, discuția cu șeful și obiectivele pentru anul următor. Termenul: 31 ianuarie.
+RU|Low|-|-|Organigrama firmei|Cine cui raportează, cu poză și telefon, făcută din datele din intranet.
+RU|Low|ana|-|Tichetele de masă|Numărul de tichete pe lună se calculează din zilele lucrate efectiv, din pontaj.
+RU|Medium|dan|-|Cereri de lucru de acasă|Câte zile pe săptămână, în ce zile și aprobarea șefului. Calendarul echipei arată cine e la birou.
+RU|Medium|ioana|-|Cereri de echipamente|Laptop, monitor, scaun ergonomic. Cererea merge la IT sau la achiziții, după tip.
+RU|Low|-|-|Zilele de naștere pe pagina de start|
+RU|Medium|ana|-|Anunțurile interne|O pagină de știri ale firmei, iar la anunțurile importante se poate cere confirmarea că au fost citite.
+RU|High|ana|-|Orele suplimentare|Orele lucrate peste program, pe angajat și pe lună, ca să fie compensate cu timp liber sau plătite.
+RU|Medium|-|-|Anunțurile de angajare|Posturile deschise apar pe site-ul de cariere și în intranet, pentru recomandări de la colegi.
+RU|Medium|ana|-|Urmărirea candidaților|CV-urile primite, interviurile programate și părerea fiecărui intervievator, într-un singur loc.
+RU|High|admin|-|Cine vede datele personale ale angajaților|CNP-ul, adresa și contul bancar trebuie să le vadă doar resursele umane. De verificat drepturile de acces.
+RU|Low|ioana|-|Chestionar anonim de satisfacție|O dată pe trimestru, zece întrebări. Rezultatele apar doar pe echipe de peste 5 oameni, ca să rămână anonime.
+RU|Medium|dan|-|Importul pontajului din cititoarele de card|Cititoarele de la intrare scot un fișier CSV. Îl importăm noaptea, în loc să-l copiem de mână.
+RU|Low|-|-|Zilele de concediu reportate|Zilele nefolosite trec în anul următor și trebuie luate până la 30 iunie.
+RU|Medium|ana|-|Cine preia munca în timpul concediului|La cererea de concediu, angajatul alege colegul care îi preia sarcinile, iar colegul primește o notificare.
+RU|Low|ioana|-|Ghidul angajatului|Regulamentul intern, programul, cum ceri concediu și pe cine suni pentru fiecare problemă, pe o singură pagină.
+RU|High|ana|-|Contractele care expiră|O alertă cu 30 de zile înainte să expire un contract pe perioadă determinată.
+RU|Medium|-|-|Fișa postului semnată electronic|Angajatul citește și semnează fișa postului în intranet. Versiunile vechi rămân în istoric.
+RU|Low|dan|-|Profilul angajatului|Telefonul, competențele, limbile vorbite și proiectele, pe care le poate modifica angajatul.
+RU|Medium|ana|-|Bugetul de cursuri pe echipă|Cât a cheltuit fiecare echipă pe cursuri și cât mai are până la sfârșitul anului.
+RU|Low|-|-|Programul flexibil|Intrarea între 8 și 10, cu 8 ore lucrate. Pontajul să nu mai arate întârziere în acest interval.
+RU|High|dan|-|Zilele de concediu calculate greșit|Pentru cei angajați în cursul anului, zilele se calculează pe tot anul, nu proporțional. Ioana a primit 21 de zile în loc de 14.
+RU|Medium|ioana|-|Rezervarea sălilor de ședință|Calendarul celor trei săli, cu rezervări pe intervale de 30 de minute.
+RU|Low|-|-|Un mentor pentru fiecare angajat nou|Fiecare om nou are un coleg care îl ajută în primele trei luni. Apare în pașii de început.
+RU|Medium|ana|-|Exportul pentru salarizare|La sfârșitul lunii: zilele lucrate, concediile, medicalele și orele suplimentare, într-un fișier pentru firma de salarizare.
+RU|Low|ioana|-|Sondaj pentru petrecerea de Crăciun|Data, locul și meniul, votate de toată lumea.
+RU|Medium|dan|-|Intrarea în intranet cu contul de Windows|Angajații să nu mai aibă o parolă separată pentru intranet: intră cu același cont ca pe calculator.
+RU|High|ana|-|Instruirea de securitate și sănătate în muncă|Fiecare angajat semnează instruirea periodică. Un raport cu cine n-a semnat la timp, pentru inspecții.
+RU|Low|-|-|Interviul de plecare|Un formular scurt pentru cei care pleacă: de ce pleacă și ce am putea face mai bine.
+RU|Medium|ioana|-|Bonus pentru recomandări|Cine recomandă un candidat care e angajat primește un bonus după perioada de probă.
+RU|Low|ana|archived|Pontaj cu recunoaștere facială|Prea scump și discutabil pentru datele personale. Rămânem la cititoarele de card.
+RU|Medium|-|-|Concediul fără plată|Un tip separat de concediu, care nu se scade din zilele de odihnă și cere aprobarea directorului.
+RU|Low|dan|-|Aniversările în firmă|La 5 și la 10 ani în firmă, echipa primește un mesaj.
+RU|Medium|ana|-|Absențele pe echipe|Câte zile de concediu și de medical a avut fiecare echipă, pe luni, pentru planificarea proiectelor.
+RU|High|admin|-|Intranetul din afara biroului|Acum merge doar din rețeaua firmei. Trebuie acces sigur și de acasă, fără VPN pentru cei care doar își cer concediul.
+RU|Low|ioana|-|Intranetul în engleză|Avem doi colegi noi care nu vorbesc română.
+RU|Medium|-|-|cereri de adeverinte|angajatii cer des adeverinta de salariat pentru banca. sa o poata cere din intranet si sa o primeasca semnata pe email
+
+INF|Critical|admin|-|Backup-ul din noaptea de marți a eșuat|Discul serverului de backup s-a umplut, iar joburile au căzut fără să trimită nicio alertă.
+INF|High|admin|-|Restaurarea de probă, în fiecare lună|O dată pe lună restaurăm baza de producție pe un server separat și verificăm că aplicațiile pornesc pe ea. Un backup netestat nu e un backup.
+INF|High|dan|-|Alertă când discul trece de 85%|Pe toate serverele, cu email și mesaj pe telefon pentru cel de gardă.
+INF|Medium|admin|-|Reînnoirea automată a certificatelor TLS|Certificatul site-ului a expirat de două ori anul acesta. Reînnoire automată și o alertă cu 14 zile înainte pentru cele care nu se pot reînnoi singure.
+INF|Medium|dan|-|Actualizările de securitate pe servere|O fereastră de mentenanță în fiecare lună, în a doua marți, cu repornire planificată și anunțată dinainte.
+INF|High|admin|-|VPN pentru cei care lucrează de acasă|Conectare cu contul firmei și cu al doilea factor. Prin VPN trece doar traficul spre rețeaua firmei.
+INF|Medium|-|-|Manager de parole pentru echipe|Parolele comune nu mai stau într-un Excel. Fiecare echipă are seiful ei, cu acces după rol.
+INF|Critical|admin|-|Autentificare în doi pași pentru administratori|Toate conturile cu drepturi de administrator pe servere, în cloud și pe email trebuie să aibă al doilea factor până la sfârșitul lunii.
+INF|Medium|dan|-|Logurile păstrate 90 de zile|Logurile aplicațiilor și ale serverelor ajung într-un singur loc, stau acolo 90 de zile și apoi se șterg singure.
+INF|High|dan|-|Pipeline-ul de build durează 25 de minute|Testele rulează pe rând. Le rulăm în paralel și păstrăm pachetele descărcate între rulări.
+INF|Medium|dan|-|Staging cu date anonimizate|O copie a producției, cu numele, emailurile și telefoanele înlocuite, ca testerii să lucreze pe date realiste.
+INF|High|admin|-|Upgrade PostgreSQL de la 14 la 17|Versiunea 14 nu mai e întreținută. Întâi pe staging, unde măsurăm și cât stă baza oprită.
+INF|Medium|-|-|Domeniile mutate la alt furnizor de DNS|Furnizorul de acum nu are API. Mutăm zonele, cu TTL-ul scăzut cu o zi înainte.
+INF|Medium|admin|-|Revizuirea regulilor de firewall|Avem reguli deschise de ani de zile pentru servere care nu mai există. Le documentăm și le închidem pe cele inutile.
+INF|High|admin|-|Antivirusul de pe laptopuri|Zece laptopuri nu au mai raportat de o lună. De găsit și de reinstalat agentul.
+INF|Medium|ioana|-|Instruire anti-phishing|Un email de test trimis tuturor, apoi un curs scurt pentru cei care au dat click.
+INF|High|admin,dan|-|Analiza incidentului de joi seara|Site-ul a stat oprit 40 de minute. Ce s-a întâmplat, de ce n-am aflat mai repede și ce schimbăm. Fără vinovați, doar cauze.
+INF|Medium|-|-|Costurile lunare de cloud|Factura de cloud a crescut cu 40% în trei luni. Lista resurselor, cine le folosește și ce putem opri.
+INF|Low|ioana|-|Wi-Fi-ul de la etajul doi|Semnalul cade în sala mare de ședințe. Un router în plus sau mutarea celui existent.
+INF|Low|-|-|Imprimanta de la recepție nu mai trimite scanările pe email|După schimbarea parolei de email, imprimanta nu mai poate trimite scanările. Îi trebuie un cont separat.
+INF|High|admin|-|Verificarea accesului, în fiecare trimestru|Cine are acces la ce: servere, baze de date, cloud. Fiecare șef confirmă lista oamenilor lui.
+INF|Medium|dan|-|Serverele configurate din cod|Configurarea serverelor scrisă în scripturi ținute în git, ca un server nou să fie identic cu celelalte.
+INF|Medium|-|-|Schimbarea periodică a cheilor de API|Cheile aplicațiilor se schimbă la 90 de zile, fără să oprim aplicațiile.
+INF|Low|dan|-|Pagină de stare pentru clienți|O pagină publică pe care clienții văd dacă serviciile merg și ce incidente sunt în curs.
+INF|High|admin|-|Planul pentru un dezastru|Dacă pierdem tot centrul de date: în ce ordine pornim serviciile, de unde și în cât timp. Îl exersăm o dată pe an.
+INF|Medium|dan|-|Monitorizarea timpului de răspuns al site-ului|O verificare în fiecare minut, din trei locații, cu alertă când răspunsul trece de 2 secunde.
+INF|Low|-|-|Inventarul echipamentelor|Laptopuri, monitoare, telefoane: cine le are, de când, cu numărul de serie și garanția.
+INF|Medium|ioana|-|Laptopul gata pentru angajatul nou|Laptopul e configurat cu o zi înainte, cu conturile făcute și aplicațiile instalate.
+INF|High|dan|-|Copii de siguranță în altă locație|Acum copiile stau în aceeași clădire cu serverele. O copie zilnică trebuie să ajungă în altă regiune.
+INF|Medium|admin|-|Politica de parole|Minimum 12 caractere, fără schimbare obligatorie la 90 de zile, dar verificate în listele de parole compromise.
+INF|Low|-|-|O cutie de email comună pentru suport|Adresa de suport să fie o cutie partajată, nu redirecționată pe emailul unui singur om.
+INF|Medium|dan|-|Pachetele cu vulnerabilități|Raportul de dependențe arată 14 pachete cu vulnerabilități cunoscute. Le actualizăm, începând cu cele critice.
+INF|High|admin|-|Discuri criptate pe laptopuri|Un laptop furat nu trebuie să însemne date pierdute. Toate laptopurile cu discul criptat și cheia de recuperare salvată.
+INF|Low|ioana|-|Telefoanele de serviciu|Abonamente noi, cu mai mult trafic de date, pentru echipele de teren.
+INF|Medium|-|-|Rețea separată pentru vizitatori|Vizitatorii primesc Wi-Fi doar spre internet, fără acces la rețeaua internă.
+INF|Medium|dan|-|O coadă pentru emailurile aplicațiilor|Emailurile pleacă printr-o coadă, ca o problemă la serverul de email să nu blocheze aplicațiile.
+INF|High|admin|-|Alertă pentru logări suspecte|Logări din țări în care nu avem angajați sau multe parole greșite la rând: alertă pe loc.
+INF|Low|-|-|Documentația serverelor|Pentru fiecare server: ce rulează pe el, cine răspunde de el și cum se repornește.
+INF|Medium|dan|-|Garda prin rotație|Cine răspunde noaptea și în weekend, pe săptămâni, cu un calendar comun și numărul de telefon.
+INF|Low|admin|archived|Mutarea la alt furnizor de cloud|Am comparat prețurile. Diferența nu merită efortul mutării.
+INF|Low|-|archived|Server de email propriu|Rămânem la serviciul de email găzduit.
+INF|Medium|ioana|-|Documentele de pe laptopuri, salvate automat|Folderul Documente se sincronizează în cloud, ca un laptop stricat să nu ia cu el munca unei luni.
+INF|High|dan|-|Baza de date răspunde greu la ora 9|Toată lumea intră deodată, iar interogările lente țin conexiunile ocupate. De găsit interogările și de adăugat indecși.
+INF|Medium|-|-|Mai puțini oameni cu acces la baza de producție|Doar două persoane cu acces direct, restul prin rapoarte și aplicații.
+INF|Low|dan|-|Curățarea imaginilor Docker vechi|Serverele de build au discul plin de imagini nefolosite. O curățare automată în fiecare săptămână.
+INF|Medium|admin|-|Un singur cont pentru aplicațiile interne|Același cont pentru email, intranet, facturare și suport, cu al doilea factor cerut o singură dată pe zi.
+INF|Low|ioana|-|Camera din sala mare de ședințe|După ultima actualizare, laptopurile nu mai recunosc camera de videoconferință.
+INF|Medium|-|-|serverul vechi de fisiere|inca il folosesc doua echipe. de mutat fisierele si de oprit pana la sfarsitul anului
+INF|High|admin|-|Testul de penetrare anual|O firmă externă testează site-ul, magazinul și VPN-ul. Problemele găsite devin task-uri, cu termene după gravitate.
+INF|Low|dan|-|Alerte mai clare|Alertele spun doar „check failed”. Fiecare să spună serviciul, valoarea și ce e de făcut.
+
+SUP|High|ioana|-|Emailurile de la clienți devin tichete|Fiecare email trimis la adresa de suport devine tichet, cu răspunsurile în același fir.
+SUP|High|ioana|-|Timpul de răspuns din contract|Clienții cu contract premium primesc răspuns în 2 ore, ceilalți în 24. Tichetul își schimbă culoarea când se apropie termenul.
+SUP|Medium|-|-|Răspunsuri predefinite|Șabloane pentru întrebările dese: unde e comanda, cum fac retur, cum îmi schimb adresa. Se pot modifica înainte de trimitere.
+SUP|Medium|ioana|-|Baza de cunoștințe publică|Articole cu răspunsuri, în care clienții pot căuta înainte să deschidă un tichet.
+SUP|Low|-|-|Chestionar de satisfacție după închiderea tichetului|O singură întrebare, cu note de la 1 la 5, și un câmp de comentariu opțional.
+SUP|Medium|dan|-|Chat pe site|Clienții scriu direct din pagină și primesc răspuns de la un om, în programul de lucru. În afara programului, mesajul devine tichet.
+SUP|High|ioana,dan|-|Bug-urile raportate de clienți ajung la programatori|Când un tichet e un bug, se creează automat un task pentru echipa de dezvoltare, legat de tichet. Clientul află când e rezolvat.
+SUP|High|ana|-|Termenul legal de 30 de zile pentru reclamații|Reclamațiile formale au un termen legal de răspuns. Un contor pe tichet și o alertă cu 5 zile înainte.
+SUP|Medium|ioana|-|Cereri de bani înapoi|Clientul cere rambursarea, suportul verifică, iar aprobarea pleacă automat la facturare.
+SUP|High|admin|-|Ștergerea datelor la cererea clientului|Un client cere ștergerea contului, conform GDPR. Ștergem datele din toate aplicațiile, păstrăm doar facturile, cum cere legea, și îi confirmăm în scris.
+SUP|Medium|ioana|-|Clienții nu își pot reseta parola|Multe tichete săptămâna asta: emailul de resetare ajunge în spam. De verificat setările domeniului de email.
+SUP|Low|-|-|Programul suportului de sărbători|Pe 25–26 decembrie și pe 1–2 ianuarie suntem închiși. Un mesaj automat pe email și pe site.
+SUP|Medium|ana|-|Raportul săptămânal al tichetelor|Câte tichete au venit, câte s-au închis, timpul mediu de răspuns și primele cinci motive.
+SUP|Low|ioana|-|Etichete pe tichete|Livrare, plată, retur, cont, produs defect. Eticheta se pune la închidere și apare în raport.
+SUP|Medium|dan|-|Tichetele duplicate, unite|Același client scrie și pe email, și pe chat, despre aceeași problemă. Le unim într-un singur tichet.
+SUP|Low|-|-|Filtru de spam pentru adresa de suport|Zilnic primim zeci de oferte de marketing care devin tichete.
+SUP|Medium|ana|-|Ghid pentru discuțiile cu clienții nervoși|Ce spui, ce nu promiți și când îl dai mai departe șefului de tură.
+SUP|High|ioana|-|Înregistrarea apelurilor|Apelurile se înregistrează doar după ce clientul aude mesajul de informare, iar înregistrările se șterg după 6 luni.
+SUP|Medium|-|-|Istoricul clientului lângă tichet|Comenzile, facturile și tichetele anterioare, vizibile fără să cauți în trei aplicații.
+SUP|Low|ioana|-|Confirmarea automată a mesajului|Clientul primește imediat un email că i-am primit mesajul, cu numărul tichetului și termenul de răspuns.
+SUP|Medium|dan|-|Legătura cu centrala telefonică|Când sună un client, fișa lui se deschide singură, după numărul de telefon.
+SUP|High|ana|-|Produsele defecte în garanție|Clientul trimite poze cu defectul. Suportul decide reparația, înlocuirea sau banii înapoi, după regulile fiecărui furnizor.
+SUP|Low|-|-|Articole noi în baza de cunoștințe|Cele mai dese zece întrebări din ultima lună, scrise ca articole.
+SUP|Medium|ioana|-|Tura de sâmbătă|Un om de suport sâmbăta, între 9 și 15, prin rotație. Programul e în calendarul echipei.
+SUP|Medium|dan|-|Răspuns automat la întrebările simple|La „unde e comanda mea?”, răspunsul vine automat din starea comenzii, fără să aștepte un om.
+SUP|Low|ana|-|Instruirea colegilor noi din suport|O săptămână în care stau lângă un coleg, apoi tichete simple, pe care le verifică cineva.
+SUP|High|ioana|-|Tichetele rămân fără răspuns când colegul e în concediu|Tichetele atribuite cuiva plecat în concediu nu le preia nimeni. Trebuie redistribuite automat.
+SUP|Medium|-|-|Prioritate pentru cei care au mai scris de trei ori|Clientul care revine cu aceeași problemă urcă automat în coadă.
+SUP|Low|dan|-|Scurtături de tastatură pentru tichete|
+SUP|Medium|ana|-|Ce cer clienții, trimis echipei de produs|O dată pe lună, cele mai cerute funcții și cele mai dese nemulțumiri, trimise echipei de produs.
+SUP|Low|ioana|-|Semnătura emailurilor de suport|Numele colegului, programul suportului și un link spre baza de cunoștințe.
+SUP|High|dan|-|Pozele mari nu se pot atașa|Clienții nu pot trimite poze mai mari de 5 MB din formular. Limita trebuie urcată la 20 MB, cu micșorare automată.
+SUP|Medium|-|-|Formular de contact cu motive|Clientul alege motivul, iar tichetul ajunge direct la cine se ocupă de el.
+SUP|Low|ana|archived|Suport pe WhatsApp|Am încercat o lună. Prea multe mesaje fără context, așa că ne întoarcem la chat și email.
+SUP|Medium|ioana|-|Clienții cer factura înainte de livrare|Mulți vor factura imediat după comandă. De discutat cu facturarea dacă se poate trimite mai devreme.
+SUP|Low|-|-|Răspunsuri în engleză|
+SUP|Medium|dan|-|Nota clienților pentru fiecare coleg|Nota medie dată de clienți fiecărui coleg, pe care o văd doar el și șeful de echipă.
+SUP|High|ana|-|Ce facem când cade site-ul|Suportul pune un mesaj pe pagina de stare și răspunde cu un șablon, în loc să trimită fiecare caz la IT.
+SUP|Low|ioana|-|Concediile de vară ale echipei de suport|Cel mult doi colegi plecați în aceeași săptămână. Planificarea se face până la 1 mai.
+SUP|Medium|-|-|clientii nu gasesc butonul de retur|zilnic avem tichete cu „cum returnez”. butonul e ascuns in pagina comenzii, trebuie mutat sus
+SUP|Medium|dan|-|Verificarea identității la telefon|Înainte să discutăm despre o comandă, clientul confirmă emailul și ultimele cifre ale telefonului.
+SUP|Low|ana|-|Mulțumirile clienților|Un canal în care punem mesajele frumoase de la clienți, ca să le vadă toată echipa.
+SUP|High|ioana|-|Răspuns trimis altui client|Un șablon a completat numele și comanda altui client. Câmpurile completate automat se verifică înainte de trimitere.
+SUP|Medium|-|-|Timpul de rezolvare pe motive|Cât durează în medie un retur, o plată eșuată sau o problemă cu contul, ca să știm unde pierdem timp.
+SUP|Low|dan|-|Exportul tichetelor unui client|Toate tichetele unui client, cu răspunsurile, într-un PDF, la cererea lui sau a avocaților.
+SUP|Medium|ana|-|Bonusul lunar al suportului|Calculat din notele clienților și din tichetele rezolvate la timp, cu reguli clare, scrise.
+
+SITE|Medium|dan|-|Formularul de contact trimite pe email|Mesajele din formular ajung la adresa de vânzări, cu numele și telefonul celui care a scris.
+SITE|Low|ioana|-|Pagina „Despre noi”|Istoria firmei, echipa de conducere și poze de la birou.
+SITE|Medium|-|-|Blog cu noutăți|Articole scrise de echipă, cu categorii și abonare prin email.
+SITE|Medium|dan|-|Site-ul în engleză|Toate paginile traduse, cu alegerea limbii în meniu.
+SITE|High|admin|-|Certificatul SSL al site-ului|Browserul arată site-ul ca „nesigur”. De instalat certificatul și de trimis totul pe https.
+SITE|Low|-|-|Harta cu magazinele|Cele trei magazine, cu programul și telefonul fiecăruia.
+SITE|Medium|ana|-|Pagina de cariere|Posturile deschise și un formular de aplicare, cu CV-ul atașat.
+SITE|Low|dan|-|Prima pagină se încarcă greu|Slider-ul de pe prima pagină are 8 imagini mari. Păstrăm trei, micșorate.
+SITE|Medium|-|-|Site-ul mutat pe alt hosting|Hostingul de acum cade des. Mutăm site-ul cu tot cu emailurile, într-un weekend.
+SITE|Low|ioana|-|Politica de confidențialitate|Textul revizuit de avocat, cu datele pe care le strângem prin formular și cât timp le păstrăm.
+SITE|Medium|dan|-|Mesajele automate din formularul de contact|Primim zeci de mesaje trimise de roboți în fiecare zi. Un câmp ascuns și o limită de mesaje pe adresă.
+SITE|Low|-|-|Butoane de distribuire pe rețelele sociale|
+SITE|Medium|ana|-|Newsletter lunar|Abonarea de pe site și un email lunar cu noutățile.
+SITE|Low|ioana|-|Poze noi cu echipa|Ședință foto la birou, pentru pagina „Despre noi”.
+SITE|Medium|-|-|Statisticile vizitelor|Câți vizitatori avem, de unde vin și ce pagini citesc, cu acordul lor pentru cookie-uri.
+SITE|Low|dan|-|Pagina de eroare 404|
+SITE|Medium|admin|-|Platforma site-ului nu mai primește actualizări|Versiunea instalată nu mai primește actualizări de securitate. O actualizăm sau o înlocuim.
+SITE|Low|-|-|Logo-ul nou în antet și în favicon|
+SITE|Medium|ana|-|Adresele vechi, după închiderea site-ului|Când site-ul se închide, adresele vechi trimit spre paginile potrivite din magazin.
+SITE|Low|ioana|-|Programări la showroom|Clientul alege ziua și ora, iar colegii din magazin primesc programarea pe email.
