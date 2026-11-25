@@ -22,14 +22,49 @@ public sealed class PostgresFixture : IAsyncLifetime
     // under the same name. A copy of backend/ alone, as some checks make, has no Dockerfile: it runs on
     // the image the checkout last built.
     private static readonly Lazy<Task> _imageBuilt = new(() => DatabaseFolder() is { } folder
-        ? new ImageFromDockerfileBuilder()
-            .WithDockerfileDirectory(folder)
-            .WithDockerfile("Dockerfile")
-            .WithName(Image)
-            .WithCleanUp(false)
-            .Build()
-            .CreateAsync()
+        ? Task.Run(() => BuildImageAlone(folder))
         : Task.CompletedTask);
+
+    /// <summary>
+    /// The two test assemblies run at once and build the same tag. Testcontainers deletes an image of the same name
+    /// before it builds, unless told not to, so one assembly's build took away the image the other had just built
+    /// and was starting a container from ("has not been created" in CI on e4849af, "No such image" here). The image
+    /// is never deleted now, and a machine-wide mutex keeps the builds one at a time, the second from Docker's cache.
+    /// </summary>
+    private static void BuildImageAlone(string folder)
+    {
+        using var mutex = new Mutex(initiallyOwned: false, @"Global\kanabol-postgres-image");
+        try
+        {
+            if (!mutex.WaitOne(TimeSpan.FromMinutes(10)))
+            {
+                throw new TimeoutException($"Another test run has been building {Image} for 10 minutes.");
+            }
+        }
+        catch (AbandonedMutexException)
+        {
+            // The run that held it ended without letting go: this one has it now.
+        }
+
+        // A mutex belongs to the thread that took it, so the build waits here, on that thread.
+        try
+        {
+            new ImageFromDockerfileBuilder()
+                .WithDockerfileDirectory(folder)
+                .WithDockerfile("Dockerfile")
+                .WithName(Image)
+                .WithDeleteIfExists(false)
+                .WithCleanUp(false)
+                .Build()
+                .CreateAsync()
+                .GetAwaiter()
+                .GetResult();
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
+    }
 
     private PostgreSqlContainer? _container;
     private NpgsqlDataSource? _dataSource;
