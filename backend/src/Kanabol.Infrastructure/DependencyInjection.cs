@@ -98,6 +98,7 @@ public static class DependencyInjection
         // After DatabaseInitializer: hosted services start one after another, so the first runs find the database migrated.
         services.AddHostedService<OverdueTasksWorker>();
         services.AddHostedService<RefreshTokensCleanupWorker>();
+        services.AddHostedService<EmbeddingsWorker>();
 
         return services;
     }

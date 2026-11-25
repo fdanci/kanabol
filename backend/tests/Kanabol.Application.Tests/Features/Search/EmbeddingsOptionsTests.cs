@@ -1,8 +1,11 @@
 using Kanabol.Application.Features.Search;
 using Kanabol.Infrastructure;
 using Kanabol.Infrastructure.Configuration;
+using Kanabol.Infrastructure.Embeddings;
+using Kanabol.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace Kanabol.Application.Tests.Features.Search;
@@ -180,4 +183,12 @@ public sealed class EmbeddingsOptionsTests : IDisposable
     [InlineData("2048")]
     public void On_WithABatchSizeAtTheEdges_IsAccepted(string batchSize) =>
         Embeddings(Services(On(with: new() { ["Embeddings__BatchSize"] = batchSize }))).BatchSize.Should().Be(int.Parse(batchSize, System.Globalization.CultureInfo.InvariantCulture));
+
+    [Fact]
+    public void Worker_StartsAfterTheDatabaseIsReady()
+    {
+        var hosted = Services([]).GetServices<IHostedService>().Select(service => service.GetType()).ToList();
+
+        hosted.Should().ContainInOrder(typeof(DatabaseInitializer), typeof(EmbeddingsWorker));
+    }
 }

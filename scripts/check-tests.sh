@@ -251,11 +251,13 @@ task_2() {
   check "the restart tests pass with the API's own pool" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~DatabaseRestartTests' 2
   check "CI's PostgreSQL gets pgvector" in_file 'postgresql-17-pgvector' .github/actions/setup/action.yml
   check "the vectorization's settings: off by default, checked only when on, never printing a value" \
-    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsOptionsTests' 15
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsOptionsTests' 16
   check "task_embeddings keeps a vector of any length, one row per task and source, gone with the task, with <=> in SQL" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~TaskEmbeddingPersistenceTests' 5
   check "the vectorization makes the missing and stale vectors in batches, keeps them when the model fails, cuts long texts" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbedTasks' 12
+  check "the worker runs the vectorization at start and every interval, logs a failed run and goes on, stops cleanly" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsWorkerTests' 7
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean
 }
