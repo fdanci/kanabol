@@ -123,8 +123,8 @@ public static class DependencyInjection
                 $"Embeddings:BatchSize must be between 1 and {EmbeddingsOptions.MaximumBatchSize}.");
         services.AddValidatedOptions<AzureEmbeddingsOptions>(configuration, AzureEmbeddingsOptions.SectionName)
             .Validate<IOptions<EmbeddingsOptions>>(
-                (azure, embeddings) => !embeddings.Value.Enabled || AzureEmbeddingsOptions.IsAnHttpsAddress(azure.Endpoint),
-                $"Embeddings:Azure:Endpoint is needed {WhenOn}, as an https address.")
+                (azure, embeddings) => !embeddings.Value.Enabled || AzureEmbeddingsOptions.IsAnAllowedAddress(azure.Endpoint),
+                $"Embeddings:Azure:Endpoint is needed {WhenOn}, as an https address, or an http one on this machine.")
             .Validate<IOptions<EmbeddingsOptions>>(
                 (azure, embeddings) => !embeddings.Value.Enabled || !string.IsNullOrWhiteSpace(azure.Deployment),
                 $"Embeddings:Azure:Deployment is needed {WhenOn}: the name the deployment was given in Azure.")

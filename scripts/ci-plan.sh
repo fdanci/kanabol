@@ -29,6 +29,7 @@ assignees=check-assignees check-alerts
 backend=check-backend check-comments check-dashboard
 users=check-users check-release check-projects
 realtime=check-realtime check-auth check-docker:1,2,3,4,6,7 check-docker:5
+search=check-search
 '
 
 json() { # json <name=scripts lines>: the shards as JSON

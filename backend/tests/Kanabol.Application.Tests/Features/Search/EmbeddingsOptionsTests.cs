@@ -143,6 +143,8 @@ public sealed class EmbeddingsOptionsTests : IDisposable
     [Theory]
     [InlineData("http://example.cognitiveservices.azure.com/")]
     [InlineData("example.cognitiveservices.azure.com")]
+    [InlineData("http://localhost.example.com/")]
+    [InlineData("http://10.0.0.10:5296/")]
     public void On_WithAnEndpointThatIsntHttps_StopsTheStart_WithoutPrintingAnyValue(string endpoint)
     {
         var services = Services(On(with: new() { ["Embeddings__Azure__Endpoint"] = endpoint }));
@@ -152,6 +154,18 @@ public sealed class EmbeddingsOptionsTests : IDisposable
         var refusal = reading.Should().Throw<OptionsValidationException>().Which.Message;
         refusal.Should().Contain("Embeddings:Azure:Endpoint").And.Contain("https");
         refusal.Should().NotContain(endpoint).And.NotContain(Key);
+    }
+
+    // The key in clear text, but only to this machine: a stand-in for Azure, as check-search.sh runs, or a local model.
+    [Theory]
+    [InlineData("http://127.0.0.1:5296/")]
+    [InlineData("http://localhost:8080/")]
+    [InlineData("http://[::1]:5000/")]
+    public void On_WithAnHttpEndpointOnThisMachine_Starts(string endpoint)
+    {
+        var services = Services(On(with: new() { ["Embeddings__Azure__Endpoint"] = endpoint }));
+
+        Azure(services).Endpoint.Should().Be(endpoint);
     }
 
     [Theory]

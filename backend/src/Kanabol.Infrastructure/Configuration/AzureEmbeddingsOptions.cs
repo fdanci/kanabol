@@ -16,6 +16,11 @@ public sealed class AzureEmbeddingsOptions
 
     public string ApiKey { get; set; } = "";
 
-    public static bool IsAnHttpsAddress(string? endpoint) =>
-        Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
+    /// <summary>
+    /// An https address, or an http one on this machine (localhost, 127.0.0.0/8, ::1): the key goes in a header, so
+    /// in clear text it only goes where it doesn't leave the machine, such as a stand-in for Azure or a local model.
+    /// </summary>
+    public static bool IsAnAllowedAddress(string? endpoint) =>
+        Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
 }
