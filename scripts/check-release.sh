@@ -14,7 +14,10 @@
 #      without yes changes nothing; with yes it puts back the database and the volume over newer work (a
 #      project, a file and the admin's password changed after the backup are gone), the file comes back
 #      byte for byte and the API still saves new ones; restore.sh --yes fills a new stack whose database
-#      and volume are empty. Docker.
+#      and volume are empty. Since group 25 (docs/SPEC.md §19.1): the dump holds pgvector and a task's
+#      vector, which goes back exactly, in both stacks; and a backup as one from before pgvector (no
+#      extension, no task_embeddings, whose foreign key points at task_items) goes back whole over a
+#      database with vectors, which the API then migrates again. Docker.
 #   2  release.sh on a clean clone as the server has it after git pull (main, origin/main on it): it
 #      refuses a version not vX.Y.Z, changes git doesn't have (tracked or not), another branch, a commit
 #      origin/main lacks, a tag of that version on another commit and a missing .env, each before
@@ -28,7 +31,10 @@
 #      sets both to the release's version, as the commit a version tags does; release.sh refuses a
 #      version that either doesn't name (another version, kanabol-web's default alone changed, APP_VERSION
 #      alone changed), each with no image, no tag and .env unchanged; and the web image it builds holds
-#      the version the sidebar shows. Docker.
+#      the version the sidebar shows. Since group 25: it builds the database's image, compose.yaml's
+#      kanabol-postgres, labelled with the git tree of database/, and not again for the same tree, so its
+#      id stays; again when database/ changed; compose.prod.yaml then builds nothing, and the database
+#      runs that image with pgvector, which the API's migration turned on. Docker.
 #   3  the documents and the screenshots: docs/deploy.md, docs/backup.md and docs/ui-review.md tracked; each
 #      of the 18 screens of docs/UI_UX_SPEC.md §7 (at least one per section, §7.9 and the reports' "Estimare
 #      și timp lucrat" since group 22) a tracked PNG of 1440x900 in
@@ -177,8 +183,15 @@ no_password_in() { # no_password_in <file...>: none of the probe's secrets shows
 
 # ---- A stack of the production files, in a folder laid out as the server's clone is.
 
-# The images, built once from this checkout, under the tag the probe's .env names.
+# The images, built once from this checkout, under the tag the probe's .env names. The database's tag is
+# compose.yaml's, which release.sh builds on the server: here, only if it isn't built yet.
+database_image=$(sed -n -E 's/^ +image: (kanabol-postgres:[^ ]+)$/\1/p' compose.yaml | tr -d '\r')
 images_are_built() {
+  docker image inspect "$database_image" >/dev/null 2>&1 ||
+    docker build -q -t "$database_image" database >"$scratch/build-postgres.log" 2>&1 || {
+    tail -n 20 "$scratch/build-postgres.log"
+    return 1
+  }
   docker image inspect "kanabol-api:$check_tag" >/dev/null 2>&1 ||
     docker build -q -t "kanabol-api:$check_tag" backend >"$scratch/build-api.log" 2>&1 || {
     tail -n 20 "$scratch/build-api.log"
@@ -370,7 +383,22 @@ probe_has_data() {
   upload "$token" "$backup_task" "$scratch/before.zip" || return 1
   kept_file=$uploaded
   kept_sha=$(sha256sum "$scratch/before.zip" | cut -d' ' -f1)
-  is "$kept_sha" "$(sha_of_download "$token" "$kept_file")"
+  is "$kept_sha" "$(sha_of_download "$token" "$kept_file")" || return 1
+  # A vector of the task, as the vectorization would write it, which is off here (docs/SPEC.md §19.2).
+  probe_sql "$run_id-a" "insert into task_embeddings (id, task_id, source, content, embedding, model, embedded_at)
+    values (gen_random_uuid(), '$backup_task', 'Task', 'De păstrat în backup', '$kept_vector', 'probe-model', now())" >/dev/null
+}
+
+probe_sql() { # probe_sql <project> <statement> [database]: its rows, one a line, columns separated by |
+  in_probe "$1" exec -T postgres psql -X -U kanabol -d "${3:-kanabol}" -v ON_ERROR_STOP=1 -AtF'|' -c "$2" | tr -d '\r'
+}
+
+# The vector in the backup, with a value that only goes back exactly if nothing rounds it.
+kept_vector='[0.25,-0.5,1e-07]'
+
+holds_the_vector() { # holds_the_vector <project>: pgvector's extension, and the task's vector exactly as it was
+  is 0.8.7 "$(probe_sql "$1" "select extversion from pg_extension where extname = 'vector'")" || return 1
+  is "$kept_vector" "$(probe_sql "$1" "select embedding::text from task_embeddings where task_id = '$backup_task'")"
 }
 
 old_backups_are_there() { # Folders as earlier days' runs would have left them, and things that aren't backups.
@@ -423,12 +451,16 @@ backup_writes_today() {
 
 dump_holds_the_data() {
   in_probe "$run_id-a" exec -T postgres pg_restore -l <"$probe/backups/kanabol-$today/db.dump" >"$scratch/toc" || return 1
-  for table in users projects task_items comments attachments __EFMigrationsHistory; do
+  for table in users projects task_items comments attachments task_embeddings __EFMigrationsHistory; do
     grep -q "TABLE DATA public $table " "$scratch/toc" || {
       echo "no data of $table in the dump"
       return 1
     }
   done
+  grep -q ' EXTENSION - vector ' "$scratch/toc" || {
+    echo "no pgvector extension in the dump"
+    return 1
+  }
 }
 
 tar_holds_the_volume() {
@@ -538,7 +570,56 @@ stack_serves_the_backup() { # stack_serves_the_backup <project>
   status=$(as "$token" GET "/api/attachments/$later_file")
   status_is 404 "$status" || return 1
   volume_files "$1" >"$scratch/restored-volume" || return 1
-  diff "$scratch/in-tar" "$scratch/restored-volume"
+  diff "$scratch/in-tar" "$scratch/restored-volume" || return 1
+  holds_the_vector "$1"
+}
+
+# A backup as one from before pgvector would be, made from this stack's database: a copy of it without the
+# extension, its tables and their migrations, dumped, next to today's files. task_embeddings has a foreign
+# key to task_items, so a restore over this stack has to drop what the backup doesn't have.
+older_backup_is_there() {
+  older="$probe/backups/kanabol-older"
+  mkdir -p "$older" && cp "$probe/backups/kanabol-$today/attachments.tar.gz" "$older/" || return 1
+  # A copy needs the database without connections: the API's go while it's stopped.
+  in_probe "$run_id-a" stop api >/dev/null 2>&1 || return 1
+  probe_sql "$run_id-a" 'create database kanabol_older template kanabol' postgres >/dev/null
+  status=$?
+  in_probe "$run_id-a" up -d --wait api >/dev/null 2>&1
+  [ "$status" -eq 0 ] || return 1
+  # The migrations from AddVectorExtension on are group 25's: the extension and the two tables.
+  first=$(probe_sql "$run_id-a" "select min(migration_id) from \"__EFMigrationsHistory\"
+    where migration_id like '%_AddVectorExtension'" kanabol_older)
+  [ -n "$first" ] || {
+    echo "no AddVectorExtension migration in the history"
+    return 1
+  }
+  in_probe "$run_id-a" exec -T postgres psql -X -q -U kanabol -d kanabol_older -v ON_ERROR_STOP=1 \
+    -c 'drop table task_embeddings, embedding_calls' -c 'drop extension vector' \
+    -c "delete from \"__EFMigrationsHistory\" where migration_id >= '$first'" >/dev/null || return 1
+  in_probe "$run_id-a" exec -T -u postgres postgres pg_dump -Fc -U kanabol -d kanabol_older >"$older/db.dump" || return 1
+  probe_sql "$run_id-a" 'drop database kanabol_older' postgres >/dev/null || return 1
+  in_probe "$run_id-a" exec -T postgres pg_restore -l <"$older/db.dump" | grep -q ' EXTENSION - vector ' && {
+    echo "the older backup has pgvector"
+    return 1
+  }
+  return 0
+}
+
+older_backup_goes_back() {
+  probe_script "$run_id-a" restore.sh backups/kanabol-older --yes >"$scratch/restore-older.log" 2>&1 || {
+    tail -n 20 "$scratch/restore-older.log"
+    return 1
+  }
+  set_url "$run_id-a"
+}
+
+# The API migrated it again at start: the extension and its tables are back, empty, the rest as in the backup.
+older_backup_is_whole() {
+  is 0 "$(probe_sql "$run_id-a" "select count(*) from task_embeddings")" || return 1
+  is 0.8.7 "$(probe_sql "$run_id-a" "select extversion from pg_extension where extname = 'vector'")" || return 1
+  login "$admin_email" "$admin_password" || return 1
+  status=$(as "$token" GET '/api/projects?includeArchived=true&pageSize=100')
+  status_is 200 "$status" && grep -q '"key":"BKP"' "$scratch/body"
 }
 
 api_still_saves_files() { # api_still_saves_files <project>: the volume kept the owner the API writes as
@@ -592,14 +673,18 @@ task_1() {
   check "a project, a file and a new admin password come after the backup" work_after_the_backup
   check "restore.sh without yes, or on a missing folder, changes nothing" restore_without_yes_changes_nothing
   check "restore.sh with yes restarts api and web" restore_with_yes_puts_it_back
-  check "the stack serves the backup again, the newer work gone, the file as it was" stack_serves_the_backup "$run_id-a"
+  check "the stack serves the backup again, the newer work gone, the file and the vector as they were" \
+    stack_serves_the_backup "$run_id-a"
   check "the API still saves a file in the volume" api_still_saves_files
+  check "a backup as from before pgvector is made from it" older_backup_is_there
+  check "restore.sh --yes puts it back over the database with vectors" older_backup_goes_back
+  check "the database is the backup's, migrated again at start" older_backup_is_whole
   check "a new stack's database and volume are empty" new_stack_is_empty
   check "restore.sh --yes fills it" restore_fills_a_new_stack
-  check "it serves the backup, the file as it was" stack_serves_the_backup "$run_id-b"
+  check "it serves the backup, the file and the vector as they were" stack_serves_the_backup "$run_id-b"
   check "and saves new files" api_still_saves_files
   check "nothing restore.sh printed holds a password" no_password_in "$scratch/restore.log" \
-    "$scratch/restore-new.log" "$scratch/restore-no.log"
+    "$scratch/restore-new.log" "$scratch/restore-no.log" "$scratch/restore-older.log"
 }
 
 
@@ -667,7 +752,11 @@ release() { # release <arguments...>: release.sh in the clone, its output in rel
   (cd "$server" && env -u KANABOL_VERSION dash scripts/release.sh "$@") >"$scratch/release.log" 2>&1
 }
 
-nothing_released() { # Neither image, nor a changed .env.
+nothing_released() { # No image built, the database's included, nor a changed .env.
+  if grep -q '^Building ' "$scratch/release.log"; then
+    echo "it built an image"
+    return 1
+  fi
   if docker image inspect "kanabol-api:$release_version" >/dev/null 2>&1 ||
     docker image inspect "kanabol-web:$release_version" >/dev/null 2>&1; then
     echo "an image was built"
@@ -893,15 +982,51 @@ release_says_how_to_start() {
   }
 }
 
+database_tree_label() {
+  docker image inspect -f '{{index .Config.Labels "kanabol.database-tree"}}' "$database_image" | tr -d '\r'
+}
+
+# Built from the clone's database/, or already built from it by an earlier run: the label says which.
+database_image_is_the_clones() {
+  is "$(git -C "$server" rev-parse HEAD:database)" "$(database_tree_label)" || return 1
+  says "$database_image"
+}
+
 release_again_changes_nothing() {
   tag_object=$(git -C "$server" rev-parse "refs/tags/$release_version")
+  database_id=$(docker image inspect -f '{{.Id}}' "$database_image" | tr -d '\r')
   cp "$server/.env" "$scratch/env-before-again"
   release "$release_version" || {
     tail -n 25 "$scratch/release.log"
     return 1
   }
   is "$tag_object" "$(git -C "$server" rev-parse "refs/tags/$release_version")" || return 1
-  cmp "$scratch/env-before-again" "$server/.env"
+  cmp "$scratch/env-before-again" "$server/.env" || return 1
+  # The same database/ isn't built again: the same image, so compose leaves PostgreSQL running.
+  says "$database_image is already built from this database/" && says_nothing_of "Building $database_image" || return 1
+  is "$database_id" "$(docker image inspect -f '{{.Id}}' "$database_image" | tr -d '\r')"
+}
+
+# A database/ that changed is built again, with its new tree.
+changed_database_is_built() {
+  # The release's tag is on the commit before, and the stack's ports file isn't git's: release.sh refuses
+  # both, so the tag goes and the file is aside while it runs.
+  undo_release "$release_version"
+  mv "$server/release-ports.yaml" "$scratch/release-ports.yaml" || return 1
+  echo '# a change to the database image' >>"$server/database/Dockerfile"
+  commit_on_the_clone "test: database/ changed" || return 1
+  release "$release_version"
+  status=$?
+  mv "$scratch/release-ports.yaml" "$server/release-ports.yaml"
+  says "Building $database_image" && is "$(git -C "$server" rev-parse HEAD:database)" "$(database_tree_label)"
+  checked=$?
+  back_to_the_clones_main || return 1
+  undo_release "$release_version"
+  [ "$status" -eq 0 ] || {
+    tail -n 25 "$scratch/release.log"
+    return 1
+  }
+  return "$checked"
 }
 
 server_compose() {
@@ -921,8 +1046,8 @@ services:
       - "127.0.0.1::443"
 EOF
   server_started=1
-  # --pull never: the images are the ones release.sh built here, or the start fails.
-  (cd "$server" && server_compose up -d --pull never --wait --wait-timeout 240) >"$scratch/server-up.log" 2>&1 || {
+  # --pull never --no-build: the images are the ones release.sh built here, or the start fails.
+  (cd "$server" && server_compose up -d --pull never --no-build --wait --wait-timeout 240) >"$scratch/server-up.log" 2>&1 || {
     tail -n 20 "$scratch/server-up.log"
     return 1
   }
@@ -931,8 +1056,15 @@ EOF
 
 stack_runs_the_release() {
   is "api kanabol-api:$release_version
+postgres $database_image
 web kanabol-web:$release_version" \
-    "$(cd "$server" && server_compose ps --format '{{.Service}} {{.Image}}' api web | tr -d '\r' | sort)"
+    "$(cd "$server" && server_compose ps --format '{{.Service}} {{.Image}}' api postgres web | tr -d '\r' | sort)"
+}
+
+# The API's migration turned the extension on, in the image release.sh built (docs/SPEC.md §19.1).
+release_database_has_pgvector() {
+  is 0.8.7 "$(cd "$server" && server_compose exec -T postgres psql -X -U kanabol -d kanabol -Atc \
+    "select extversion from pg_extension where extname = 'vector'" | tr -d '\r')"
 }
 
 release_serves_the_app() {
@@ -976,15 +1108,20 @@ task_2() {
   check "it refuses without .env" refuses_without_env
   check "release.sh $release_version builds both images" release_builds
   check "they carry the version and the commit" images_carry_the_release
+  check "the database's image is built from the clone's database/, labelled with its tree" \
+    database_image_is_the_clones
   check "the web image holds the version for the sidebar" web_image_shows_the_version
   check "the annotated tag is on HEAD" tag_is_annotated_on_head
   check ".env has KANABOL_VERSION once, the rest as it was" env_has_the_version_once
   check "it prints the compose up command" release_says_how_to_start
   check "and no password" no_password_in "$scratch/release-first.log"
-  check "the same version again changes nothing else" release_again_changes_nothing
-  check "compose.prod.yaml starts them from .env, without pulling" release_stack_comes_up
-  check "api and web run the release's images" stack_runs_the_release
+  check "the same version again changes nothing else, nor builds the same database/ again" \
+    release_again_changes_nothing
+  check "compose.prod.yaml starts them from .env, without pulling or building" release_stack_comes_up
+  check "api, web and the database run the release's images" stack_runs_the_release
+  check "the database has pgvector, which the API's migration turned on" release_database_has_pgvector
   check "the app answers on HTTPS and the first admin signs in" release_serves_the_app
+  check "a database/ that changed is built again, with its new tree" changed_database_is_built
 }
 
 # ---- Task 3: the documents and the screenshots.

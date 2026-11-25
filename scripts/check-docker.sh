@@ -726,6 +726,9 @@ services:
 EOF
   docker image inspect "kanabol-api:check-$$" >/dev/null 2>&1 || docker build -q -t "kanabol-api:check-$$" backend || return 1
   docker image inspect "kanabol-web:check-$$" >/dev/null 2>&1 || docker build -q -t "kanabol-web:check-$$" frontend || return 1
+  # The database's tag is compose.yaml's, which release.sh builds on the server: here, if it isn't built yet.
+  database_image=$(sed -n -E 's/^ +image: (kanabol-postgres:[^ ]+)$/\1/p' compose.yaml | tr -d '\r')
+  docker image inspect "$database_image" >/dev/null 2>&1 || docker build -q -t "$database_image" database || return 1
   prod_stack up -d --no-build --wait --wait-timeout 180 >"$scratch/prod.log" 2>&1 || {
     tail -n 15 "$scratch/prod.log"
     prod_stack logs --tail 15 web api 2>&1
@@ -794,7 +797,10 @@ task_3() {
   check "dev publishes the API on 8080" config_satisfies '' "published('api') === '127.0.0.1:8080:8080'"
   check "dev publishes nginx on 4200" config_satisfies '' "published('web') === '127.0.0.1:4200:80'"
 
-  check "prod builds nothing" config_satisfies "$prod" "!services.api.build && !services.web.build"
+  check "prod builds nothing, the database included" config_satisfies "$prod" \
+    "Object.values(services).every((s) => !s.build)"
+  check "prod runs the database's image of compose.yaml" config_satisfies "$prod" \
+    "services.postgres.image === 'kanabol-postgres:17.11-pgvector0.8.7'"
   check "prod uses the images tagged with the version the sidebar shows (APP_VERSION)" prod_uses_the_app_version
   check "prod restarts everything" config_satisfies "$prod" \
     "Object.values(services).every((s) => s.restart === 'unless-stopped')"

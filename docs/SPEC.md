@@ -790,11 +790,14 @@ Porturi, pe scurt: API local `5200`, API în container `8080`, Angular dev `4200
 
 ```yaml
 # Production: docker compose -f compose.yaml -f compose.prod.yaml up -d
-# It runs tagged images. KANABOL_VERSION picks another tag than the default one.
+# It runs tagged images and builds none: scripts/release.sh builds all three. KANABOL_VERSION picks another
+# tag than the default one of api and web.
 # The default is the version of this commit: the commit a version tags sets it here, on both images, and
-# in APP_VERSION (frontend/src/app/core/layout/sidenav.ts), docs/SPEC.md §13.5.
+# in APP_VERSION (frontend/src/app/core/layout/sidenav.ts), docs/SPEC.md §13.5. The database's tag is
+# compose.yaml's.
 services:
   postgres:
+    build: !reset null
     restart: unless-stopped
 
   seq:
@@ -815,7 +818,7 @@ services:
       - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
 ```
 
-Expune doar `web`, pe 443 și pe 80 ca redirect către HTTPS, fără build, cu imagini tag-uite. `KANABOL_VERSION` alege alt tag decât cel implicit, care e versiunea commit-ului (§13.5; `v0.1.2` la grupul 21, `v1.0.0` din 2026-11-10); `.env.example` nu mai numește o versiune.
+Expune doar `web`, pe 443 și pe 80 ca redirect către HTTPS, fără niciun build, nici al bazei, cu imagini tag-uite: `release.sh` le construiește pe toate trei (§13.5). `KANABOL_VERSION` alege alt tag decât cel implicit, care e versiunea commit-ului (§13.5; `v0.1.2` la grupul 21, `v1.0.0` din 2026-11-10); `.env.example` nu mai numește o versiune.
 
 Seq își păstrează retenția în volum, deci fiecare volum nou are nevoie o dată de `SEQ_ADMIN_PASSWORD=<parola> scripts/seq-retention.sh` (§8.1).
 
@@ -843,7 +846,7 @@ Scriptul rulează pe server și scrie în `certs/` (în `.gitignore`). Prima rul
 ### 13.5 Livrare
 
 - `scripts/backup.sh`, rulat pe server din cron: `pg_dump -Fc` prin `docker compose exec`, plus un tar al volumului de atașamente printr-un container alpine, în `backups/kanabol-AAAA-LL-ZZ/`; păstrează 14 zile; nu scrie nicio parolă în log. `scripts/restore.sh` întoarce un backup într-un stack oprit. `docs/backup.md` dă linia de cron și pașii restaurării.
-- `scripts/release.sh vX.Y.Z` construiește și tag-uiește `kanabol-api` și `kanabol-web` (§13.3) și pune tag-ul git. `docs/deploy.md` dă pașii serverului: `.env`, `make-certs.sh`, `compose up`, `seq-retention.sh`, cron-ul de backup, `ca.crt` după `docs/tls.md`, actualizarea la o versiune nouă. Instalarea pe server, `ca.crt` la colegi și `compose up` sunt ale lui Florin, după `docs/deploy.md`.
+- `scripts/release.sh vX.Y.Z` construiește și tag-uiește `kanabol-api` și `kanabol-web` (§13.3) și pune tag-ul git. Construiește și imaginea bazei, `kanabol-postgres`, cu tag-ul din `compose.yaml` (§19.1), dar doar când s-a schimbat `database/`, pe care îl recunoaște după eticheta cu arborele git al folderului. Altfel fiecare construire ar da o imagine nouă, iar `compose up` ar reporni PostgreSQL la fiecare versiune. `docs/deploy.md` dă pașii serverului: `.env`, `make-certs.sh`, `compose up`, `seq-retention.sh`, cron-ul de backup, `ca.crt` după `docs/tls.md`, actualizarea la o versiune nouă. Instalarea pe server, `ca.crt` la colegi și `compose up` sunt ale lui Florin, după `docs/deploy.md`.
 - Verificarea UI (UI §15): capturi ale fiecărui ecran din UI §7, light și dark, la 1440×900, PNG în `docs/screens/` (`7.2-panou-light.png`), dintr-o bază cu date de probă; contrastul cu `axe-core` (dependență de dev) pe fiecare ecran, în ambele teme, cu rezultatele și reparațiile în `docs/ui-review.md`; `prefers-reduced-motion` verificat că oprește tranzițiile și shimmer-ul; ce pică și nu se repară pe loc intră în Blocked cu propunere.
 - Fără registry de imagini: serverul are clona repo-ului, iar `release.sh vX.Y.Z` rulează pe el după `git pull`. Pașii sunt în `docs/deploy.md` și `docs/backup.md`; datele demonstrative vin din `scripts/demo-data.sh`, prin API.
 - Versiunea: commit-ul pe care îl etichetează o versiune pune acea versiune în `APP_VERSION` (`frontend/src/app/core/layout/sidenav.ts`) și în tag-ul implicit al ambelor imagini din `compose.prod.yaml`; `release.sh` refuză un tag care nu se potrivește cu ele. Capturile din `docs/screens/` nu se refac pentru un număr de versiune.
@@ -1000,7 +1003,7 @@ Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele
 ### 19.1 Baza de date
 
 - **Imagine proprie.** `postgres:17-alpine` nu are `pgvector`. Baza rulează pe o imagine construită din `database/Dockerfile`: o bază fixată la versiune (`postgres:17.11-alpine3.24`, nu eticheta `17-alpine`, care se mută) și `pgvector` la o versiune fixată, construit din sursă, fără `-march=native`.
-- **Aceeași imagine peste tot:** compose, teste (Testcontainers o construiește din același Dockerfile), server. Scripturile `check-*.sh` din CI folosesc PostgreSQL-ul instalat pe mașină, cu pachetul `pgvector` al distribuției (`postgresql-17-pgvector`).
+- **Aceeași imagine peste tot:** compose, teste (Testcontainers o construiește din același Dockerfile), server. Pe server o construiește `release.sh`, nu `compose up` (§13.5). Scripturile `check-*.sh` din CI folosesc PostgreSQL-ul instalat pe mașină, cu pachetul `pgvector` al distribuției (`postgresql-17-pgvector`).
 - **Ordinea românească rămâne.** Imaginea păstrează sistemul de bază (Alpine), ca `ro-x-icu` să nu se schimbe sub o bază existentă. Testele de colație trec neschimbate pe ea.
 - **Extensia o activează o migrare**, `AddVectorExtension`, cu `DROP EXTENSION` la întoarcere: Npgsql scoate doar adnotarea. EF folosește tipurile ei prin `UseVector()`, care îi dă contextului un `NpgsqlDataSource` propriu, cu pool propriu, pe care `NpgsqlConnection.ClearAllPools()` nu-l golește. Restaurarea are nevoie de extensie în baza în care restaurează.
 - **Fără index pe vectori** până în pasul 6. Căutarea filtrează întâi pe coloane, cu indecșii obișnuiți, apoi calculează distanța doar pe rândurile rămase. Rezultatul e exact; un index HNSW ar fi aproximativ și ar filtra după ce caută vecinii.

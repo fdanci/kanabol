@@ -10,8 +10,13 @@
 # stack too, whose database is empty: it starts PostgreSQL first.
 #
 # It stops api and web, checks both files, unpacks the attachments next to the old ones, puts the database
-# back in one transaction (pg_restore --clean --if-exists), and only then swaps the files and starts the
-# stack. A step that fails before the swap leaves the data as it was and starts the stack again.
+# back in one transaction, and only then swaps the files and starts the stack. A step that fails before the
+# swap leaves the data as it was and starts the stack again.
+#
+# The database goes back whole, not over what's there: the transaction drops the public schema, with every
+# table and extension in it, then runs the dump, which pg_restore turned into SQL first. pg_restore --clean
+# would drop only what the dump has, so a backup older than a table with a foreign key to one of its own,
+# such as task_embeddings from before pgvector, couldn't go back.
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -30,6 +35,8 @@ compose() {
 database=kanabol
 attachments=/data/attachments
 staging="$attachments/.restoring"
+# Inside the postgres container, for the moment between pg_restore and psql.
+restore_sql=/tmp/kanabol-restore.sql
 helper_image=alpine:3.21
 
 usage() {
@@ -115,8 +122,18 @@ docker run --rm -i --volumes-from "$api" "$helper_image" \
   fail "unpacking the attachments failed"
 
 echo "Putting the database back..."
-compose exec -T -u postgres postgres pg_restore --clean --if-exists --single-transaction --exit-on-error \
-  -U "$database" -d "$database" <"$folder/db.dump" || fail "pg_restore failed"
+# The SQL is whole before the transaction starts: a dump that breaks halfway stops here, changing nothing.
+compose exec -T -u postgres postgres pg_restore -f "$restore_sql" <"$folder/db.dump" || {
+  compose exec -T -u postgres postgres rm -f "$restore_sql"
+  fail "pg_restore can't turn $folder/db.dump into SQL"
+}
+compose exec -T -u postgres postgres psql -X -q -o /dev/null -1 -v ON_ERROR_STOP=1 -U "$database" -d "$database" \
+  -c 'SET client_min_messages = warning' -c 'DROP SCHEMA public CASCADE' \
+  -c 'CREATE SCHEMA public AUTHORIZATION pg_database_owner' -c 'GRANT USAGE ON SCHEMA public TO PUBLIC' \
+  -f "$restore_sql"
+restored=$?
+compose exec -T -u postgres postgres rm -f "$restore_sql"
+[ "$restored" -eq 0 ] || fail "putting the database back failed"
 
 echo "Swapping the attachments..."
 # Everything in the volume but the unpacked copy goes, then the copy takes its place, its owner included.

@@ -53,7 +53,7 @@ Scriptul face în `certs/` CA-ul propriu și certificatul serverului. `docs/tls.
 scripts/release.sh v1.2.0
 ```
 
-Versiunea e cea a commit-ului din `main`, ultimul tag (`git describe --tags`): `APP_VERSION` din `frontend/src/app/core/layout/sidenav.ts`, pe care o arată sidebar-ul, și tag-ul implicit al imaginilor din `compose.prod.yaml`. `release.sh` verifică întâi că clona e pe `main`, curată și la un commit de pe `origin/main`, și că versiunea cerută e cea din cele două fișiere, apoi construiește `kanabol-api:v1.2.0` și `kanabol-web:v1.2.0`, pune tag-ul git adnotat dacă lipsește (`v1.2.0` vine deja cu `git pull`) și scrie `KANABOL_VERSION=v1.2.0` în `.env`. Nu pornește nimic: la final spune comanda de la pasul următor. Prima construcție durează câteva minute.
+Versiunea e cea a commit-ului din `main`, ultimul tag (`git describe --tags`): `APP_VERSION` din `frontend/src/app/core/layout/sidenav.ts`, pe care o arată sidebar-ul, și tag-ul implicit al imaginilor din `compose.prod.yaml`. `release.sh` verifică întâi că clona e pe `main`, curată și la un commit de pe `origin/main`, și că versiunea cerută e cea din cele două fișiere, apoi construiește `kanabol-api:v1.2.0` și `kanabol-web:v1.2.0`, pune tag-ul git adnotat dacă lipsește (`v1.2.0` vine deja cu `git pull`) și scrie `KANABOL_VERSION=v1.2.0` în `.env`. Construiește și imaginea bazei, `kanabol-postgres:17.11-pgvector0.8.7`: PostgreSQL cu extensia `pgvector`, compilată din sursă (`docs/SPEC.md` §19.1). O face doar prima dată și apoi doar când s-a schimbat `database/`, deci o versiune nouă nu repornește baza degeaba. `compose.prod.yaml` nu construiește nimic. `release.sh` nu pornește nimic: la final spune comanda de la pasul următor. Prima construcție durează câteva minute.
 
 ### 5. Pornirea
 
@@ -119,9 +119,28 @@ scripts/release.sh v0.2.0
 docker compose -f compose.yaml -f compose.prod.yaml up -d
 ```
 
-`up -d` reface doar containerele `api` și `web`, cu imaginile noi; API-ul aplică singur migrările noi la pornire. Datele rămân în volume.
+`up -d` reface containerele `api` și `web`, cu imaginile noi, iar pe `postgres` doar când `release.sh` a construit o imagine nouă a bazei. API-ul aplică singur migrările noi la pornire. Datele rămân în volume.
 
 Fără tag-ul împins, `release.sh` îl pune singur pe server și spune cum se împinge. O versiune pe care `APP_VERSION` sau `compose.prod.yaml` n-o au o refuză înainte să construiască, să pună tag-ul sau să schimbe `.env`: un tag pus pe un commit care n-a schimbat versiunea nu se instalează, deci versiunea se schimbă în commit-ul etichetat, nu după el.
+
+### Prima actualizare cu `pgvector`
+
+Până la `v1.2.0`, baza rula pe `postgres:17-alpine`. Versiunea care aduce căutarea după înțeles o mută pe `kanabol-postgres`, același PostgreSQL 17 cu extensia `pgvector`. Pașii sunt cei de mai sus. `release.sh` construiește și imaginea bazei, apoi `up -d` reface containerul `postgres` pe același volum, deci datele rămân. API-ul activează extensia la pornire, prin migrarea ei. După `up -d`, două verificări:
+
+```sh
+docker compose -f compose.yaml -f compose.prod.yaml exec -T postgres psql -U kanabol -d kanabol -Atc \
+  "select extversion from pg_extension where extname = 'vector'"
+docker compose -f compose.yaml -f compose.prod.yaml exec -T postgres psql -U kanabol -d kanabol -Atc \
+  "select collversion = pg_collation_actual_version(oid) from pg_collation where collname = 'ro-x-icu'"
+```
+
+Prima trebuie să dea `0.8.7`. A doua dă `t` când ordinea românească (`ro-x-icu`) are aceeași versiune ca sub imaginea veche. Dacă dă `f`, imaginea veche avea altă versiune a bibliotecii ICU. Atunci cei trei indecși care folosesc colația, emailul utilizatorilor și numele rolurilor, se refac o singură dată:
+
+```sh
+docker compose -f compose.yaml -f compose.prod.yaml exec -T postgres psql -U kanabol -d kanabol \
+  -c 'REINDEX INDEX ux_users_email' -c 'REINDEX INDEX ux_roles_name' -c 'REINDEX INDEX ux_roles_lower_name' \
+  -c 'ALTER COLLATION pg_catalog."ro-x-icu" REFRESH VERSION'
+```
 
 ### Întoarcerea la versiunea de dinainte
 
@@ -129,6 +148,8 @@ Imaginile vechi rămân pe server (`docker images kanabol-api`). O versiune nou�
 
 1. În `.env`, `KANABOL_VERSION` înapoi la versiunea veche, de exemplu `v0.1.2`.
 2. `scripts/restore.sh backups/kanabol-AAAA-LL-ZZ`, cu folderul de dinainte de actualizare. Scriptul pornește stack-ul cu versiunea din `.env`.
+
+Baza rămâne pe imaginea din `compose.yaml`, care merge și cu versiunile de dinainte de `pgvector`. Un backup de dinainte nu are extensia, iar restaurarea lui o scoate din bază.
 
 Imaginile de care nu mai e nevoie se șterg cu `docker rmi kanabol-api:v0.1.2 kanabol-web:v0.1.2`.
 

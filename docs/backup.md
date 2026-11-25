@@ -6,7 +6,7 @@ Serverul face în fiecare noapte o copie a bazei de date și a fișierelor ataș
 
 Scriptul rulează pe server, din rădăcina clonei, pe stack-ul pornit cu `compose.yaml` și `compose.prod.yaml` (`docs/deploy.md`):
 
-- baza de date: `pg_dump -Fc` rulat ca utilizatorul `postgres` din containerul PostgreSQL, în `backups/kanabol-AAAA-LL-ZZ/db.dump`. Conexiunile locale din container nu cer parolă, deci nicio parolă nu apare pe linia de comandă sau în log;
+- baza de date: `pg_dump -Fc` rulat ca utilizatorul `postgres` din containerul PostgreSQL, în `backups/kanabol-AAAA-LL-ZZ/db.dump`, cu tot cu extensia `pgvector` și vectorii căutării. Conexiunile locale din container nu cer parolă, deci nicio parolă nu apare pe linia de comandă sau în log;
 - fișierele atașate: volumul `attachments`, citit printr-un container `alpine`, în `backups/kanabol-AAAA-LL-ZZ/attachments.tar.gz`;
 - păstrează 14 zile: șterge folderele `backups/kanabol-AAAA-LL-ZZ` cu o dată de acum mai bine de 14 zile, doar după un backup reușit; orice altceva din `backups/` rămâne;
 - scrie un rând pe rulare în `backups/backup.log`, `ok` cu mărimile fișierelor sau `FAIL` cu motivul.
@@ -56,14 +56,14 @@ Pașii:
 1. Pornește PostgreSQL, dacă nu rulează, și verifică amândouă fișierele copiei.
 2. Oprește `api` și `web`, deci Kanabol nu răspunde cât durează restaurarea.
 3. Despachetează fișierele în volum, lângă cele vechi.
-4. Întoarce baza de date cu `pg_restore --clean --if-exists`, într-o singură tranzacție.
+4. Întoarce baza de date întreagă, într-o singură tranzacție: șterge schema `public`, cu toate tabelele și extensiile din ea, apoi rulează copia, pe care `pg_restore` a transformat-o întâi în SQL. Baza iese exact ca în copie, nu peste ce era. Un backup de dinainte de `pgvector` iese fără extensie și fără tabelele căutării. Cu `pg_restore --clean` n-ar fi mers, pentru că acela șterge doar ce are copia, iar tabelele noi țin chei străine spre cele vechi.
 5. Înlocuiește fișierele vechi cu cele despachetate, apoi pornește tot stack-ul și așteaptă ca API-ul să fie sănătos.
 
 Un pas care pică înainte de al cincilea lasă baza de date și fișierele cum erau și pornește din nou stack-ul.
 
 ### Pe un server nou
 
-Restaurarea merge și într-un stack nou, cu baza de date și volumul goale. Pe serverul nou, după pașii din `docs/deploy.md` până la `compose up` (fără el), se copiază folderul backup-ului în `backups/` și:
+Restaurarea merge și într-un stack nou, cu baza de date și volumul goale. Pe serverul nou, după pașii din `docs/deploy.md` până la `compose up` (fără el), se copiază folderul backup-ului în `backups/`. Printre acei pași, `release.sh` construiește și imaginea bazei, cu `pgvector`, de care are nevoie o copie cu vectori. Apoi:
 
 ```sh
 scripts/restore.sh backups/kanabol-2026-11-09 --yes

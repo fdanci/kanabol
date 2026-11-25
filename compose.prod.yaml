@@ -1,9 +1,12 @@
 # Production: docker compose -f compose.yaml -f compose.prod.yaml up -d
-# It runs tagged images. KANABOL_VERSION picks another tag than the default one.
+# It runs tagged images and builds none: scripts/release.sh builds all three. KANABOL_VERSION picks another
+# tag than the default one of api and web.
 # The default is the version of this commit: the commit a version tags sets it here, on both images, and
-# in APP_VERSION (frontend/src/app/core/layout/sidenav.ts), docs/SPEC.md §13.5.
+# in APP_VERSION (frontend/src/app/core/layout/sidenav.ts), docs/SPEC.md §13.5. The database's tag is
+# compose.yaml's.
 services:
   postgres:
+    build: !reset null
     restart: unless-stopped
 
   seq:
