@@ -1,10 +1,15 @@
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
+using Kanabol.Application.Abstractions;
 using Kanabol.Infrastructure.Configuration;
+using Kanabol.Infrastructure.Embeddings;
+using Kanabol.Tests.Shared.Fakes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -12,8 +17,12 @@ using Serilog.Core;
 
 namespace Kanabol.Api.Tests.Support;
 
-/// <summary>The real API on the test container, with settings that only exist here.</summary>
-public sealed class ApiFactory(string connectionString) : WebApplicationFactory<Program>
+/// <summary>
+/// The real API on the test container, with settings that only exist here. With an embedding model, the
+/// vectorization is on, with that model and without the worker (SPEC section 19.6), for the search's tests;
+/// otherwise it's off, as by default.
+/// </summary>
+public sealed class ApiFactory(string connectionString, Func<IEmbeddingModel>? embeddingModel = null) : WebApplicationFactory<Program>
 {
     /// <summary>What the API has logged, across every test that shares this factory.</summary>
     public RecordingLogSink Logs { get; } = new();
@@ -65,5 +74,23 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
             services.AddControllers().AddApplicationPart(typeof(ApiFactory).Assembly);
             services.AddSingleton<ILogEventSink>(Logs);
         });
+
+        if (embeddingModel is not null)
+        {
+            // Checked at start once on, though the test's model replaces Azure's: none of them reaches anything.
+            builder.UseSetting("Embeddings:Enabled", "true");
+            builder.UseSetting("Embeddings:Model", FakeEmbeddingModel.DefaultName);
+            builder.UseSetting("Embeddings:Azure:Endpoint", "https://embeddings.invalid/");
+            builder.UseSetting("Embeddings:Azure:Deployment", "unused-in-tests");
+            builder.UseSetting("Embeddings:Azure:ApiKey", "unused-in-tests");
+
+            // After the API's own services: the model is the one the test has now, and only the test makes vectors.
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddScoped(_ => embeddingModel());
+                services.Remove(services.Single(service =>
+                    service.ServiceType == typeof(IHostedService) && service.ImplementationType == typeof(EmbeddingsWorker)));
+            });
+        }
     }
 }

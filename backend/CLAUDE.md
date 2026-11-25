@@ -102,7 +102,7 @@ In Docker and production, settings come from environment variables:
 
 - Code checks permissions, never role names.
 - Visibility across all projects comes from the global `projects.view_all` permission, not from a role.
-- `chat.use` (group 25, the Admin has it) is for the search by meaning and, from step 2, the chat. It reads over every project on its own, without `projects.view_all`, so it's for whoever may see everything. No endpoint asks for it yet: the search will (`docs/SPEC.md` §19.6). The roles screen shows it under Altele, by its name, until its group and text are decided.
+- `chat.use` (group 25, the Admin has it) is for the search by meaning and, from step 2, the chat. It reads over every project on its own, without `projects.view_all`, so it's for whoever may see everything. The search asks for it, from the token (`docs/SPEC.md` §19.6). The roles screen shows it under Altele, by its name, until its group and text are decided.
 - Access is checked on every request. The frontend only hides what isn't available.
 - `[HasPermission(Permissions.X)]` on an action or a controller closes it to tokens without that permission, with a 403 `Auth.PermissionRequired`. Several of them all have to hold.
 - `IProjectAccess` answers from the database, about the user it's asked about, and refuses deactivated users. It doesn't check that the project exists, so a handler loads the project or task first.
@@ -245,6 +245,19 @@ In Docker and production, settings come from environment variables:
 - Lead time goes from `created_at` to `completed_at`. Cycle time starts at the task's first entry into În lucru, the project's `InProgress` column (group 22), or at `created_at` for a task that never entered it before it was finished, as one created there or finished from Backlog. The time in a column goes from entering it to leaving it, or to `completed_at`, each task's stays in one added up, from the `ColumnId` entries of the history; a column deleted since is left out. The handler reads each task's moments and moves (`FinishedTaskTimeline`), and `ReportDurations` works out the average and the median in memory, the median of an even count being the mean of the two in the middle, both rounded to the second.
 - `work-time` sums in the database, by person and by project, a task with several assignees whole for each of them, as `completed` counts it. The worked time is the one stored when the task left În lucru, in the schedule's hours (`WorkingTime.Between`).
 - Overdue now means open (`completed_at` null), not archived, past the deadline, in a project that isn't archived, as for the alerts and the main panel, on the filter's project and person: an archived project has nothing overdue.
+
+## Search
+
+| Endpoint                 | Does                                                                                                                                                                                                     | Needs      |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `POST /api/search/tasks` | The tasks nearest in meaning to `question`, nearest first, each with its `distance`, and the `tokens` the question used. Filters: `projectId`, `assigneeId`, `from`, `to`, `includeArchived` and `limit` | `chat.use` |
+
+- A POST with the question in the body: nginx's access log keeps the addresses, and no text sent to the model goes in a log. Each search also records the question's call in `embedding_calls` (purpose `Search`), before searching.
+- `question` is 1 to 1000 characters without hidden ones, `limit` 1 to 50 (10 by default), and `[from, to)` is on the task's `created_at`; given both, `to` comes after `from`. An unknown `projectId` answers 404 `Project.NotFound`; `assigneeId` can be anyone, as in the reports.
+- `includeArchived` brings archived tasks and the tasks of archived projects, for anyone with `chat.use`, without `tasks.archive`. Without it, both stay out.
+- The filters are LINQ in `SearchTasksCommandHandler`. `ITaskSearch` (`TaskSearch` in Infrastructure, the only layer that knows pgvector) puts them in the same SQL, as `task_id IN (SELECT …)`, and orders by `embedding <=> @vector`. Only the vectors of `Embeddings:Model` count, and a task without one yet is found after the worker's next run.
+- With the vectorization off it answers 409 `Search.TurnedOff`. When the model doesn't answer, 503 `Search.ModelFailed` (`ErrorType.Unavailable`), with nothing searched and no call recorded.
+- API tests search through `ApiFixture.Searching`, a second API on the same database with the vectorization on, `ApiFixture.EmbeddingModel` as its model and no `EmbeddingsWorker`. The shared API keeps the vectorization off, as by default.
 
 ## General settings
 

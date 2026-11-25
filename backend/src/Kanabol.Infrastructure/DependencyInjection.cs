@@ -7,6 +7,7 @@ using Kanabol.Infrastructure.Configuration;
 using Kanabol.Infrastructure.Embeddings;
 using Kanabol.Infrastructure.Persistence;
 using Kanabol.Infrastructure.Persistence.Interceptors;
+using Kanabol.Infrastructure.Search;
 using Kanabol.Infrastructure.Storage;
 using Kanabol.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
@@ -92,6 +93,7 @@ public static class DependencyInjection
                 CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<ITaskNumbers, TaskNumbers>();
+        services.AddScoped<ITaskSearch, TaskSearch>();
         services.AddScoped<DatabaseSeeder>();
         services.AddHostedService<DatabaseInitializer>();
 

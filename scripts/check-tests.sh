@@ -260,6 +260,10 @@ task_2() {
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbedTasks' 15
   check "the worker runs the vectorization at start and every interval, logs a failed run and goes on, stops cleanly" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~EmbeddingsWorkerTests' 7
+  check "the search finds the nearest tasks first, with the filters, the configured model only, and records the question's call" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~SearchTasks' 20
+  check "POST /api/search/tasks: chat.use, 409 when off, 503 when the model fails, 400 without a question, nothing in the logs" \
+    tests_pass Kanabol.Api.Tests 'FullyQualifiedName~SearchEndpointTests' 6
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean
 }
@@ -283,7 +287,7 @@ tests_catch_a_wrong_signing_key() {
 task_3() {
   echo "3.3 WebApplicationFactory on the container, with test tokens"
   check "the factory is tracked" tracked backend/tests/Kanabol.Api.Tests/Support/ApiFactory.cs
-  check "the factory's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ApiFactoryTests' 6
+  check "the factory's tests pass" tests_pass Kanabol.Api.Tests 'FullyQualifiedName~ApiFactoryTests' 9
   check "they catch tokens the API's settings wouldn't accept" tests_catch_a_wrong_signing_key
   check "the solution builds with warnings as errors" solution_builds
   check "dotnet format is clean" formatting_is_clean

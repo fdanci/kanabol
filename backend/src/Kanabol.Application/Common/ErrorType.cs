@@ -8,4 +8,5 @@ public enum ErrorType
     Forbidden,
     Unauthorized,
     Failure,
+    Unavailable,
 }

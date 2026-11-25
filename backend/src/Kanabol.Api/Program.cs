@@ -16,10 +16,14 @@ if (builder.Environment.IsDevelopment())
     builder.Configuration.AddJsonFile("appsettings.Development.local.json", optional: true, reloadOnChange: true);
 }
 
-builder.Host.UseSerilog((context, services, logger) => logger
-    .ReadFrom.Configuration(context.Configuration)
-    .ReadFrom.Services(services)
-    .Enrich.With<AccessTokenRedaction>());
+// The API's own logger, not the static Log.Logger: a second API in the same process, as in the tests, would
+// otherwise take the first one's logs into its own sinks.
+builder.Host.UseSerilog(
+    (context, services, logger) => logger
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.With<AccessTokenRedaction>(),
+    preserveStaticLogger: true);
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options => options.InvalidModelStateResponseFactory = ModelStateProblems.Create)
@@ -51,7 +55,8 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseSerilogRequestLogging();
+// Left alone, the request log would go to the static logger, which UseSerilog leaves empty above.
+app.UseSerilogRequestLogging(options => options.Logger = app.Services.GetRequiredService<Serilog.ILogger>());
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 

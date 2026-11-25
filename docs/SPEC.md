@@ -307,8 +307,8 @@ Invariante:
 
 ### 4.6 Erori
 
-- Handlere: `Result.Failure(Error)` cu `ErrorType ∈ { Validation, NotFound, Conflict, Forbidden, Unauthorized, Failure }`.
-- Controllers: extensie `result.ToActionResult()` → 200/201/204 sau `ProblemDetails` cu 400/404/409/403/401.
+- Handlere: `Result.Failure(Error)` cu `ErrorType ∈ { Validation, NotFound, Conflict, Forbidden, Unauthorized, Failure, Unavailable }`. `Unavailable` (grupul 25) e pentru un serviciu de care cererea are nevoie și care n-a răspuns, cum e modelul de vectorizare (§19.6): merită încercat din nou.
+- Controllers: extensie `result.ToActionResult()` → 200/201/204 sau `ProblemDetails` cu 400/404/409/403/401/503.
 - Excepții neașteptate: `IExceptionHandler` global → 500 ProblemDetails cu `traceId` și `correlationId`, logate la `Error`. Detaliile excepției nu ies din API în prod.
 - Validation → 400 cu `ValidationProblemDetails` (`errors: { field: [messages] }`).
 
@@ -338,7 +338,7 @@ Project ──< TaskItem ──< Comment
 - `Notification`: `UserId`, `Type` (enum `TaskOverdue|TaskAssigned|CommentAdded`), `TaskId?`, `Message`, `CreatedAt`, `ReadAt?`. Cine le produce e în §4.3: worker-ul pentru `TaskOverdue`, handlerele de domain events pentru celelalte două. Livrate exclusiv in-app (listă + clopoțel + push prin SignalR). **Nu** definim `IEmailSender` sau alt canal în v1; dacă apare nevoia, se adaugă atunci ca un consumer suplimentar al acelorași domain events.
 - `WorkSchedule` (grupul 22): programul de lucru, un singur rând în `work_schedules`: `WorkDays` (zilele ISO, `work_days` ca text, „1,2,3,4,5”), `StartTime` și `EndTime` (`start_time`, `end_time`, de tip `time`), `UpdatedAt`, `UpdatedById?`; migrarea îl pune cu luni–vineri, 08:30–16:30 (§4.4 „Setările generale”).
 - `TaskEmbedding` (grupul 25, `Domain/Search`): vectorul unui text din task, în `task_embeddings`: `TaskId` (cascadă: rândul pleacă odată cu task-ul), `Source` (enum `Task`, ca text; comentariile din pasul 6), `Content` (textul trimis la model), `Embedding` (în Domain o listă de `float`, în bază `vector` fără lungime fixă, prin conversia din configurația EF), `Model` (numele modelului, nu al deployment-ului), `EmbeddedAt`. Un rând pe task și sursă (`ux_task_embeddings_task_id_source`). `Replace` îl reface pentru alt text sau alt model. Distanța în LINQ: `EF.Property<Vector>(row, "Embedding").CosineDistance(intrebare)`, cu întrebarea ca `Vector` într-o variabilă locală (ca `float[]` ar pleca drept `real[]`, pe care `<=>` nu-l primește); §19.2.
-- `EmbeddingCall` (grupul 25, `Domain/Search`): un apel la modelul de vectorizare, în `embedding_calls`, fără legătură cu alte tabele: `Purpose` (enum `Vectorization`, ca text; căutarea din §19.6 își adaugă scopul), `Model` (numele modelului, ca lângă vectori), `TextCount` (cel puțin 1), `Tokens` (cât a numărat modelul pe tot apelul, cel puțin 0), `CalledAt`. Niciun text. Pentru calculatorul de costuri din pasul 4; §19.5.
+- `EmbeddingCall` (grupul 25, `Domain/Search`): un apel la modelul de vectorizare, în `embedding_calls`, fără legătură cu alte tabele: `Purpose` (enum `Vectorization|Search`, ca text: vectorizarea task-urilor sau întrebarea unei căutări, §19.6), `Model` (numele modelului, ca lângă vectori), `TextCount` (cel puțin 1), `Tokens` (cât a numărat modelul pe tot apelul, cel puțin 0), `CalledAt`. Niciun text. Pentru calculatorul de costuri din pasul 4; §19.5.
 
 **Arhivare, nu ștergere.** `DELETE /api/tasks/{id}` arhivează (`ArchivedAt = now`), nu șterge rânduri. Global query filter `HasQueryFilter(t => t.ArchivedAt == null)` pe `TaskItem`; comentariile, atașamentele și istoricul rămân intacte și intră în rapoarte. Admin (permisiunea `tasks.archive`) vede task-urile arhivate cu `?includeArchived=true` (handler cu `IgnoreQueryFilters()`) și le poate restaura (`POST /api/tasks/{id}/restore`). Nu există hard delete în API; curățarea fizică (dacă va fi vreodată nevoie) e o operațiune de DBA, nu o funcție de produs. Proiectele urmează aceeași regulă (`archived_at` pe `projects`).
 
@@ -553,6 +553,7 @@ Urmăm style guide-ul Angular v20+ (fără sufixe `.component`/`.service` în nu
 - **Destinații**: consolă (format lizibil în dev, JSON compact în prod — Docker le strânge) + **Seq** (`http://seq:5341`). Seq ține 30 de zile (setat o dată per volum, cu `scripts/seq-retention.sh`; retenția stă în volum).
 - **Enrichers**: `FromLogContext`, `WithEnvironmentName`, `WithMachineName`, plus proprii: `CorrelationId`, `UserId`, `RequestPath`.
 - **Request logging**: `app.UseSerilogRequestLogging()` — o linie per request cu metodă, path, status, durată. Înlocuiește logurile verbose ASP.NET.
+- **Un logger al API-ului, nu cel static** (grupul 25): `UseSerilog(..., preserveStaticLogger: true)`, iar request logging-ul primește explicit loggerul din DI, pentru că altfel ar scrie în `Log.Logger`, care rămâne gol. Cu loggerul static, al doilea API pornit în același proces, cum fac testele căutării, lua logurile primului.
 - **Niveluri**:
 
 | Sursă | Dev | Prod |
@@ -1037,9 +1038,16 @@ Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele
 ### 19.6 Căutarea de probă
 
 - Un endpoint primește un text și filtre opționale (proiect, om, perioadă, „și arhivatele”) și întoarce task-urile cele mai apropiate, cu distanța. Întrebarea se vectorizează cu același model ca task-urile.
-- În căutare intră doar vectorii modelului din configurație. Vectorii a două modele nu se compară.
+- **`POST /api/search/tasks`**, nu `GET`, cu întrebarea în body: nginx ține în access log adresa întreagă, iar logurile nu țin niciun text trimis la model (§19.5). Și fiecare căutare scrie apelul ei la model, deci nu e doar o citire.
+- **Body-ul:** `question` (1–1000 de caractere, fără caractere ascunse), `projectId`, `assigneeId`, `from` și `to` (data creării task-ului în `[from, to)`; date amândouă, `to` vine după `from`), `includeArchived` și `limit` (1–50, implicit 10). Un `projectId` care nu există dă 404 `Project.NotFound`. `assigneeId` poate fi oricine, ca în rapoarte.
+- **Răspunsul:** `tasks`, cele mai apropiate întâi, fiecare cu `id`, `key`, `title`, `projectId`, `projectKey`, `projectName`, `archived` și `distance`, plus `tokens`, câți tokeni a consumat întrebarea.
+- **„Și arhivatele”** aduce task-urile arhivate și pe cele din proiectele arhivate. Fără ea, rămân pe dinafară amândouă. O are oricine are `chat.use`, fără `tasks.archive` (decis 2026-11-25).
+- În căutare intră doar vectorii modelului din configurație. Vectorii a două modele nu se compară. Un task fără vector încă, de exemplu unul creat de curând, apare după următoarea rulare a worker-ului.
 - Distanța e cea cosinus (`<=>`): 0 pentru același sens, mai mare cu cât textele se depărtează.
-- **Permisiunea `chat.use`** cere căutarea și, din pasul 2, chat-ul. Dă singură citire peste toate proiectele, fără `projects.view_all`, deci se dă doar cui are voie să vadă tot. Regula „nimeni nu dă mai mult decât are” (§4.4) se aplică și ei.
+- **O singură interogare.** Filtrele sunt LINQ în Application, iar `ITaskSearch` din Infrastructure, singurul strat care știe de pgvector, le pune în același SQL: `task_id IN (SELECT …)` și `ORDER BY embedding <=> @vector, task_id`. Întrebarea pleacă drept `Vector`, dintr-o variabilă locală: ca `float[]` ar pleca drept `real[]`, pe care `<=>` nu-l primește.
+- **Apelul întrebării** se scrie în `embedding_calls`, cu scopul `Search`, înainte de căutare, ca să fie numărat orice ar urma.
+- **Erorile:** cu vectorizarea oprită, 409 `Search.TurnedOff`. Dacă modelul nu răspunde, 503 `Search.ModelFailed`; atunci nu se caută nimic și nu se scrie niciun apel.
+- **Permisiunea `chat.use`** cere căutarea și, din pasul 2, chat-ul. Dă singură citire peste toate proiectele, fără `projects.view_all`, deci se dă doar cui are voie să vadă tot. Regula „nimeni nu dă mai mult decât are” (§4.4) se aplică și ei. Se citește din token, ca `reports.view`.
 
 ### 19.7 Pentru pașii următori
 

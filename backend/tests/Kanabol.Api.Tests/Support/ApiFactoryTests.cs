@@ -1,11 +1,14 @@
 using System.Net;
 using System.Text;
 using Kanabol.Application.Abstractions;
+using Kanabol.Application.Features.Search;
 using Kanabol.Domain.Authorization;
 using Kanabol.Infrastructure.Configuration;
+using Kanabol.Infrastructure.Embeddings;
 using Kanabol.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -63,6 +66,43 @@ public sealed class ApiFactoryTests(ApiFixture api) : ApiTest(api)
 
         auth.RefreshTokenCleanupEnabled.Should().BeFalse();
         auth.RefreshTokenCleanupInterval.Should().Be(TimeSpan.FromDays(1));
+    }
+
+    /// <summary>SPEC section 19.4: the vectorization is off here, as by default, so no model is ever called.</summary>
+    [Fact]
+    public void Embeddings_InTheseTests_AreOff()
+    {
+        Api.Factory.Services.GetRequiredService<IOptions<EmbeddingsOptions>>().Value.Enabled.Should().BeFalse();
+        Api.Factory.Services.GetRequiredService<IEmbeddingModel>().Should().BeOfType<TurnedOffEmbeddingModel>();
+    }
+
+    /// <summary>The search's API: the vectorization on, with the test's model, and no worker making vectors meanwhile.</summary>
+    [Fact]
+    public void Searching_HasTheVectorizationOn_WithTheTestsModel_AndNoWorker()
+    {
+        var services = Api.Searching.Services;
+        using var scope = services.CreateScope();
+
+        services.GetRequiredService<IOptions<EmbeddingsOptions>>().Value.Enabled.Should().BeTrue();
+        scope.ServiceProvider.GetRequiredService<IEmbeddingModel>().Should().BeSameAs(Api.EmbeddingModel);
+        services.GetServices<IHostedService>().Should().NotContain(service => service is EmbeddingsWorker)
+            .And.Contain(service => service is DatabaseInitializer);
+    }
+
+    // Each API keeps its own logger: with the static one, the API started last took the other's logs.
+    [Fact]
+    public async Task Logs_OfEachApi_StayInItsOwnSink_WithBothRunning()
+    {
+        _ = Api.Searching.Services;
+        var marker = $"/api/marker-{Guid.NewGuid():N}";
+        using var client = Api.Factory.CreateClient();
+
+        await client.GetAsync(new Uri(marker, UriKind.Relative));
+
+        bool Mentions(Serilog.Events.LogEvent logEvent) =>
+            logEvent.Properties.Values.Any(value => value.ToString().Contains(marker, StringComparison.Ordinal));
+        Api.Factory.Logs.Events.Where(Mentions).Should().NotBeEmpty("the request was logged by the API that served it");
+        Api.Searching.Logs.Events.Where(Mentions).Should().BeEmpty();
     }
 
     [Fact]
