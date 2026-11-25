@@ -62,7 +62,7 @@ Constrângeri care au ghidat deciziile:
 | Angular Material + CDK | 22.x | aceeași versiune cu Angular |
 | Seq | ultimul `datalust/seq` | gratuit pentru un singur utilizator |
 
-Pachete NuGet cheie: `Npgsql.EntityFrameworkCore.PostgreSQL`, `Pgvector.EntityFrameworkCore` 0.3.0 (tipurile și distanțele `pgvector` în EF, prin `UseVector()`, §19.1), `EFCore.NamingConventions`, `FluentValidation`, `Serilog.AspNetCore`, `Serilog.Sinks.Seq`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `Scrutor` (decoratori), `Testcontainers.PostgreSql`, `Respawn`, `xunit`, `NSubstitute`, `FluentAssertions`, `Microsoft.AspNetCore.SignalR.Client` (doar în `Kanabol.Api.Tests`, ca testele să se conecteze la hub ca un browser; decis 2026-11-07).
+Pachete NuGet cheie: `Npgsql.EntityFrameworkCore.PostgreSQL`, `Pgvector.EntityFrameworkCore` 0.3.0 (tipurile și distanțele `pgvector` în EF, prin `UseVector()`, §19.1), `Azure.AI.OpenAI` 2.1.0 (ultima stabilă; doar în Infrastructure, pentru `AzureEmbeddingModel`, §19.3), `EFCore.NamingConventions`, `FluentValidation`, `Serilog.AspNetCore`, `Serilog.Sinks.Seq`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `Scrutor` (decoratori), `Testcontainers.PostgreSql`, `Respawn`, `xunit`, `NSubstitute`, `FluentAssertions`, `Microsoft.AspNetCore.SignalR.Client` (doar în `Kanabol.Api.Tests`, ca testele să se conecteze la hub ca un browser; decis 2026-11-07).
 
 Pachete npm cheie: `@angular/*`, `@angular/material`, `@angular/cdk`, `@angular/localize`, `@microsoft/signalr`, `diff` (jsdiff, doar în chunk-ul task-urilor, pentru diferența descrierii din istoric, §4.4), `chart.js` 4.6.1 (fără wrapper Angular: un component `kb-chart` peste `<canvas>`, pentru rapoarte, cu doar piesele barelor înregistrate; grupul 18), `angular-eslint`, `typescript-eslint`, `prettier`, `vitest`, `husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`. Fără pachet de markdown: descrierile și comentariile trec prin parserul propriu din `shared/ui/markdown-parser.ts` și `kb-markdown` (§16).
 
@@ -1013,7 +1013,7 @@ Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele
 ### 19.3 Modelul de vectorizare
 
 - **O interfață în Application**, `IEmbeddingModel`: primește o listă de texte și întoarce vectorii, în aceeași ordine, și tokenii consumați. Implementările stau în Infrastructure: Azure acum, un model local în pasul 6. Application nu referă niciun pachet Azure sau OpenAI; un test de arhitectură ține regula.
-- **Niciun test nu cheamă un model real.** CI-ul nu are secrete (§14.8). Testele folosesc un model fals, care dă același vector pentru același text, și vectori dați de test când au nevoie de texte apropiate ca sens. O probă pe modelul real se rulează de mână, în afara CI-ului.
+- **Niciun test nu cheamă un model real.** CI-ul nu are secrete (§14.8). Testele folosesc un model fals, care dă același vector pentru același text, și vectori dați de test când au nevoie de texte apropiate ca sens. Clientul Azure se testează pe un răspuns fals, fără rețea. O probă pe modelul real, `AzureEmbeddingModelProbe`, se rulează de mână, cu `KANABOL_AZURE_PROBE=1` și secretele `Embeddings:Azure` din user-secrets; altfel e sărită, deci în CI e mereu sărită.
 - **Modelul și deployment-ul sunt setări separate.** Apelul la Azure numește deployment-ul, iar lângă vector se scrie numele modelului, ca o redenumire a deployment-ului să nu refacă vectorii.
 
 ### 19.4 Configurare și secrete

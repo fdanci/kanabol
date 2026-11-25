@@ -4,6 +4,7 @@ using Kanabol.Application.Features.Settings;
 using Kanabol.Infrastructure.Alerts;
 using Kanabol.Infrastructure.Authentication;
 using Kanabol.Infrastructure.Configuration;
+using Kanabol.Infrastructure.Embeddings;
 using Kanabol.Infrastructure.Persistence;
 using Kanabol.Infrastructure.Persistence.Interceptors;
 using Kanabol.Infrastructure.Storage;
@@ -62,6 +63,15 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<IFileStorage, LocalFileStorage>();
         services.AddSingleton<IAttachmentRules, StorageAttachmentRules>();
+
+        // Azure only when the vectorization is on; off, nothing can reach a model (SPEC section 19.4). One client
+        // for the app: the SDK's clients are safe to share, and each keeps its connections.
+        services.AddSingleton<IEmbeddingModel>(provider =>
+            provider.GetRequiredService<IOptions<EmbeddingsOptions>>().Value.Enabled
+                ? new AzureEmbeddingModel(
+                    provider.GetRequiredService<IOptions<EmbeddingsOptions>>(),
+                    provider.GetRequiredService<IOptions<AzureEmbeddingsOptions>>())
+                : new TurnedOffEmbeddingModel());
         services.AddScoped<AuditingInterceptor>();
         services.AddScoped<DomainEventsInterceptor>();
 

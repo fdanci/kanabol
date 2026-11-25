@@ -176,6 +176,19 @@ task_6() {
     'namespace OpenAI.Probing { public sealed class Client; } namespace Kanabol.Application { public sealed class Probe { public OpenAI.Probing.Client? Used { get; set; } } }'
   check "the fake model's tests pass: same text same vector, given vectors, order, calls, failure" \
     tests_pass Kanabol.Application.Tests 'FullyQualifiedName~FakeEmbeddingModelTests' 6
+  check "the Azure model's tests pass on a fake answer: what it sends, order, tokens, failures without a key" \
+    tests_pass Kanabol.Application.Tests 'FullyQualifiedName~AzureEmbeddingModelTests' 13
+  check "the probe on the real Azure is skipped without KANABOL_AZURE_PROBE=1" azure_probe_is_skipped
+}
+
+# CI has no keys: the probe has to stay out unless someone runs it by hand (docs/SPEC.md §19.3).
+azure_probe_is_skipped() {
+  KANABOL_AZURE_PROBE= dotnet test backend/tests/Kanabol.Api.Tests/Kanabol.Api.Tests.csproj --nologo \
+    --filter 'FullyQualifiedName~AzureEmbeddingModelProbe' >"$scratch/azure-probe.log" 2>&1 || {
+    tail -n 15 "$scratch/azure-probe.log"
+    return 1
+  }
+  grep -qE 'Skipped: +1,' "$scratch/azure-probe.log" && grep -qE 'Passed: +0,' "$scratch/azure-probe.log"
 }
 
 docker_is_running() {
