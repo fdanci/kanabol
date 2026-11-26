@@ -2,7 +2,7 @@
 
 > Specificație tehnică pentru prima versiune. Produsul și regulile de business sunt în vault-ul Obsidian (`_Overview.md`, `_Architecture.md`, `Decisions/`). Acest fișier stabilește **cum** construim: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline-ul local de commit.
 >
-> Stare: v2.1 — 2026-11-22, cu regulile primului pas al chat-ului cu RAG în §19. De la v2.0 (2026-11-13) spec-ul ține doar regulile: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline. Cum e implementat fiecare lucru se vede în cod, în teste și în capul scripturilor `scripts/check-*.sh`. Istoricul e în git (`git log -- docs/SPEC.md`); v1.34 e ultima versiune cu detaliile de implementare ale fiecărui grup.
+> Stare: v2.2 — 2026-11-26, cu regulile pasului 2 al chat-ului cu RAG în §20, scrise înaintea codului; v2.1 (2026-11-22) a adus pasul 1, în §19. De la v2.0 (2026-11-13) spec-ul ține doar regulile: arhitectură, pattern-uri, convenții, loguri, teste, lint, Docker și pipeline. Cum e implementat fiecare lucru se vede în cod, în teste și în capul scripturilor `scripts/check-*.sh`. Istoricul e în git (`git log -- docs/SPEC.md`); v1.34 e ultima versiune cu detaliile de implementare ale fiecărui grup.
 >
 > Cum se ține la zi: un gol mic îl hotărăște cine implementează și îl scrie în mesajul commit-ului, fără să-l adauge aici. O regulă de aici se schimbă în același commit cu codul care o schimbă. La Florin ajung doar deciziile de produs, adică ce vede sau ce poate face un utilizator.
 
@@ -36,12 +36,13 @@
 | Deploy | Server Linux, Docker Compose, nginx servește SPA + proxy către API |
 | TLS | Certificat **self-signed** (CA proprie), terminat în nginx, importat o dată în browserele colegilor |
 | Căutare după înțeles | Vectori în PostgreSQL-ul aplicației, prin **`pgvector`**; modelele AI doar în spatele unor interfețe, oprite implicit (§19) |
+| Chat | Un model de chat scrie răspunsul doar din ce întorc uneltele; uneltele le execută aplicația, care stabilește și sursele; modelul nu atinge baza; oprit implicit (§20) |
 
 ---
 
 ## 1. Scop și limite
 
-Task manager intern, tip Jira-light: utilizatori + RBAC, proiecte, task-uri cu prioritate, kanban configurabil cu drag & drop, comentarii + atașamente, istoric modificări, alerte deadline, productivitate per dezvoltator/proiect. Fără integrări externe, fără mobil, fără LLM în v1. După v1.2, un chat care răspunde din datele aplicației se construiește pe pași, cu modelele AI ca singura integrare externă; regulile lui sunt în §19.
+Task manager intern, tip Jira-light: utilizatori + RBAC, proiecte, task-uri cu prioritate, kanban configurabil cu drag & drop, comentarii + atașamente, istoric modificări, alerte deadline, productivitate per dezvoltator/proiect. Fără integrări externe, fără mobil, fără LLM în v1. După v1.2, un chat care răspunde din datele aplicației se construiește pe pași, cu modelele AI ca singura integrare externă; regulile lui sunt în §19 și §20.
 
 Constrângeri care au ghidat deciziile:
 - **Un singur dezvoltator**, timp limitat → preferăm convenții clare și puțin ceremonial față de flexibilitate maximă.
@@ -996,7 +997,7 @@ Toate întrebările din v1.0 au fost închise pe 2026-11-04 (vezi §0 și §17).
 
 ## 19. Chat cu RAG — pasul 1: `pgvector` și vectorizarea
 
-Chat-ul răspunde la întrebări despre proiecte și task-uri din datele aplicației: caută task-urile după înțeles, iar un model de chat scrie răspunsul din ele. Se construiește pe pași. Pasul 1 e temelia: vectorii în bază, vectorizarea task-urilor și o căutare de probă. Chat-ul propriu-zis vine din pasul 2. Deciziile: „Vectori în PostgreSQL prin pgvector” (`docs/adr/0021`) și „Modele AI în spatele unei interfețe” (`docs/adr/0022`).
+Chat-ul răspunde la întrebări despre proiecte și task-uri din datele aplicației: caută task-urile după înțeles, iar un model de chat scrie răspunsul din ele. Se construiește pe pași. Pasul 1 e temelia: vectorii în bază, vectorizarea task-urilor și o căutare de probă. Chat-ul propriu-zis vine din pasul 2 (§20). Deciziile: „Vectori în PostgreSQL prin pgvector” (`docs/adr/0021`) și „Modele AI în spatele unei interfețe” (`docs/adr/0022`).
 
 Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele, §3 structura, §4.4 permisiunile, §13.3 compose, §15 secretele) se schimbă în același commit cu codul lor, nu înainte.
 
@@ -1058,3 +1059,70 @@ Regulile de aici sunt noi. Secțiunile existente pe care le ating (§2 pachetele
 
 - **Textul scris de oameni e date, nu instrucțiuni.** Ce scrie cineva într-un task sau într-un comentariu nu schimbă ce face modelul de chat.
 - **Cifrele nu vin din căutare.** Pentru totaluri, modelul de chat primește unelte peste rapoartele existente, niciodată SQL scris de el.
+
+---
+
+## 20. Chat cu RAG — pasul 2: primul răspuns
+
+Pasul 2 pune un model de chat peste căutarea din pasul 1: o întrebare primește un răspuns scris din task-urile găsite, cu sursele lui. E doar API, chemat din Swagger. Uneltele pentru cifre vin în pasul 3, conversațiile și costurile în pasul 4, iar pagina în pasul 5. Decizia: „Modele AI în spatele unei interfețe” (`docs/adr/0022`).
+
+Regulile de aici sunt noi și sunt scrise înaintea codului. Secțiunile existente pe care le ating (§2 pachetele, §3 structura, §4.6 erorile, §5.1 entitățile, §13.3 compose, §15 secretele) se schimbă în același commit cu codul lor, ca la §19. Ce rămâne de ales la implementare e numit în subsecțiunea lui și intră aici odată cu codul care îl alege.
+
+### 20.1 O întrebare, un răspuns
+
+- Fiecare întrebare e de sine stătătoare. Cererea nu primește nimic din întrebările dinainte, și nicio conversație nu se salvează până în pasul 4.
+- Răspunsul e scris doar din ce întorc uneltele. În pasul 2 e o singură unealtă, căutarea task-urilor după înțeles.
+- Cere `chat.use`, din token, ca și căutarea (§19.6).
+- Întrebarea vine în body-ul unui `POST`, din același motiv ca la căutare: adresa ajunge în access log, iar textele trimise la un model nu ajung în niciun log. Numele rutei se alege la implementare.
+
+### 20.2 Bucla de unelte
+
+- Aplicația trimite modelului instrucțiunile ei, întrebarea omului și descrierea uneltelor. Modelul întoarce textul final sau o cerere de unealtă, cu parametrii completați de el. Aplicația execută unealta, îi trimite rezultatul și cheamă modelul din nou, până la un răspuns sau până la limita de runde.
+- **Modelul nu atinge baza.** El cere, iar aplicația execută, în codul ei. Nu primește SQL, nu primește o conexiune și nu hotărăște ce are voie să vadă. Permisiunile, filtrele și limitele rămân ale aplicației.
+- **Limite pe fiecare cerere:** câte runde de unelte, câți tokeni are răspunsul și cât e așteptat modelul. Sunt setări (§20.6), cu valorile alese la implementare. Tot atunci se alege ce primește omul când se atinge limita de runde.
+- Bucla stă în Application, într-un command, și nu știe ce furnizor e în spatele interfeței.
+
+### 20.3 Unealta de căutare
+
+- **Aceeași căutare** ca la `POST /api/search/tasks` (§19.6): aceeași interogare și aceleași reguli pentru vectori și arhivate. Nu e o a doua implementare.
+- **Textul căutării îl scrie modelul**, din întrebarea omului, și poate căuta de mai multe ori pentru o întrebare. Proba pe modelul real a arătat că o întrebare vagă ratează task-ul, iar una care numește lucrul îl găsește.
+- **Parametrii modelului:** textul, proiectul (cheie sau nume), omul (nume), perioada și câte rezultate. Modelul nu primește și nu trimite id-uri.
+- **Proiectul și omul se caută în bază.** O valoare negăsită se întoarce modelului ca negăsită, cu numele apropiate, niciodată sărită în tăcere: o căutare fără filtrul cerut ar răspunde la altă întrebare.
+- **Perioada:** modelul alege, după întrebare, între data creării și data finalizării task-ului, iar răspunsul spune ce dată a folosit (decis 2026-11-26). Endpoint-ul de căutare primește aceeași alegere odată cu codul ei.
+- **„Și arhivatele” nu e parametru al modelului.** O alege omul, în cerere, iar unealta o aplică la fiecare căutare a cererii.
+- **Ce întoarce:** datele task-ului, nu doar titlul: cheia, titlul, descrierea, proiectul, coloana, asignații, când a fost creat și terminat, dacă e arhivat.
+- **Distanța nu e prag.** Nicio căutare nu taie rezultatele după distanță: în probă, cea mai mică distanță a fost a unui rezultat greșit. Modelul primește rezultatele și judecă el.
+- De ales la implementare: cât din descriere pleacă la model, câte rezultate primește implicit și dacă primește și distanța.
+
+### 20.4 Răspunsul
+
+- **Textul**, în română.
+- **Sursele:** doar task-urile pe care răspunsul le numește și pe care o căutare a cererii chiar le-a întors (decis 2026-11-26). Le stabilește aplicația, din rezultatele uneltelor, nu modelul: o cheie pe care modelul o scrie fără s-o fi primit nu ajunge sursă.
+- **Filtrele folosite:** proiectul, omul, perioada cu felul datei, arhivatele.
+- **Tokenii:** ai căutărilor și ai modelului de chat, la intrare și la ieșire.
+
+### 20.5 Ce nu face
+
+- **Nimic găsit:** spune limpede că n-a găsit nimic în task-uri și ce a căutat. Nu răspunde din cunoștințele generale ale modelului (decis 2026-11-26).
+- **Cifre:** până la uneltele din pasul 3, spune că nu poate număra încă și trimite la pagina Rapoarte (decis 2026-11-26). Căutarea aduce câteva task-uri, nu toate, deci o numărătoare din ele ar fi greșită (§19.7).
+- **Textul scris de oameni e date** (§19.7). Ce întorc uneltele ajunge la model ca rezultat de unealtă, despărțit de instrucțiunile aplicației, niciodată lipit în ele, iar instrucțiunile spun că ce scrie într-un task nu se execută. Testele țin locul în care ajunge textul. Cum se poartă un model real cu un task care îi cere altceva se vede doar în proba de mână.
+
+### 20.6 Modelul de chat
+
+- **O interfață în Application**, `IChatModel`, lângă `IEmbeddingModel`: primește mesajele și descrierea uneltelor și întoarce textul sau cererile de unealtă, plus tokenii, cei de intrare separat de cei de ieșire. Implementarea stă în Infrastructure. Application nu referă pachetul niciunui furnizor; testul de arhitectură din §19.3 îl acoperă și pe acesta.
+- **Furnizorul** se alege înainte de implementare, după o comparație de mână: prețul la intrare și la ieșire, chemarea de unelte, data de retragere a modelului și româna. Interfața nu depinde de alegere.
+- **Niciun test nu cheamă un model real** (§19.3). Testele folosesc un model fals, care răspunde după scenariul dat de test: cere o unealtă, apoi scrie un răspuns. Clientul furnizorului se testează pe răspunsuri false, fără rețea. Proba pe modelul real se rulează de mână, cu o variabilă de mediu; altfel e sărită, deci în CI e mereu sărită.
+- **Oprit implicit** (`Chat:Enabled = false`). Oprit, aplicația pornește fără nicio cheie de chat și nu cheamă niciun model de chat. Pornit, cere și vectorizarea pornită (§19.4), pentru că fără ea n-are ce căuta. Setările lui se validează la pornire doar când e pornit, iar mesajele de validare numesc setarea, niciodată valoarea.
+- Cheia stă unde stă și cea de vectorizare (§19.4): `dotnet user-secrets` în dev și `.env` în Docker. Niciodată în git, în loguri sau în răspunsuri.
+- **Erorile** urmează căutarea (§19.6): cu chat-ul oprit, 409 `Chat.TurnedOff`; dacă modelul nu răspunde, 503 `Chat.ModelFailed`.
+
+### 20.7 Tokenii și logurile
+
+- Fiecare apel la care modelul de chat a răspuns își scrie tokenii, cei de intrare separat de cei de ieșire, pentru că au prețuri diferite. Rândul se scrie imediat după răspuns, ca la vectorizare (§19.5), și nu ține niciun text. Căutările cererii își scriu apelurile ca până acum, cu scopul `Search`. Unde se scriu apelurile de chat, într-o tabelă nouă sau în `embedding_calls` lărgită, se alege la implementare.
+- La fiecare rundă modelul primește din nou tot ce s-a spus până atunci: instrucțiunile, întrebarea, cererile lui și rezultatele. Tokenii de intrare cresc deci cu fiecare rundă, iar limita de runde e și o limită de cost.
+- **Logurile nu țin** întrebarea, răspunsul, cererile de unealtă sau rezultatele lor (§19.5). Țin cifre: câte runde, câte căutări, câți tokeni, cât a durat.
+
+### 20.8 Verificările pasului
+
+- `scripts/check-chat.sh` (§14.7), pe API-ul real, cu un înlocuitor al modelului de chat, în Node, care cere unealta și apoi răspunde, ca înlocuitorul lui Azure din `check-search.sh`. Nicio verificare și nicio rulare din CI nu cheamă un model real.
+- **Pasul e gata când**, din Swagger: o întrebare despre task-uri primește un răspuns cu surse care există; una fără nimic potrivit primește „n-am găsit”; una cu cifre primește trimiterea la Rapoarte; un task cu instrucțiuni în descriere nu schimbă ce face chat-ul. Testele trec fără nicio cheie.
