@@ -44,6 +44,15 @@ function areas(): { title: string; permissions: [Permission, string][] }[] {
       permissions: [[PERMISSIONS.reportsView, $localize`Vede rapoartele`]],
     },
     {
+      title: $localize`Chat`,
+      permissions: [
+        [
+          PERMISSIONS.chatUse,
+          $localize`Caută și întreabă prin chat peste toate proiectele și rapoartele`,
+        ],
+      ],
+    },
+    {
       title: $localize`Setări`,
       permissions: [[PERMISSIONS.settingsManage, $localize`Schimbă setările generale`]],
     },

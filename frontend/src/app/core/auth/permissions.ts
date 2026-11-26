@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   reportsView: 'reports.view',
   settingsManage: 'settings.manage',
   columnsManage: 'columns.manage',
+  chatUse: 'chat.use',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -12,6 +12,7 @@ describe('permissionGroups', () => {
       'Proiecte',
       'Task-uri',
       'Rapoarte',
+      'Chat',
       'Setări',
     ]);
     expect(groups.map((group) => group.permissions.map((permission) => permission.name))).toEqual([
@@ -19,7 +20,20 @@ describe('permissionGroups', () => {
       ['projects.create', 'projects.view_all', 'projects.manage', 'columns.manage'],
       ['tasks.create', 'tasks.archive'],
       ['reports.view'],
+      ['chat.use'],
       ['settings.manage'],
+    ]);
+  });
+
+  // docs/UI_UX_SPEC.md §7.7, group 26.
+  it('says what chat.use lets someone do, in a group of its own', () => {
+    const chat = permissionGroups(all).find((group) => group.title === 'Chat')!;
+
+    expect(chat.permissions).toEqual([
+      {
+        name: 'chat.use',
+        label: 'Caută și întreabă prin chat peste toate proiectele și rapoartele',
+      },
     ]);
   });
 

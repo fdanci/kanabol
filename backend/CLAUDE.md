@@ -103,7 +103,7 @@ In Docker and production, settings come from environment variables:
 
 - Code checks permissions, never role names.
 - Visibility across all projects comes from the global `projects.view_all` permission, not from a role.
-- `chat.use` (group 25, the Admin has it) is for the search by meaning and, from step 2, the chat. It reads over every project on its own, without `projects.view_all`, so it's for whoever may see everything. The search asks for it, from the token (`docs/SPEC.md` §19.6). The roles screen shows it under Altele, by its name, until its group and text are decided.
+- `chat.use` (group 25, the Admin has it) is for the search by meaning and, from step 2, the chat. It reads over every project on its own, without `projects.view_all`, so it's for whoever may see everything. The search asks for it, from the token (`docs/SPEC.md` §19.6). The roles screen has it in a group of its own, Chat (group 26).
 - Access is checked on every request. The frontend only hides what isn't available.
 - `[HasPermission(Permissions.X)]` on an action or a controller closes it to tokens without that permission, with a 403 `Auth.PermissionRequired`. Several of them all have to hold.
 - `IProjectAccess` answers from the database, about the user it's asked about, and refuses deactivated users. It doesn't check that the project exists, so a handler loads the project or task first.
